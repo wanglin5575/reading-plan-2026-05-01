@@ -77,6 +77,7 @@ export default function BrowsePageClient() {
   const [editKw, setEditKw] = useState("");
   const [pullPx, setPullPx] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
+  const [busyUrl, setBusyUrl] = useState<string | null>(null);
 
   const activeIdRef = useRef<string | null>(null);
   useEffect(() => {
@@ -315,6 +316,30 @@ export default function BrowsePageClient() {
     }
   }
 
+  async function addHitToPlan(hit: BrowseStoredHit, quickDone: boolean) {
+    if (busyUrl) return;
+    setBusyUrl(hit.url);
+    setMsg(null);
+    try {
+      const r = await fetch("/api/articles", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          url: hit.url,
+          quickDone,
+          browseTopicName: active?.name ?? "",
+        }),
+      });
+      const d = (await r.json()) as { error?: string; message?: string };
+      if (!r.ok) throw new Error(d.message || d.error || "添加失败");
+      setMsg(quickDone ? "已加入已读（已填快捷笔记，可稍后在已读里改）" : "已加入待读");
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "添加失败");
+    } finally {
+      setBusyUrl(null);
+    }
+  }
+
   const active = topics.find((t) => t.id === activeId);
 
   const showPullVisual = pullPx > 4 || refreshing;
@@ -322,6 +347,21 @@ export default function BrowsePageClient() {
 
   return (
     <>
+      <header className="app-header app-header-with-actions browse-header-row">
+        <div className="app-header-titles">
+          <h1>随览</h1>
+          <span className="sub">主题与关键词 · 轻点主题切换列表 · 每日联网更新</span>
+        </div>
+        <button
+          type="button"
+          className="browse-add-topic-btn"
+          aria-label="添加主题"
+          onClick={() => setFormOpen(true)}
+        >
+          +
+        </button>
+      </header>
+
       <div
         className="browse-pull-rail"
         style={{
@@ -359,9 +399,6 @@ export default function BrowsePageClient() {
             />
           ))
         )}
-        <button type="button" className="browse-topic-tab browse-topic-tab-add" onClick={() => setFormOpen(true)}>
-          ＋主题
-        </button>
       </div>
 
       {active && (
@@ -459,6 +496,24 @@ export default function BrowsePageClient() {
               {h.title}
             </a>
             {(h.summary || h.excerpt) && <p className="browse-hit-body">{h.summary || h.excerpt}</p>}
+            <div className="browse-hit-actions">
+              <button
+                type="button"
+                className="btn secondary"
+                disabled={busyUrl !== null}
+                onClick={() => void addHitToPlan(h, false)}
+              >
+                {busyUrl === h.url ? "加入中…" : "加入待读"}
+              </button>
+              <button
+                type="button"
+                className="btn"
+                disabled={busyUrl !== null}
+                onClick={() => void addHitToPlan(h, true)}
+              >
+                {busyUrl === h.url ? "加入中…" : "加入已读"}
+              </button>
+            </div>
           </article>
         ))}
       </div>

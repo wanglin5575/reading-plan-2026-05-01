@@ -39,96 +39,72 @@
       border: 1px solid var(--border);
       box-shadow: 0 12px 48px rgba(15, 23, 42, 0.12);
     }
-    .app {
-      padding: 16px 14px 120px;
-    }
-    .app-header {
+    .app { padding: 16px 14px 120px; }
+    .head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
       margin-bottom: 12px;
     }
-    .app-header h1 {
-      margin: 0;
-      font-size: 1.5rem;
-      font-weight: 700;
-      letter-spacing: -0.02em;
+    .head h1 { margin: 0; font-size: 1.5rem; font-weight: 700; letter-spacing: -0.02em; }
+    .head .sub { color: var(--muted); font-size: 0.8125rem; margin-top: 4px; display: block; line-height: 1.35; }
+    .plus {
+      width: 44px; height: 44px; border-radius: 50%; border: none; background: var(--brand); color: #fff;
+      font-size: 1.35rem; line-height: 1; flex-shrink: 0; cursor: default;
+      box-shadow: 0 1px 2px rgba(15,23,42,0.06), 0 4px 14px rgba(15,23,42,0.06);
     }
-    .app-header .sub {
-      color: var(--muted);
-      font-size: 0.8125rem;
-      margin-top: 4px;
-      display: block;
+    .tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; align-items: center; }
+    .tab {
+      padding: 8px 12px; border-radius: 999px; border: 1px solid var(--border); background: var(--card);
+      color: var(--muted); font-size: 0.75rem;
     }
-    .browse-pull-rail {
-      min-height: 0;
-      display: flex;
-      align-items: center;
-      justify-content: center;
+    .tab.active { border-color: var(--brand); color: var(--brand); background: var(--brand-soft); font-weight: 600; }
+    .kw { margin: 0 0 12px; font-size: 0.75rem; color: var(--muted); }
+    .kw span { color: var(--ink); }
+    .card {
+      background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+      padding: 12px 12px 14px; margin-bottom: 10px;
     }
-    .browse-topic-tabs {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      margin-bottom: 8px;
-      align-items: center;
+    .card a.title {
+      font-size: 1.0625rem; font-weight: 600; color: var(--brand); text-decoration: none;
+      display: block; margin-bottom: 6px;
     }
-    .browse-topic-tab {
-      padding: 8px 12px;
-      border-radius: 999px;
-      border: 1px solid var(--border);
-      background: var(--card);
-      color: var(--muted);
-      font: inherit;
-      font-size: 0.75rem;
-      cursor: default;
+    .card p.body { margin: 0; font-size: 0.8125rem; color: var(--muted); line-height: 1.45; }
+    .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+    .actions button {
+      font-size: 0.8125rem; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--border);
+      background: var(--card); cursor: default;
     }
-    .browse-topic-tab.active {
-      border-color: var(--brand);
-      color: var(--brand);
-      background: var(--brand-soft);
-      font-weight: 600;
-    }
-    .browse-topic-tab-add {
-      border-style: dashed;
-    }
-    .browse-kw-line {
-      margin: 0 0 12px;
-      font-size: 0.75rem;
-      color: var(--muted);
-    }
-    .browse-kw-chips {
-      color: var(--ink);
-    }
-    .browse-hits .muted {
-      margin: 0;
-      font-size: 0.8125rem;
-      color: var(--muted);
-      line-height: 1.45;
-    }
+    .actions button.primary { background: var(--brand); color: #fff; border-color: transparent; }
   </style>
 </head>
 <body>
   <p class="note">
-    <strong>推荐</strong>：在项目目录执行 <code>npm run dev</code>，浏览器打开
-    <strong>http://localhost:3000/browse-preview</strong>（不依赖本文件）。
-    <br /><br />
-    若用本地文件预览，路径中有空格时请使用编码后的地址，例如：
-    <code>file:///Users/用户名/Cursor%20Projects/…/public/browse-preview.html</code>
+    <strong>推荐</strong>：<code>npm run dev</code> 后打开 <strong>http://localhost:3000/browse-preview</strong>。
+    本文件为离线示意：右上角加号、双主题 pill、示例文章与「加入待读 / 加入已读」。
   </p>
   <div class="phone">
     <div class="app">
-      <header class="app-header">
-        <h1>随览</h1>
-        <span class="sub">主题与关键词 · 每日联网浏览相关更新</span>
+      <header class="head">
+        <div>
+          <h1>随览</h1>
+          <span class="sub">主题与关键词 · 轻点主题切换列表 · 每日联网更新</span>
+        </div>
+        <button type="button" class="plus" aria-label="添加主题">+</button>
       </header>
-      <div class="browse-pull-rail" aria-hidden="true"></div>
-      <div class="browse-topic-tabs">
-        <span class="browse-topic-tab active">AI Evals</span>
-        <span class="browse-topic-tab browse-topic-tab-add">＋主题</span>
+      <div class="tabs">
+        <span class="tab active">AI Evals</span>
+        <span class="tab">工具链</span>
       </div>
-      <p class="browse-kw-line muted-link">
-        关键词：<span class="browse-kw-chips">Hamel · Shreya · Stella&amp;Amy · Anthropic</span>
-      </p>
-      <div class="browse-hits">
-        <p class="muted">暂无内容。请先滚回页面顶部，再下拉（触屏）或按住拖拽（鼠标）获取更新。</p>
+      <p class="kw">关键词：<span>Hamel · Shreya · Stella&amp;Amy · Anthropic</span></p>
+      <div class="card">
+        <a class="title" href="https://example.com/evals">示例：LLM Evals 最佳实践（示意）</a>
+        <p class="body">摘要节选示意。线上由 Firecrawl 抓取；按钮会请求 /api/articles 写入待读或一键已读。</p>
+        <div class="actions">
+          <button type="button">加入待读</button>
+          <button type="button" class="primary">加入已读</button>
+        </div>
       </div>
     </div>
   </div>

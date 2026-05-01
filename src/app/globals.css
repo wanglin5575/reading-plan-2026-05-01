@@ -517,6 +517,37 @@ a:active { opacity: 0.7; }
   font-size: var(--fs-title);
 }
 
+.browse-header-row {
+  margin-bottom: 10px;
+}
+
+.browse-add-topic-btn {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: var(--brand);
+  color: #fff;
+  font-size: 1.35rem;
+  line-height: 1;
+  font-weight: 300;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: var(--shadow);
+  -webkit-tap-highlight-color: transparent;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.browse-add-topic-btn:active {
+  opacity: 0.88;
+  transform: scale(0.96);
+}
+
 .browse-topic-tabs {
   display: flex;
   flex-wrap: wrap;
@@ -601,6 +632,18 @@ a:active { opacity: 0.7; }
   font-size: var(--fs-small);
   color: var(--muted);
   line-height: var(--lh-snug);
+}
+
+.browse-hit-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.browse-hit-actions .btn {
+  font-size: var(--fs-small);
+  padding: 8px 14px;
 }
 
 a.account-avatar-btn.account-avatar-btn--link {
