@@ -56,7 +56,7 @@ dev server 已绑定 `0.0.0.0`，所以同 WiFi 下手机可以直接打开。
 3. 仍使用同一项目的 **Database** 连接串作为 `DATABASE_URL`。首次部署后表 `articles` 会增加 `user_id` 列；**新写入的文章归属当前登录用户**；未登录时无法读写需登录的数据接口。
 4. 若仅配置了数据库、**未**配置上述两项，应用行为与旧版一致（不按用户隔离）。
 5. **Authentication → URL Configuration**：**Site URL** 填你的站点根地址（本地常用 `http://localhost:3000`，生产填正式域名）。**Redirect URLs** 至少包含 `http://localhost:3000/auth/callback` 与线上 `https://你的域名/auth/callback`（或用 Supabase 文档允许的通配写法），否则验证邮件或 OAuth 回调会被拒绝。
-6. 若注册或请求接口时出现 **`Invalid path specified in request URL`**：多为环境变量里 **Project URL 写错**。`NEXT_PUBLIC_SUPABASE_URL` 只能是 **Project URL 原文**（例如 `https://xxxx.supabase.co`），去掉末尾 `/`，不要拼 `/auth/v1`、`/rest/v1` 等路径。改 `.env.local` 后需重启 `npm run dev`。
+6. 若注册或请求接口时出现 **`Invalid path specified in request URL`**：常见原因是把 **带路径的地址** 填进了 `NEXT_PUBLIC_SUPABASE_URL`（例如 `https://xxxx.supabase.co/auth/v1` 或 `/rest/v1`）。应只填 **API 设置里的 Project URL 根**：`https://xxxx.supabase.co`，不要任何后缀路径。Vercel 上改完环境变量后需 **重新部署**（`NEXT_PUBLIC_*` 在构建时写入）。代码会把误带路径的 URL 自动纠正为 `origin`，但仍建议在控制台里改成干净根地址。
 
 ## 数据库配置（Supabase）
 
