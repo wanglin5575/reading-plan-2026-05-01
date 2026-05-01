@@ -614,36 +614,17 @@ a:active { opacity: 0.7; }
   gap: 10px;
 }
 
-.browse-hit-card {
-  margin-bottom: 0;
+.browse-hit-demo-block {
+  margin-bottom: 2px;
 }
 
-.browse-hit-title {
-  display: block;
-  font-size: var(--fs-title);
-  font-weight: var(--fw-semibold);
-  color: var(--brand);
-  margin-bottom: 6px;
-  word-break: break-word;
+.browse-hit-demo-caption {
+  margin: 0 0 6px 4px;
 }
 
-.browse-hit-body {
-  margin: 0;
-  font-size: var(--fs-small);
-  color: var(--muted);
-  line-height: var(--lh-snug);
-}
-
-.browse-hit-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 10px;
-}
-
-.browse-hit-actions .btn {
-  font-size: var(--fs-small);
-  padding: 8px 14px;
+.article-card .browse-hit-demo-title {
+  cursor: default;
+  color: var(--ink);
 }
 
 a.account-avatar-btn.account-avatar-btn--link {
@@ -1415,6 +1396,55 @@ a.account-avatar-btn.account-avatar-btn--link:active {
   .article-swipe-underlay {
     background: linear-gradient(90deg, var(--border) 0%, rgba(47, 155, 81, 0.18) 100%);
   }
+}
+
+.article-swipe-underlay--double {
+  gap: 10px;
+  padding-right: 12px;
+  background: linear-gradient(
+    90deg,
+    var(--border) 0%,
+    rgba(47, 155, 81, 0.12) 52%,
+    rgba(46, 108, 223, 0.12) 100%
+  );
+}
+
+@media (prefers-color-scheme: dark) {
+  .article-swipe-underlay--double {
+    background: linear-gradient(
+      90deg,
+      var(--border) 0%,
+      rgba(47, 155, 81, 0.18) 52%,
+      rgba(110, 166, 255, 0.16) 100%
+    );
+  }
+}
+
+.article-swipe-todo-circle {
+  pointer-events: auto;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  border: none;
+  background: var(--brand);
+  color: #fff;
+  font-size: var(--fs-small);
+  font-weight: var(--fw-semibold);
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(46, 108, 223, 0.35);
+  flex-shrink: 0;
+  font: inherit;
+  line-height: 1.2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.article-swipe-todo-circle:active {
+  opacity: 0.9;
+  transform: scale(0.96);
 }
 
 .article-swipe-read-circle {

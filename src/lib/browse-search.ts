@@ -1,6 +1,7 @@
 import FirecrawlApp from "@mendable/firecrawl-js";
 import type { BrowseHit, BrowseTopic } from "@/lib/types";
 import type { Document, SearchData, SearchResultWeb } from "@mendable/firecrawl-js";
+import { browseTopicToQuery } from "@/lib/browse-query";
 
 /** 主搜：条数少一些省抓取配额 */
 const BROWSE_SEARCH_LIMIT_PRIMARY = 10;
@@ -9,14 +10,7 @@ const BROWSE_SEARCH_LIMIT_FALLBACK = 6;
 /** 与「上次刷新」间隔过长时，cdr 窗最多向前覆盖的天数，避免又大又难搜的区间 */
 const BROWSE_CDR_MAX_SPAN_DAYS = 21;
 
-export function browseTopicToQuery(topic: Pick<BrowseTopic, "name" | "keywords">): string {
-  const kws = topic.keywords.map((k) => k.trim()).filter(Boolean);
-  const escaped = kws.map((k) => {
-    if (/[\s"&|()]/.test(k)) return `"${k.replace(/"/g, '\\"')}"`;
-    return k;
-  });
-  return `${topic.name} (${escaped.join(" OR ")})`;
-}
+export { browseTopicToQuery };
 
 function isFullDocument(item: SearchResultWeb | Document): item is Document {
   return "markdown" in item || "html" in item || !!(item as Document).metadata;

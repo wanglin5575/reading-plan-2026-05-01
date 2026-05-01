@@ -8,6 +8,19 @@ import {
   saveBrowseStorage,
   type BrowseStoredHit,
 } from "@/lib/browse-storage";
+import { BrowseHitCard } from "@/components/BrowseHitCard";
+
+/** 随览列表顶部的文章卡片界面示例（非真实链接、不写库） */
+const BROWSE_ARTICLE_CARD_DEMO: BrowseStoredHit = {
+  url: "",
+  title: "示例：搭建可复现的 LLM 评测小流水线",
+  description: "",
+  summary:
+    "这是随览文章卡片的样式示例。左滑可露出「已读」「待读」；点按钮仅提示说明，不会写入待读或已读。",
+  excerpt: "",
+  publishedTime: null,
+  firstSeenAt: new Date(0).toISOString(),
+};
 
 function TopicTabButton({
   t,
@@ -350,7 +363,7 @@ export default function BrowsePageClient() {
       <header className="app-header app-header-with-actions browse-header-row">
         <div className="app-header-titles">
           <h1>随览</h1>
-          <span className="sub">主题与关键词 · 轻点主题切换列表 · 每日联网更新</span>
+          <span className="sub">主题与关键词为且、同主题多词为或 · 轻点主题切换 · 联网更新</span>
         </div>
         <button
           type="button"
@@ -424,7 +437,7 @@ export default function BrowsePageClient() {
           >
             <h2 id="browse-edit-title">编辑主题 · {editTopic.name}</h2>
             <label className="muted-link" htmlFor="browse-edit-kw">
-              关键词（逗号分隔，OR 检索）
+              关键词（与主题为且，多项为或；逗号分隔）
             </label>
             <input
               id="browse-edit-kw"
@@ -463,7 +476,7 @@ export default function BrowsePageClient() {
               placeholder="如 AI Evals"
             />
             <label className="muted-link" htmlFor="browse-new-kw">
-              关键词（逗号分隔，OR 检索）
+              关键词（与主题为且，多项为或；逗号分隔）
             </label>
             <input
               id="browse-new-kw"
@@ -485,36 +498,37 @@ export default function BrowsePageClient() {
       )}
 
       <div className="browse-hits">
+        {!loadingTopics && hits.length === 0 && (
+          <div className="browse-hit-demo-block">
+            <p className="browse-hit-demo-caption muted-link">文章卡片示例</p>
+            <BrowseHitCard
+              demo
+              hit={BROWSE_ARTICLE_CARD_DEMO}
+              topicName="示例"
+              busy={false}
+              onAddTodo={async () => {
+                setMsg("此为界面示例，未加入待读。");
+              }}
+              onAddDone={async () => {
+                setMsg("此为界面示例，未加入已读。");
+              }}
+            />
+          </div>
+        )}
         {!loadingTopics && hits.length === 0 && !msg && (
           <p className="muted-link">
             暂无内容。请先滚回页面顶部，再下拉（触屏）或按住拖拽（鼠标）获取更新。
           </p>
         )}
         {hits.map((h) => (
-          <article key={h.url} className="card browse-hit-card">
-            <a href={h.url} target="_blank" rel="noreferrer" className="browse-hit-title">
-              {h.title}
-            </a>
-            {(h.summary || h.excerpt) && <p className="browse-hit-body">{h.summary || h.excerpt}</p>}
-            <div className="browse-hit-actions">
-              <button
-                type="button"
-                className="btn secondary"
-                disabled={busyUrl !== null}
-                onClick={() => void addHitToPlan(h, false)}
-              >
-                {busyUrl === h.url ? "加入中…" : "加入待读"}
-              </button>
-              <button
-                type="button"
-                className="btn"
-                disabled={busyUrl !== null}
-                onClick={() => void addHitToPlan(h, true)}
-              >
-                {busyUrl === h.url ? "加入中…" : "加入已读"}
-              </button>
-            </div>
-          </article>
+          <BrowseHitCard
+            key={h.url}
+            hit={h}
+            topicName={active?.name ?? "—"}
+            busy={busyUrl === h.url}
+            onAddTodo={() => addHitToPlan(h, false)}
+            onAddDone={() => addHitToPlan(h, true)}
+          />
         ))}
       </div>
     </>
