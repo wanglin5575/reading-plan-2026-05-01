@@ -766,10 +766,6 @@ a:active { opacity: 0.7; }
   display: inline-block;
 }
 
-.browse-empty-refresh-icon--spin {
-  animation: browse-pull-spin 0.75s linear infinite;
-}
-
 .browse-hits {
   display: flex;
   flex-direction: column;

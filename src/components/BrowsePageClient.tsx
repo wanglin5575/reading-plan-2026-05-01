@@ -87,6 +87,7 @@ export default function BrowsePageClient() {
   const [editKw, setEditKw] = useState("");
   const [pullPx, setPullPx] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
+  const [autoPulling, setAutoPulling] = useState(false);
   const [busyUrl, setBusyUrl] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
   const [markDoneOpen, setMarkDoneOpen] = useState(false);
@@ -100,9 +101,24 @@ export default function BrowsePageClient() {
   const [sortMenuOpen, setSortMenuOpen] = useState(false);
   const sortDdRef = useRef<HTMLDivElement>(null);
   const activeIdRef = useRef<string | null>(null);
+  const autoPullRafRef = useRef<number | null>(null);
+  const autoPullBusyRef = useRef(false);
   useEffect(() => {
     activeIdRef.current = activeId;
+    setAutoPulling(false);
+    autoPullBusyRef.current = false;
+    setPullPx(0);
+    if (autoPullRafRef.current != null) {
+      cancelAnimationFrame(autoPullRafRef.current);
+      autoPullRafRef.current = null;
+    }
   }, [activeId]);
+
+  useEffect(() => {
+    return () => {
+      if (autoPullRafRef.current != null) cancelAnimationFrame(autoPullRafRef.current);
+    };
+  }, []);
 
   const refreshingRef = useRef(false);
   useEffect(() => {
@@ -279,6 +295,33 @@ export default function BrowsePageClient() {
       setRefreshing(false);
     }
   }, [pushTopicFeedToServer]);
+
+  const startEmptyRefreshWithPull = useCallback(
+    (topicId: string) => {
+      if (!topicId || refreshingRef.current || autoPullBusyRef.current) return;
+      autoPullBusyRef.current = true;
+      setAutoPulling(true);
+      const duration = 280;
+      const target = 56;
+      const start = performance.now();
+      const tick = (now: number) => {
+        const t = Math.min(1, (now - start) / duration);
+        const eased = 1 - (1 - t) * (1 - t);
+        setPullPx(target * eased);
+        if (t < 1) {
+          autoPullRafRef.current = requestAnimationFrame(tick);
+        } else {
+          autoPullRafRef.current = null;
+          setPullPx(0);
+          autoPullBusyRef.current = false;
+          setAutoPulling(false);
+          if (activeIdRef.current === topicId) void runRefresh(topicId);
+        }
+      };
+      autoPullRafRef.current = requestAnimationFrame(tick);
+    },
+    [runRefresh],
+  );
 
   useEffect(() => {
     const scrollTop = () => {
@@ -728,23 +771,18 @@ export default function BrowsePageClient() {
       )}
 
       <div className="browse-hits">
-        {!loadingTopics && activeId && hits.length === 0 ? (
+        {!loadingTopics && activeId && hits.length === 0 && !refreshing && !autoPulling ? (
           <div className="browse-empty-center">
             <button
               type="button"
               className="browse-empty-refresh-btn"
-              disabled={refreshing}
-              aria-busy={refreshing}
-              aria-label={refreshing ? "正在刷新" : "点击刷新列表"}
+              aria-label="下拉刷新列表"
               onClick={() => {
-                if (!activeId || refreshingRef.current) return;
-                void runRefresh(activeId);
+                if (!activeId) return;
+                startEmptyRefreshWithPull(activeId);
               }}
             >
-              <span
-                className={`browse-empty-refresh-icon${refreshing ? " browse-empty-refresh-icon--spin" : ""}`}
-                aria-hidden
-              >
+              <span className="browse-empty-refresh-icon" aria-hidden>
                 ↻
               </span>
             </button>
