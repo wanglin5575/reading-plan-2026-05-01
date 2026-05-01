@@ -2,6 +2,7 @@ import { Pool } from "pg";
 import { randomUUID } from "node:crypto";
 import { isAuthEnabled } from "./auth";
 import type { Article, BrowseTopic } from "./types";
+import type { BrowseTopicFeed, BrowseStoredHit } from "./browse-storage";
 
 /**
  * 未配置 DATABASE_URL 时，在 next dev 下返回与 seed 一致的示例数据，便于本地直接看待读/已读样式。
@@ -72,6 +73,11 @@ function getConnectionString(): string | null {
     process.env.SUPABASE_DB_URL ||
     null
   );
+}
+
+/** 是否配置了数据库（随览多端同步、主题持久化等依赖此项） */
+export function isDatabaseConfigured(): boolean {
+  return getConnectionString() !== null;
 }
 
 let pool: Pool | null = null;
@@ -146,6 +152,17 @@ async function ensureSchema(): Promise<void> {
           UNIQUE (user_id, name)
         );
         CREATE INDEX IF NOT EXISTS idx_browse_topics_user_id ON browse_topics(user_id);
+      `);
+      await p.query(`
+        CREATE TABLE IF NOT EXISTS browse_topic_feeds (
+          user_id TEXT NOT NULL,
+          topic_id TEXT NOT NULL,
+          last_refresh_at TIMESTAMPTZ,
+          items JSONB NOT NULL DEFAULT '[]'::jsonb,
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          PRIMARY KEY (user_id, topic_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_browse_topic_feeds_updated ON browse_topic_feeds(updated_at);
       `);
       await seedDemoIfEmpty(p);
     })().catch((err) => {
@@ -723,5 +740,55 @@ export async function deleteBrowseTopic(id: string, userId: string | null): Prom
   if (!p) throw new Error("db_not_configured");
   const owner = browseOwnerKey(userId);
   await ensureSchema();
+  await p.query("DELETE FROM browse_topic_feeds WHERE topic_id = $1 AND user_id = $2", [id, owner]);
   await p.query("DELETE FROM browse_topics WHERE id = $1 AND user_id = $2", [id, owner]);
+}
+
+interface BrowseTopicFeedRow {
+  last_refresh_at: Date | string | null;
+  items: unknown;
+}
+
+export async function getBrowseTopicFeed(userId: string | null, topicId: string): Promise<BrowseTopicFeed | null> {
+  const p = getPoolOrNull();
+  if (!p) return null;
+  const owner = browseOwnerKey(userId);
+  try {
+    await ensureSchema();
+    const { rows } = await p.query<BrowseTopicFeedRow>(
+      "SELECT last_refresh_at, items FROM browse_topic_feeds WHERE user_id = $1 AND topic_id = $2 LIMIT 1",
+      [owner, topicId],
+    );
+    const row = rows[0];
+    if (!row) return null;
+    const raw = row.items;
+    const items: BrowseStoredHit[] = Array.isArray(raw) ? (raw as BrowseStoredHit[]) : [];
+    const lr = row.last_refresh_at;
+    const lastRefreshAt =
+      lr instanceof Date ? lr.toISOString() : lr != null && String(lr).length ? String(lr) : null;
+    return { lastRefreshAt, items };
+  } catch (e) {
+    console.error("[db] getBrowseTopicFeed failed:", e);
+    return null;
+  }
+}
+
+export async function upsertBrowseTopicFeed(
+  userId: string | null,
+  topicId: string,
+  feed: BrowseTopicFeed,
+): Promise<void> {
+  const p = getPoolOrNull();
+  if (!p) throw new Error("db_not_configured");
+  const owner = browseOwnerKey(userId);
+  await ensureSchema();
+  await p.query(
+    `INSERT INTO browse_topic_feeds (user_id, topic_id, last_refresh_at, items, updated_at)
+     VALUES ($1, $2, $3::timestamptz, $4::jsonb, NOW())
+     ON CONFLICT (user_id, topic_id) DO UPDATE SET
+       last_refresh_at = EXCLUDED.last_refresh_at,
+       items = EXCLUDED.items,
+       updated_at = NOW()`,
+    [owner, topicId, feed.lastRefreshAt, JSON.stringify(feed.items)],
+  );
 }

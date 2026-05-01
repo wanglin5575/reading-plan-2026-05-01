@@ -101,6 +101,44 @@ export function pruneBrowseItems(items: BrowseStoredHit[], now = Date.now()): Br
   });
 }
 
+function hitRecencyMs(h: BrowseStoredHit): number {
+  const t = Date.parse(h.lastRefreshedAt || h.firstSeenAt);
+  return Number.isNaN(t) ? 0 : t;
+}
+
+/** 同 URL 两条记录取较新一次出现在抓取结果中的版本；并列时取摘要更完整者 */
+function pickRicherBrowseHit(a: BrowseStoredHit, b: BrowseStoredHit): BrowseStoredHit {
+  const ra = hitRecencyMs(a);
+  const rb = hitRecencyMs(b);
+  if (rb > ra) return b;
+  if (ra > rb) return a;
+  const score = (h: BrowseStoredHit) =>
+    (h.summary?.length ?? 0) + (h.excerpt?.length ?? 0) + (h.description?.length ?? 0);
+  return score(b) >= score(a) ? b : a;
+}
+
+/**
+ * 合并本机与服务器上的随览缓存（按 URL 去重），用于多端同步。
+ * 保留时间窗淘汰规则，lastRefreshAt 取二者较晚者。
+ */
+export function mergeBrowseTopicFeeds(local: BrowseTopicFeed, remote: BrowseTopicFeed): BrowseTopicFeed {
+  const byUrl = new Map<string, BrowseStoredHit>();
+  for (const x of local.items) byUrl.set(x.url, x);
+  for (const x of remote.items) {
+    const ex = byUrl.get(x.url);
+    byUrl.set(x.url, ex ? pickRicherBrowseHit(ex, x) : x);
+  }
+  const items = pruneBrowseItems(sortBrowseItemsByRefreshed([...byUrl.values()]));
+  const lr = (iso: string | null) => (iso ? Date.parse(iso) : NaN);
+  const lm = lr(local.lastRefreshAt);
+  const rm = lr(remote.lastRefreshAt);
+  const lastMs = Math.max(
+    Number.isNaN(lm) ? 0 : lm,
+    Number.isNaN(rm) ? 0 : rm,
+  );
+  return { lastRefreshAt: lastMs > 0 ? new Date(lastMs).toISOString() : null, items };
+}
+
 /**
  * 合并 Firecrawl 新结果：按 URL 去重。
  * 对「本次抓取」里已出现的链接更新 lastRefreshedAt；若发布时间早于本次 since 且该 URL 本就存在，可跳过更新（主要覆盖增量旧卡场景）。

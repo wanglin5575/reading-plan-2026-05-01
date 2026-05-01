@@ -6,6 +6,7 @@ import type { BrowseHit, BrowseTopic } from "@/lib/types";
 import {
   loadBrowseStorage,
   mergeBrowseFeed,
+  mergeBrowseTopicFeeds,
   saveBrowseStorage,
   pruneBrowseItems,
   sortBrowseItemsForDisplay,
@@ -14,6 +15,7 @@ import {
   BROWSE_SORT_LS_KEY,
   type BrowseSortMode,
   type BrowseStoredHit,
+  type BrowseTopicFeed,
 } from "@/lib/browse-storage";
 import { BrowseHitCard } from "@/components/BrowseHitCard";
 
@@ -156,21 +158,67 @@ export default function BrowsePageClient() {
     localStorage.setItem(BROWSE_SORT_LS_KEY, sortBy);
   }, [sortBy]);
 
+  const pushTopicFeedToServer = useCallback(async (topicId: string, feed: BrowseTopicFeed) => {
+    try {
+      const r = await fetch("/api/browse/feed", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ topicId, feed }),
+      });
+      if (!r.ok && r.status !== 503) {
+        console.warn("[browse] 同步到服务端失败", r.status);
+      }
+    } catch {
+      /* 离线：仅本机仍可用 */
+    }
+  }, []);
+
+  const syncFeedWithServer = useCallback(async (topicId: string) => {
+    if (!topicId) return;
+    const store = loadBrowseStorage();
+    let localFeed = store.topics[topicId] ?? { lastRefreshAt: null, items: [] };
+    const pruned = pruneBrowseItems(localFeed.items);
+    if (pruned.length !== localFeed.items.length) {
+      localFeed = { ...localFeed, items: pruned };
+      store.topics[topicId] = localFeed;
+      saveBrowseStorage(store);
+    }
+    if (activeIdRef.current === topicId) setHits(localFeed.items);
+
+    try {
+      const r = await fetch(`/api/browse/feed?topicId=${encodeURIComponent(topicId)}`, {
+        cache: "no-store",
+      });
+      if (r.status === 503) return;
+      if (!r.ok) return;
+      const d = (await r.json()) as { feed?: BrowseTopicFeed };
+      if (!d.feed) return;
+      const mergedH = mergeBrowseTopicFeeds(localFeed, d.feed);
+      store.topics[topicId] = mergedH;
+      saveBrowseStorage(store);
+      if (activeIdRef.current === topicId) setHits(mergedH.items);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
   useEffect(() => {
     if (!activeId) {
       setHits([]);
       return;
     }
-    const store = loadBrowseStorage();
-    let feed = store.topics[activeId] ?? { lastRefreshAt: null, items: [] };
-    const pruned = pruneBrowseItems(feed.items);
-    if (pruned.length !== feed.items.length) {
-      feed = { ...feed, items: pruned };
-      store.topics[activeId] = feed;
-      saveBrowseStorage(store);
-    }
-    setHits(feed.items);
-  }, [activeId]);
+    void syncFeedWithServer(activeId);
+  }, [activeId, syncFeedWithServer]);
+
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState !== "visible") return;
+      const id = activeIdRef.current;
+      if (id) void syncFeedWithServer(id);
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [syncFeedWithServer]);
 
   const runRefresh = useCallback(async (topicId: string) => {
     if (!topicId || refreshingRef.current) return;
@@ -211,6 +259,7 @@ export default function BrowsePageClient() {
       const merged = mergeBrowseFeed(feed, d.hits ?? [], fetchedAt, sinceMs);
       store.topics[topicId] = merged;
       saveBrowseStorage(store);
+      await pushTopicFeedToServer(topicId, merged);
 
       if (activeIdRef.current === topicId) {
         setHits(merged.items);
@@ -228,7 +277,7 @@ export default function BrowsePageClient() {
     } finally {
       setRefreshing(false);
     }
-  }, []);
+  }, [pushTopicFeedToServer]);
 
   useEffect(() => {
     const scrollTop = () => {
@@ -490,7 +539,7 @@ export default function BrowsePageClient() {
           </h1>
           <span className="sub">
             首次刷新约 6 个月窗、增量只补新链接；本地保留约 90 天 · 可按刷新/发布时间排序 ·
-            文章列表仅存当前浏览器，手机与电脑需各自刷新（双击标题或下拉）
+            已连接数据库时列表会同步到服务端，手机与电脑打开随览或切回标签页即可对齐；未配库时仍仅存本机
           </span>
         </div>
         <button
