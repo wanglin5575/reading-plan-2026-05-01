@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { BrowseHit, BrowseTopic } from "@/lib/types";
 import {
   loadBrowseStorage,
@@ -12,13 +13,15 @@ import { BrowseHitCard } from "@/components/BrowseHitCard";
 
 /** 随览列表顶部的文章卡片界面示例（非真实链接、不写库） */
 const BROWSE_ARTICLE_CARD_DEMO: BrowseStoredHit = {
-  url: "",
+  url: "https://example.com/blog/reading-plan-demo-preview",
   title: "示例：搭建可复现的 LLM 评测小流水线",
   description: "",
   summary:
-    "这是随览文章卡片的样式示例。左滑可露出「已读」「待读」；点按钮仅提示说明，不会写入待读或已读。",
+    "这是随览文章卡片的样式示例。左滑可露出「已读」「待读」；点按钮仅提示说明，不会写入待读或已读。Pat Chen 在文中建议用固定随机种子做回归。",
   excerpt: "",
-  publishedTime: null,
+  publishedTime: "2025-03-01T08:00:00.000Z",
+  author: null,
+  estimatedMinutes: 5,
   firstSeenAt: new Date(0).toISOString(),
 };
 
@@ -91,6 +94,14 @@ export default function BrowsePageClient() {
   const [pullPx, setPullPx] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const [busyUrl, setBusyUrl] = useState<string | null>(null);
+  const [mounted, setMounted] = useState(false);
+  const [markDoneOpen, setMarkDoneOpen] = useState(false);
+  const [markDoneHit, setMarkDoneHit] = useState<BrowseStoredHit | null>(null);
+  const [rdOne, setRdOne] = useState("");
+  const [rdK1, setRdK1] = useState("");
+  const [rdK2, setRdK2] = useState("");
+  const [rdK3, setRdK3] = useState("");
+  const [rdAction, setRdAction] = useState("");
 
   const activeIdRef = useRef<string | null>(null);
   useEffect(() => {
@@ -125,6 +136,10 @@ export default function BrowsePageClient() {
   useEffect(() => {
     void loadTopics();
   }, [loadTopics]);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     if (!activeId) {
@@ -329,7 +344,24 @@ export default function BrowsePageClient() {
     }
   }
 
-  async function addHitToPlan(hit: BrowseStoredHit, quickDone: boolean) {
+  function openBrowseMarkDone(hit: BrowseStoredHit) {
+    setMarkDoneHit(hit);
+    setRdOne("");
+    setRdK1("");
+    setRdK2("");
+    setRdK3("");
+    setRdAction("");
+    setMarkDoneOpen(true);
+    setMsg(null);
+  }
+
+  function closeBrowseMarkDone() {
+    if (busyUrl) return;
+    setMarkDoneOpen(false);
+    setMarkDoneHit(null);
+  }
+
+  async function addHitToPlanTodo(hit: BrowseStoredHit) {
     if (busyUrl) return;
     setBusyUrl(hit.url);
     setMsg(null);
@@ -339,13 +371,50 @@ export default function BrowsePageClient() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           url: hit.url,
-          quickDone,
+          quickDone: false,
           browseTopicName: active?.name ?? "",
         }),
       });
       const d = (await r.json()) as { error?: string; message?: string };
       if (!r.ok) throw new Error(d.message || d.error || "添加失败");
-      setMsg(quickDone ? "已加入已读（已填快捷笔记，可稍后在已读里改）" : "已加入待读");
+      setMsg("已加入待读");
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "添加失败");
+    } finally {
+      setBusyUrl(null);
+    }
+  }
+
+  async function submitBrowseMarkDone() {
+    const hit = markDoneHit;
+    if (!hit || busyUrl) return;
+    const one = rdOne.trim();
+    const action = rdAction.trim();
+    const points = [rdK1.trim(), rdK2.trim(), rdK3.trim()];
+    if (!one || !action || points.some((p) => !p)) {
+      setMsg("请填写完整读后笔记：一句话总结、3 条观点、1 个行动项。");
+      return;
+    }
+    setBusyUrl(hit.url);
+    setMsg(null);
+    try {
+      const r = await fetch("/api/articles", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          url: hit.url,
+          quickDone: true,
+          browseTopicName: active?.name ?? "",
+          readOneLiner: one,
+          readKeyPoints: points,
+          readAction: action,
+        }),
+      });
+      const d = (await r.json()) as { error?: string; message?: string };
+      if (!r.ok) throw new Error(d.message || d.error || "添加失败");
+      setMsg("已加入已读");
+      setMarkDoneOpen(false);
+      setMarkDoneHit(null);
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "添加失败");
     } finally {
@@ -526,11 +595,118 @@ export default function BrowsePageClient() {
             hit={h}
             topicName={active?.name ?? "—"}
             busy={busyUrl === h.url}
-            onAddTodo={() => addHitToPlan(h, false)}
-            onAddDone={() => addHitToPlan(h, true)}
+            onAddTodo={() => addHitToPlanTodo(h)}
+            onAddDone={async () => {
+              openBrowseMarkDone(h);
+            }}
           />
         ))}
       </div>
+      {mounted && markDoneOpen && markDoneHit
+        ? createPortal(
+            <div
+              className="modal-backdrop"
+              role="presentation"
+              onClick={(e) => {
+                if (e.target === e.currentTarget) closeBrowseMarkDone();
+              }}
+            >
+              <div
+                className="modal-sheet"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="browse-mark-done-title"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="modal-sheet-header">
+                  <h2 id="browse-mark-done-title">加入已读（必填读后笔记）</h2>
+                  <button
+                    type="button"
+                    className="modal-sheet-close"
+                    onClick={closeBrowseMarkDone}
+                    disabled={busyUrl !== null}
+                    aria-label="关闭"
+                  >
+                    ×
+                  </button>
+                </div>
+                <p className="muted-link" style={{ margin: "0 0 12px", fontSize: "var(--fs-small)" }}>
+                  {markDoneHit.title}
+                </p>
+                <div className="modal-sheet-body">
+                  <div className="row">
+                    <label className="muted-link" htmlFor="browse-rd-one">
+                      一句话总结
+                    </label>
+                    <input
+                      id="browse-rd-one"
+                      className="input"
+                      value={rdOne}
+                      onChange={(e) => setRdOne(e.target.value)}
+                      placeholder="用一句话概括你从文中带走的核心信息"
+                      disabled={busyUrl !== null}
+                    />
+                    <label className="muted-link" htmlFor="browse-rd-k1">
+                      3 个重要观点
+                    </label>
+                    <input
+                      id="browse-rd-k1"
+                      className="input"
+                      value={rdK1}
+                      onChange={(e) => setRdK1(e.target.value)}
+                      placeholder="观点 1"
+                      disabled={busyUrl !== null}
+                    />
+                    <input
+                      className="input"
+                      value={rdK2}
+                      onChange={(e) => setRdK2(e.target.value)}
+                      placeholder="观点 2"
+                      disabled={busyUrl !== null}
+                    />
+                    <input
+                      className="input"
+                      value={rdK3}
+                      onChange={(e) => setRdK3(e.target.value)}
+                      placeholder="观点 3"
+                      disabled={busyUrl !== null}
+                    />
+                    <label className="muted-link" htmlFor="browse-rd-action">
+                      1 个行动项
+                    </label>
+                    <input
+                      id="browse-rd-action"
+                      className="input"
+                      value={rdAction}
+                      onChange={(e) => setRdAction(e.target.value)}
+                      placeholder="你打算在工作中具体做什么"
+                      disabled={busyUrl !== null}
+                    />
+                  </div>
+                </div>
+                <div className="modal-sheet-footer">
+                  <button
+                    type="button"
+                    className="btn secondary"
+                    disabled={busyUrl !== null}
+                    onClick={() => void submitBrowseMarkDone()}
+                  >
+                    {busyUrl ? "提交中…" : "确认加入已读"}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn secondary"
+                    disabled={busyUrl !== null}
+                    onClick={closeBrowseMarkDone}
+                  >
+                    取消
+                  </button>
+                </div>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
     </>
   );
 }

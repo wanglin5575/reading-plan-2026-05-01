@@ -614,6 +614,54 @@ a:active { opacity: 0.7; }
   gap: 10px;
 }
 
+.browse-hit-card-top {
+  align-items: center;
+}
+
+.browse-hit-read-mins {
+  flex-shrink: 0;
+  font-size: var(--fs-small);
+  color: var(--muted);
+  font-weight: var(--fw-semibold);
+  white-space: nowrap;
+}
+
+.browse-hit-byline {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 2px 0 6px;
+  font-size: var(--fs-small);
+  color: var(--muted);
+  line-height: var(--lh-snug);
+}
+
+.browse-hit-byline-author {
+  flex: 1;
+  min-width: 0;
+  word-break: break-word;
+}
+
+.browse-hit-byline-pub {
+  flex-shrink: 0;
+  max-width: 48%;
+  text-align: right;
+}
+
+.browse-hit-source-url {
+  margin-top: 8px;
+  font-size: var(--fs-micro);
+  color: var(--muted);
+  line-height: 1.35;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+  line-clamp: 1;
+  word-break: break-all;
+}
+
 .browse-hit-demo-block {
   margin-bottom: 2px;
 }

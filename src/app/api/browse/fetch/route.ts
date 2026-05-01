@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { getRouteHandlerUserId } from "@/lib/auth/api";
 import { browseTopicToQuery, fetchBrowseHits } from "@/lib/browse-search";
 import { getBrowseTopic } from "@/lib/db";
+import { translateBrowseHitsToChinese } from "@/lib/translate-zh";
+import { countChars, countWords, detectLanguage, estimateMinutes } from "@/lib/classify";
 
 export const dynamic = "force-dynamic";
 
@@ -28,7 +30,15 @@ export async function POST(req: Request) {
 
   try {
     const query = browseTopicToQuery(topic);
-    const hits = await fetchBrowseHits(topic, { since, until });
+    const rawHits = await fetchBrowseHits(topic, { since, until });
+    const translated = await translateBrowseHitsToChinese(rawHits);
+    const hits = translated.map((h) => {
+      const blob = `${h.summary}\n${h.excerpt}\n${h.description}`;
+      return {
+        ...h,
+        estimatedMinutes: estimateMinutes(countChars(blob), countWords(blob), detectLanguage(blob)),
+      };
+    });
     const fetchedAt = until.toISOString();
     return NextResponse.json({ query, hits, fetchedAt, since: since.toISOString() });
   } catch (e: unknown) {

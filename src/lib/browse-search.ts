@@ -2,6 +2,8 @@ import FirecrawlApp from "@mendable/firecrawl-js";
 import type { BrowseHit, BrowseTopic } from "@/lib/types";
 import type { Document, SearchData, SearchResultWeb } from "@mendable/firecrawl-js";
 import { browseTopicToQuery } from "@/lib/browse-query";
+import { coalescePublishedTimeRaw, pickAuthorFromMetadata } from "@/lib/browse-attribution";
+import { countChars, countWords, detectLanguage, estimateMinutes } from "@/lib/classify";
 
 /** 主搜：条数少一些省抓取配额 */
 const BROWSE_SEARCH_LIMIT_PRIMARY = 10;
@@ -11,6 +13,11 @@ const BROWSE_SEARCH_LIMIT_FALLBACK = 6;
 const BROWSE_CDR_MAX_SPAN_DAYS = 21;
 
 export { browseTopicToQuery };
+
+function estimateBrowseReadMinutes(summary: string, excerpt: string, description: string): number {
+  const body = `${summary}\n${excerpt}\n${description}`;
+  return estimateMinutes(countChars(body), countWords(body), detectLanguage(body));
+}
 
 function isFullDocument(item: SearchResultWeb | Document): item is Document {
   return "markdown" in item || "html" in item || !!(item as Document).metadata;
@@ -82,6 +89,7 @@ export async function fetchBrowseHits(
         if (!url || seen.has(url)) continue;
         seen.add(url);
         const description = (w.description || "").trim();
+        const est = estimateBrowseReadMinutes(description, description, description);
         hits.push({
           url,
           title: (w.title || "无标题").trim(),
@@ -89,6 +97,8 @@ export async function fetchBrowseHits(
           summary: description,
           excerpt: description,
           publishedTime: null,
+          author: null,
+          estimatedMinutes: est,
         });
         continue;
       }
@@ -107,9 +117,9 @@ export async function fetchBrowseHits(
           ? ((doc as { summary: string }).summary || "").trim()
           : "";
       const summary = docSummary || description;
-      const publishedRaw = meta?.publishedTime;
-      const publishedTime =
-        typeof publishedRaw === "string" && publishedRaw.trim() ? publishedRaw.trim() : null;
+      const publishedTime = coalescePublishedTimeRaw(meta) ?? null;
+      const authorRaw = pickAuthorFromMetadata(meta);
+      const est = estimateBrowseReadMinutes(summary, excerpt || description, description);
       hits.push({
         url,
         title,
@@ -117,6 +127,8 @@ export async function fetchBrowseHits(
         summary,
         excerpt: excerpt || description,
         publishedTime,
+        author: authorRaw,
+        estimatedMinutes: est,
       });
     }
 

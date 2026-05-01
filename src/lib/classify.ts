@@ -1,4 +1,5 @@
 import type { Article, ReadingDepth } from "./types";
+import { translateToChinese } from "./translate-zh";
 
 const THEME_RULES: { theme: string; words: string[] }[] = [
   {
@@ -134,26 +135,6 @@ export function getDomain(urlString: string): string {
     return new URL(urlString).hostname.replace(/^www\./, "");
   } catch {
     return "unknown";
-  }
-}
-
-async function translateToChinese(text: string): Promise<string> {
-  const trimmed = text.trim();
-  if (!trimmed) return trimmed;
-  const lang = detectLanguage(trimmed);
-  if (lang === "zh") return trimmed;
-
-  try {
-    const endpoint = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(
-      trimmed.slice(0, 1200),
-    )}&langpair=en|zh-CN`;
-    const res = await fetch(endpoint);
-    if (!res.ok) return trimmed;
-    const data = (await res.json()) as { responseData?: { translatedText?: string } };
-    const translated = data.responseData?.translatedText?.trim();
-    return translated || trimmed;
-  } catch {
-    return trimmed;
   }
 }
 

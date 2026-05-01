@@ -52,6 +52,10 @@ export interface BrowseHit {
   excerpt: string;
   /** 页面元数据中的发布时间（ISO），用于排序与时间窗过滤 */
   publishedTime?: string | null;
+  /** 页面元数据中的作者；缺省时卡片侧用摘要推断「主要表态」主体 */
+  author?: string | null;
+  /** 基于摘要+节选估算的阅读分钟数 */
+  estimatedMinutes?: number;
 }
 
 export interface DailyPlan {

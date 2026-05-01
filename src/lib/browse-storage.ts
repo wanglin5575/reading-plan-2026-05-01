@@ -82,6 +82,8 @@ export function mergeBrowseFeed(
         summary: h.summary || ex.summary,
         excerpt: h.excerpt || ex.excerpt,
         publishedTime: h.publishedTime ?? ex.publishedTime,
+        author: h.author ?? ex.author,
+        estimatedMinutes: h.estimatedMinutes ?? ex.estimatedMinutes,
         firstSeenAt: ex.firstSeenAt,
       });
     } else {

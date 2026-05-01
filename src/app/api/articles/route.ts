@@ -7,21 +7,9 @@ import { todayIso, shiftDays } from "@/lib/plan";
 import type { Article } from "@/lib/types";
 import { getRouteHandlerUserId } from "@/lib/auth/api";
 import { isAuthEnabled } from "@/lib/auth";
+import { normalizeKeyPoints, validateReadDigest } from "@/lib/read-digest";
 
 export const dynamic = "force-dynamic";
-
-/** 随览「一键已读」：满足 PATCH 校验的占位读后字段（可稍后在已读里改） */
-function quickReadDigestFromScrape(title: string, summary: string, bodyExcerpt: string) {
-  const t = title.trim() || "无标题";
-  const sum = (summary || bodyExcerpt || "").trim();
-  const one = (sum || `随览收录：${t}`).slice(0, 200);
-  const k2 = sum.length > 8 ? sum.slice(0, 80) : `摘要：${t.slice(0, 60)}`;
-  return {
-    readOneLiner: one,
-    readKeyPoints: [t.slice(0, 80), k2, "由随览一键标记已读，可在详情中编辑"],
-    readAction: "在「已读」中补充具体行动项。",
-  };
-}
 
 export async function GET() {
   const uid = await getRouteHandlerUserId();
@@ -35,6 +23,9 @@ export async function POST(req: Request) {
     featured?: boolean;
     quickDone?: boolean;
     browseTopicName?: string;
+    readOneLiner?: string;
+    readKeyPoints?: string[];
+    readAction?: string;
   };
   try {
     payload = await req.json();
@@ -68,8 +59,23 @@ export async function POST(req: Request) {
   const topicHint =
     typeof payload.browseTopicName === "string" ? payload.browseTopicName.trim() : "";
   const theme = topicHint ? `随览 / ${topicHint}` : classification.theme;
-  const excerptForDigest = scraped.body.replace(/\s+/g, " ").trim().slice(0, 480);
-  const digest = quickDone ? quickReadDigestFromScrape(scraped.title, classification.summary, excerptForDigest) : null;
+
+  let digest: { readOneLiner: string; readKeyPoints: string[]; readAction: string } | null = null;
+  if (quickDone) {
+    const points = normalizeKeyPoints(payload.readKeyPoints);
+    const one = typeof payload.readOneLiner === "string" ? payload.readOneLiner.trim() : "";
+    const action = typeof payload.readAction === "string" ? payload.readAction.trim() : "";
+    if (!validateReadDigest(one, action, points)) {
+      return NextResponse.json(
+        {
+          error: "read_digest_required",
+          message: "随览加入已读需填写：一句话总结、3 条重要观点（每条非空）、1 个行动项。",
+        },
+        { status: 400 },
+      );
+    }
+    digest = { readOneLiner: one, readKeyPoints: points!, readAction: action };
+  }
 
   const article: Article = {
     id: randomUUID(),

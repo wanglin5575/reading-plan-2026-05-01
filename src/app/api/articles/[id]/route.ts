@@ -3,19 +3,9 @@ import { deleteArticle, getArticle, updateArticle } from "@/lib/db";
 import type { Article } from "@/lib/types";
 import { getRouteHandlerUserId } from "@/lib/auth/api";
 import { isAuthEnabled } from "@/lib/auth";
+import { normalizeKeyPoints, validateReadDigest } from "@/lib/read-digest";
 
 export const dynamic = "force-dynamic";
-
-function normalizeKeyPoints(raw: unknown): string[] | null {
-  if (!Array.isArray(raw)) return null;
-  const pts = raw.map((x) => String(x).trim()).filter(Boolean);
-  if (pts.length !== 3) return null;
-  return pts;
-}
-
-function validateReadDigest(one: string | undefined, action: string | undefined, points: string[] | null): boolean {
-  return Boolean(one?.trim() && action?.trim() && points && points.length === 3);
-}
 
 function applyDigest(article: Article, one: string, points: string[], action: string) {
   article.readOneLiner = one.trim();
