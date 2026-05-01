@@ -14,6 +14,7 @@ export function ReadGroupedList({ items }: { items: Article[] }) {
 
   return (
     <>
+      <p className="swipe-hint muted-link">已读列表：右上角 ⋯ 可编辑信息或删除；下方可恢复待读或编辑读后笔记。</p>
       <div className="card">
         <h2>已读分组方式</h2>
         <div className="row two">

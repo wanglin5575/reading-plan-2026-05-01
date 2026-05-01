@@ -68,9 +68,97 @@ async function ensureSchema(): Promise<void> {
         ALTER TABLE articles ADD COLUMN IF NOT EXISTS read_key_points JSONB NOT NULL DEFAULT '[]'::jsonb;
         ALTER TABLE articles ADD COLUMN IF NOT EXISTS read_action TEXT NOT NULL DEFAULT '';
       `);
+      await seedDemoIfEmpty(p);
     })();
   }
   return schemaReady;
+}
+
+async function seedDemoIfEmpty(p: Pool): Promise<void> {
+  if (process.env.SEED_DEMO_ARTICLES !== "1") return;
+  const { rows } = await p.query<{ c: string }>("SELECT COUNT(*)::text AS c FROM articles");
+  if (parseInt(rows[0].c, 10) > 0) return;
+
+  const now = new Date().toISOString();
+  const today = now.slice(0, 10);
+  const todoId = "11111111-1111-4111-8111-111111111101";
+  const doneId = "22222222-2222-4222-8222-222222222202";
+
+  const excerpt = "这是本地演示用的节选文本，用于展示列表与右滑标记已读。";
+
+  await p.query(
+    `INSERT INTO articles (
+      id, url, title, author, domain, theme, custom_tags, featured, summary, language, char_count, word_count,
+      estimated_minutes, recommended_depth, knowledge_tags, status, added_at, due_date, completed_at,
+      read_one_liner, read_key_points, read_action, raw_excerpt
+    ) VALUES (
+      $1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12,
+      $13, $14, $15::jsonb, $16, $17::timestamptz, $18::date, $19::timestamptz,
+      $20, $21::jsonb, $22, $23
+    )`,
+    [
+      todoId,
+      "https://example.com/demo-todo",
+      "示例 · 待读（可右滑露出已读）",
+      "本地演示",
+      "example.com",
+      "效率 / 工具",
+      JSON.stringify(["演示"]),
+      false,
+      "用于本地开发演示：在待读列表中可见，向右滑动卡片可露出「已读」按钮。",
+      "zh",
+      120,
+      20,
+      3,
+      "skim",
+      JSON.stringify(["演示", "待读"]),
+      "todo",
+      now,
+      today,
+      null,
+      "",
+      JSON.stringify([]),
+      "",
+      excerpt,
+    ],
+  );
+
+  await p.query(
+    `INSERT INTO articles (
+      id, url, title, author, domain, theme, custom_tags, featured, summary, language, char_count, word_count,
+      estimated_minutes, recommended_depth, knowledge_tags, status, added_at, due_date, completed_at,
+      read_one_liner, read_key_points, read_action, raw_excerpt
+    ) VALUES (
+      $1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12,
+      $13, $14, $15::jsonb, $16, $17::timestamptz, $18::date, $19::timestamptz,
+      $20, $21::jsonb, $22, $23
+    )`,
+    [
+      doneId,
+      "https://example.com/demo-done",
+      "示例 · 已读（含读后笔记）",
+      "本地演示",
+      "example.com",
+      "产品 / 设计",
+      JSON.stringify(["复盘"]),
+      true,
+      "已读列表示例：包含完整读后输出，可从「更多」里编辑信息或删除。",
+      "zh",
+      150,
+      25,
+      4,
+      "deep",
+      JSON.stringify(["已读", "示例"]),
+      "done",
+      now,
+      today,
+      now,
+      "演示用一句话总结：读懂了如何把交互做完。",
+      JSON.stringify(["演示观点一", "演示观点二", "演示观点三"]),
+      "在本周复盘里跟进一条行动项。",
+      excerpt,
+    ],
+  );
 }
 
 interface ArticleRow {

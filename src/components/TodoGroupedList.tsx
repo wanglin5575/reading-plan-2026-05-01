@@ -24,6 +24,9 @@ export function TodoGroupedList({ items }: { items: Article[] }) {
 
   return (
     <>
+      <p className="swipe-hint muted-link">
+        待读卡片向右滑动可露出绿色「已读」按钮；右上角 ⋯ 可编辑、标记已读或删除。
+      </p>
       {groups.map((g) => (
         <section key={g.key}>
           <button

@@ -14,7 +14,7 @@
 
 ```bash
 cd "/Users/wuwanlin/Cursor Projects/reading-plan-2026-05-01"
-cp .env.example .env.local        # 编辑后填入 DATABASE_URL，FIRECRAWL_API_KEY 可选
+cp .env.example .env.local        # 编辑后填入 DATABASE_URL；本地体验示例数据可设 SEED_DEMO_ARTICLES=1
 npm run dev
 ```
 

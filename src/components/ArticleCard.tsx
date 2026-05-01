@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useTransition, useState, useCallback } from "react";
+import { useEffect, useTransition, useState, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import type { Article } from "@/lib/types";
@@ -12,6 +12,101 @@ interface Props {
 
 type DigestMode = "markDone" | "edit";
 
+const SWIPE_MAX_PX = 76;
+
+function useSwipeTodoFace(enabled: boolean) {
+  const [offset, setOffset] = useState(0);
+  const offsetRef = useRef(0);
+  useEffect(() => {
+    offsetRef.current = offset;
+  }, [offset]);
+
+  const [dragging, setDragging] = useState(false);
+  const [mouseDragging, setMouseDragging] = useState(false);
+  const dragRef = useRef<{ start: number; origin: number } | null>(null);
+
+  const resetOffset = useCallback(() => setOffset(0), []);
+
+  useEffect(() => {
+    if (!enabled) setOffset(0);
+  }, [enabled]);
+
+  const canSwipeFrom = (t: EventTarget | null) =>
+    !(t as HTMLElement | null)?.closest?.("a, button, input, textarea, select, label, summary");
+
+  const snap = useCallback(() => {
+    setOffset((o) => (o > SWIPE_MAX_PX / 2 ? SWIPE_MAX_PX : 0));
+  }, []);
+
+  const style: React.CSSProperties = {
+    transform: `translateX(${offset}px)`,
+    transition: dragging || mouseDragging ? "none" : "transform 0.2s ease",
+  };
+
+  const onTouchStart = useCallback(
+    (e: React.TouchEvent) => {
+      if (!enabled || !canSwipeFrom(e.target)) return;
+      dragRef.current = { start: e.touches[0].clientX, origin: offsetRef.current };
+      setDragging(true);
+    },
+    [enabled],
+  );
+
+  const onTouchMove = useCallback(
+    (e: React.TouchEvent) => {
+      if (!enabled || !dragRef.current) return;
+      const dx = e.touches[0].clientX - dragRef.current.start;
+      setOffset(Math.min(SWIPE_MAX_PX, Math.max(0, dragRef.current.origin + dx)));
+    },
+    [enabled],
+  );
+
+  const onTouchEnd = useCallback(() => {
+    if (!enabled) return;
+    dragRef.current = null;
+    setDragging(false);
+    snap();
+  }, [enabled, snap]);
+
+  const onMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      if (!enabled || e.button !== 0 || !canSwipeFrom(e.target)) return;
+      dragRef.current = { start: e.clientX, origin: offsetRef.current };
+      setMouseDragging(true);
+    },
+    [enabled],
+  );
+
+  useEffect(() => {
+    if (!mouseDragging) return;
+    const onMove = (e: MouseEvent) => {
+      if (!dragRef.current) return;
+      const dx = e.clientX - dragRef.current.start;
+      setOffset(Math.min(SWIPE_MAX_PX, Math.max(0, dragRef.current.origin + dx)));
+    };
+    const onUp = () => {
+      dragRef.current = null;
+      setMouseDragging(false);
+      snap();
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, [mouseDragging, snap]);
+
+  return {
+    style,
+    resetOffset,
+    onTouchStart,
+    onTouchMove,
+    onTouchEnd,
+    onMouseDown,
+  };
+}
+
 export function ArticleCard({ article, showActions = true }: Props) {
   const router = useRouter();
   const [, startTransition] = useTransition();
@@ -20,6 +115,14 @@ export function ArticleCard({ article, showActions = true }: Props) {
   const [metaOpen, setMetaOpen] = useState(false);
   const [digestOpen, setDigestOpen] = useState(false);
   const [digestMode, setDigestMode] = useState<DigestMode>("markDone");
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [morePos, setMorePos] = useState<{ top: number; left: number } | null>(null);
+
+  const moreBtnRef = useRef<HTMLButtonElement>(null);
+  const morePopRef = useRef<HTMLDivElement>(null);
+
+  const swipeEnabled = showActions && article.status === "todo";
+  const swipe = useSwipeTodoFace(swipeEnabled);
 
   const [dueDate, setDueDate] = useState(article.dueDate);
   const [theme, setTheme] = useState(article.theme);
@@ -61,6 +164,26 @@ export function ArticleCard({ article, showActions = true }: Props) {
 
   const closeMeta = useCallback(() => setMetaOpen(false), []);
   const closeDigest = useCallback(() => setDigestOpen(false), []);
+  const closeMore = useCallback(() => {
+    setMoreOpen(false);
+    setMorePos(null);
+  }, []);
+
+  useEffect(() => {
+    if (metaOpen || digestOpen || moreOpen) swipe.resetOffset();
+  }, [metaOpen, digestOpen, moreOpen, swipe.resetOffset]);
+
+  useEffect(() => {
+    if (!moreOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (morePopRef.current?.contains(t)) return;
+      if (moreBtnRef.current?.contains(t)) return;
+      closeMore();
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [moreOpen, closeMore]);
 
   useEffect(() => {
     if (!metaOpen && !digestOpen) return;
@@ -82,6 +205,23 @@ export function ArticleCard({ article, showActions = true }: Props) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [metaOpen, digestOpen, closeMeta, closeDigest]);
+
+  function toggleMore(e: React.MouseEvent) {
+    e.stopPropagation();
+    if (moreOpen) {
+      closeMore();
+      return;
+    }
+    const el = moreBtnRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const w = 172;
+    setMorePos({
+      top: r.bottom + 6,
+      left: Math.max(8, Math.min(r.right - w, window.innerWidth - w - 8)),
+    });
+    setMoreOpen(true);
+  }
 
   const status = computeStatus(article);
 
@@ -119,7 +259,10 @@ export function ArticleCard({ article, showActions = true }: Props) {
         .map((t) => t.trim())
         .filter(Boolean),
     });
-    if (ok) closeMeta();
+    if (ok) {
+      closeMeta();
+      closeMore();
+    }
   }
 
   function validateDigest(): boolean {
@@ -143,7 +286,11 @@ export function ArticleCard({ article, showActions = true }: Props) {
       readKeyPoints: [kp1.trim(), kp2.trim(), kp3.trim()],
       readAction: readAction.trim(),
     });
-    if (ok) closeDigest();
+    if (ok) {
+      closeDigest();
+      closeMore();
+      swipe.resetOffset();
+    }
   }
 
   async function submitDigestEdit() {
@@ -153,7 +300,23 @@ export function ArticleCard({ article, showActions = true }: Props) {
       readKeyPoints: [kp1.trim(), kp2.trim(), kp3.trim()],
       readAction: readAction.trim(),
     });
-    if (ok) closeDigest();
+    if (ok) {
+      closeDigest();
+      closeMore();
+    }
+  }
+
+  function openMarkReadFromSwipe() {
+    swipe.resetOffset();
+    setDigestMode("markDone");
+    setDigestOpen(true);
+  }
+
+  function deleteArticle() {
+    if (confirm("删除这篇文章？")) {
+      closeMore();
+      call("DELETE");
+    }
   }
 
   const digestComplete =
@@ -161,6 +324,99 @@ export function ArticleCard({ article, showActions = true }: Props) {
     article.readOneLiner?.trim() &&
     article.readAction?.trim() &&
     (Array.isArray(article.readKeyPoints) ? article.readKeyPoints : []).filter((p) => String(p).trim()).length === 3;
+
+  const cardTop = (
+    <div className="article-card-top">
+      <div className="meta-row article-card-meta">
+        <span className="tag theme">{article.theme}</span>
+        {article.featured && <span className="tag today">精选</span>}
+        <span className={`tag ${article.recommendedDepth}`}>
+          {article.recommendedDepth === "deep" ? "重点精读" : "快速扫览"}
+        </span>
+        <span className={`tag ${status.kind}`}>{status.label}</span>
+        <span>
+          {article.estimatedMinutes} 分钟 · {article.domain}
+        </span>
+      </div>
+      {showActions && (
+        <div className="article-card-more-wrap">
+          <button
+            ref={moreBtnRef}
+            type="button"
+            className="article-card-more-btn"
+            onClick={toggleMore}
+            aria-expanded={moreOpen}
+            aria-haspopup="true"
+            aria-label="更多"
+          >
+            ···
+          </button>
+        </div>
+      )}
+    </div>
+  );
+
+  const cardMiddle = (
+    <>
+      {cardTop}
+      <h3 className="title">{article.title}</h3>
+      <div className="muted-link">作者：{article.author || "未知作者"}</div>
+
+      {article.status === "done" && (
+        <div className="read-digest">
+          <div className="read-digest-label">读后输出</div>
+          {!digestComplete ? (
+            <p className="muted-link">历史数据缺少读后笔记，可从「更多」或下方「读后笔记」补全。</p>
+          ) : (
+            <>
+              <p className="read-digest-one">{article.readOneLiner}</p>
+              <ol className="read-digest-points">
+                {(Array.isArray(article.readKeyPoints) ? article.readKeyPoints : []).map((p, i) => (
+                  <li key={i}>{p}</li>
+                ))}
+              </ol>
+              <p className="read-digest-action">
+                <span className="read-digest-sublabel">行动项</span> {article.readAction}
+              </p>
+            </>
+          )}
+        </div>
+      )}
+
+      {article.status === "done" && article.summary && article.summary !== "(暂无摘要)" && (
+        <details className="read-auto-summary">
+          <summary>原文自动摘要（参考）</summary>
+          <p className="summary">{article.summary}</p>
+        </details>
+      )}
+
+      {article.status === "todo" && article.summary && article.summary !== "(暂无摘要)" && (
+        <p className="summary">{article.summary}</p>
+      )}
+
+      {Array.isArray(article.knowledgeTags) && article.knowledgeTags.length > 0 && (
+        <div className="meta-row" style={{ marginTop: 6 }}>
+          {article.knowledgeTags.slice(0, 6).map((tag) => (
+            <span key={tag} className="meta-tags-knowledge">
+              #{tag}
+            </span>
+          ))}
+        </div>
+      )}
+      {Array.isArray(article.customTags) && article.customTags.length > 0 && (
+        <div className="meta-row" style={{ marginTop: 4 }}>
+          {article.customTags.map((tag) => (
+            <span key={tag} className="tag theme">
+              #{tag}
+            </span>
+          ))}
+        </div>
+      )}
+      <a href={article.url} target="_blank" rel="noreferrer" className="url">
+        {article.url}
+      </a>
+    </>
+  );
 
   const metaModal = mounted && metaOpen && (
     <div
@@ -276,145 +532,106 @@ export function ArticleCard({ article, showActions = true }: Props) {
     </div>
   );
 
-  return (
-    <article className="article-card">
-      <div className="article-card-top">
-        <div className="meta-row article-card-meta">
-          <span className="tag theme">{article.theme}</span>
-          {article.featured && <span className="tag today">精选</span>}
-          <span className={`tag ${article.recommendedDepth}`}>
-            {article.recommendedDepth === "deep" ? "重点精读" : "快速扫览"}
-          </span>
-          <span className={`tag ${status.kind}`}>{status.label}</span>
-          <span>
-            {article.estimatedMinutes} 分钟 · {article.domain}
-          </span>
-        </div>
-        {showActions && (
-          <button type="button" className="article-card-edit-top" onClick={() => setMetaOpen(true)}>
-            编辑
-          </button>
-        )}
+  const doneActions =
+    showActions &&
+    article.status === "done" && (
+      <div className="article-card-actions">
+        <button className="btn secondary" type="button" disabled={busy} onClick={() => call("PATCH", { status: "todo" })}>
+          恢复待读
+        </button>
+        <button
+          className="btn secondary"
+          type="button"
+          disabled={busy}
+          onClick={() => {
+            setDigestMode("edit");
+            setDigestOpen(true);
+          }}
+        >
+          读后笔记
+        </button>
       </div>
-      <h3 className="title">{article.title}</h3>
-      <div className="muted-link">作者：{article.author || "未知作者"}</div>
+    );
 
-      {article.status === "done" && (
-        <div className="read-digest">
-          <div className="read-digest-label">读后输出</div>
-          {!digestComplete ? (
-            <p className="muted-link">历史数据缺少读后笔记，可点下方「读后笔记」补全。</p>
-          ) : (
-            <>
-              <p className="read-digest-one">{article.readOneLiner}</p>
-              <ol className="read-digest-points">
-                {(Array.isArray(article.readKeyPoints) ? article.readKeyPoints : []).map((p, i) => (
-                  <li key={i}>{p}</li>
-                ))}
-              </ol>
-              <p className="read-digest-action">
-                <span className="read-digest-sublabel">行动项</span> {article.readAction}
-              </p>
-            </>
-          )}
-        </div>
-      )}
-
-      {article.status === "done" && article.summary && article.summary !== "(暂无摘要)" && (
-        <details className="read-auto-summary">
-          <summary>原文自动摘要（参考）</summary>
-          <p className="summary">{article.summary}</p>
-        </details>
-      )}
-
-      {article.status === "todo" && article.summary && article.summary !== "(暂无摘要)" && (
-        <p className="summary">{article.summary}</p>
-      )}
-
-      {Array.isArray(article.knowledgeTags) && article.knowledgeTags.length > 0 && (
-        <div className="meta-row" style={{ marginTop: 6 }}>
-          {article.knowledgeTags.slice(0, 6).map((tag) => (
-            <span key={tag} className="meta-tags-knowledge">
-              #{tag}
-            </span>
-          ))}
-        </div>
-      )}
-      {Array.isArray(article.customTags) && article.customTags.length > 0 && (
-        <div className="meta-row" style={{ marginTop: 4 }}>
-          {article.customTags.map((tag) => (
-            <span key={tag} className="tag theme">
-              #{tag}
-            </span>
-          ))}
-        </div>
-      )}
-      <a href={article.url} target="_blank" rel="noreferrer" className="url">
-        {article.url}
-      </a>
-
-      {showActions && (
-        <>
-          <div className="article-card-actions">
-            {article.status === "todo" ? (
-              <>
-                <button
-                  className="btn secondary"
-                  type="button"
-                  disabled={busy}
-                  onClick={() => {
-                    setDigestMode("markDone");
-                    setDigestOpen(true);
-                  }}
-                >
-                  标记已读
-                </button>
-                <button
-                  className="btn danger"
-                  type="button"
-                  disabled={busy}
-                  onClick={() => {
-                    if (confirm("删除这篇文章？")) call("DELETE");
-                  }}
-                >
-                  删除
-                </button>
-              </>
-            ) : (
-              <>
-                <button className="btn secondary" type="button" disabled={busy} onClick={() => call("PATCH", { status: "todo" })}>
-                  恢复待读
-                </button>
-                <button
-                  className="btn secondary"
-                  type="button"
-                  disabled={busy}
-                  onClick={() => {
-                    setDigestMode("edit");
-                    setDigestOpen(true);
-                  }}
-                >
-                  读后笔记
-                </button>
-                <button
-                  className="btn danger btn-fullrow"
-                  type="button"
-                  disabled={busy}
-                  onClick={() => {
-                    if (confirm("删除这篇文章？")) call("DELETE");
-                  }}
-                >
-                  删除
-                </button>
-              </>
+  const moreMenu =
+    mounted && showActions && moreOpen && morePos
+      ? createPortal(
+          <div
+            ref={morePopRef}
+            className="article-more-popover"
+            style={{ top: morePos.top, left: morePos.left }}
+            role="menu"
+          >
+            <button
+              type="button"
+              className="article-more-item"
+              role="menuitem"
+              onClick={() => {
+                closeMore();
+                setMetaOpen(true);
+              }}
+            >
+              编辑
+            </button>
+            {article.status === "todo" && (
+              <button
+                type="button"
+                className="article-more-item"
+                role="menuitem"
+                onClick={() => {
+                  closeMore();
+                  setDigestMode("markDone");
+                  setDigestOpen(true);
+                }}
+              >
+                标记已读
+              </button>
             )}
-          </div>
-        </>
-      )}
+            <button type="button" className="article-more-item danger" role="menuitem" onClick={() => deleteArticle()} disabled={busy}>
+              删除
+            </button>
+          </div>,
+          document.body,
+        )
+      : null;
 
+  if (swipeEnabled) {
+    return (
+      <>
+        <div className="article-swipe-host">
+          <div className="article-swipe-underlay" aria-hidden>
+            <button type="button" className="article-swipe-read-circle" onClick={openMarkReadFromSwipe} aria-label="标记已读">
+              已读
+            </button>
+          </div>
+          <article
+            className="article-card article-swipe-face"
+            style={swipe.style}
+            onTouchStart={swipe.onTouchStart}
+            onTouchMove={swipe.onTouchMove}
+            onTouchEnd={swipe.onTouchEnd}
+            onMouseDown={swipe.onMouseDown}
+          >
+            {cardMiddle}
+          </article>
+        </div>
+        {moreMenu}
+        {metaModal && createPortal(metaModal, document.body)}
+        {digestModal && createPortal(digestModal, document.body)}
+      </>
+    );
+  }
+
+  return (
+    <>
+      <article className="article-card">
+        {cardMiddle}
+        {doneActions}
+      </article>
+      {moreMenu}
       {metaModal && createPortal(metaModal, document.body)}
       {digestModal && createPortal(digestModal, document.body)}
-    </article>
+    </>
   );
 }
 
