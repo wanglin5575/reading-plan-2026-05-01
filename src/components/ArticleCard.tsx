@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useTransition, useState } from "react";
+import { useEffect, useTransition, useState, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import type { Article } from "@/lib/types";
 
@@ -9,10 +10,17 @@ interface Props {
   showActions?: boolean;
 }
 
+type DigestMode = "markDone" | "edit";
+
 export function ArticleCard({ article, showActions = true }: Props) {
   const router = useRouter();
   const [, startTransition] = useTransition();
+  const [mounted, setMounted] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [metaOpen, setMetaOpen] = useState(false);
+  const [digestOpen, setDigestOpen] = useState(false);
+  const [digestMode, setDigestMode] = useState<DigestMode>("markDone");
+
   const [dueDate, setDueDate] = useState(article.dueDate);
   const [theme, setTheme] = useState(article.theme);
   const [author, setAuthor] = useState(article.author || "");
@@ -23,6 +31,8 @@ export function ArticleCard({ article, showActions = true }: Props) {
   const [kp2, setKp2] = useState(article.readKeyPoints?.[1] || "");
   const [kp3, setKp3] = useState(article.readKeyPoints?.[2] || "");
   const [readAction, setReadAction] = useState(article.readAction || "");
+
+  useEffect(() => setMounted(true), []);
 
   useEffect(() => {
     setDueDate(article.dueDate);
@@ -49,9 +59,33 @@ export function ArticleCard({ article, showActions = true }: Props) {
     JSON.stringify(article.readKeyPoints || []),
   ]);
 
+  const closeMeta = useCallback(() => setMetaOpen(false), []);
+  const closeDigest = useCallback(() => setDigestOpen(false), []);
+
+  useEffect(() => {
+    if (!metaOpen && !digestOpen) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [metaOpen, digestOpen]);
+
+  useEffect(() => {
+    if (!metaOpen && !digestOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        if (digestOpen) closeDigest();
+        else closeMeta();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [metaOpen, digestOpen, closeMeta, closeDigest]);
+
   const status = computeStatus(article);
 
-  async function call(method: "PATCH" | "DELETE", body?: object) {
+  async function call(method: "PATCH" | "DELETE", body?: object): Promise<boolean> {
     setBusy(true);
     try {
       const res = await fetch(`/api/articles/${article.id}`, {
@@ -64,12 +98,62 @@ export function ArticleCard({ article, showActions = true }: Props) {
         throw new Error(err.message || err.error || "操作失败");
       }
       startTransition(() => router.refresh());
+      return true;
     } catch (e) {
       console.error(e);
       alert(e instanceof Error ? e.message : "操作失败");
+      return false;
     } finally {
       setBusy(false);
     }
+  }
+
+  async function saveMeta() {
+    const ok = await call("PATCH", {
+      dueDate,
+      theme: theme.trim(),
+      author: author.trim(),
+      featured,
+      customTags: tagsText
+        .split(",")
+        .map((t) => t.trim())
+        .filter(Boolean),
+    });
+    if (ok) closeMeta();
+  }
+
+  function validateDigest(): boolean {
+    const one = readOneLiner.trim();
+    const action = readAction.trim();
+    const p1 = kp1.trim();
+    const p2 = kp2.trim();
+    const p3 = kp3.trim();
+    if (!one || !action || !p1 || !p2 || !p3) {
+      alert("请填写：一句话总结、3 条重要观点（每条非空）、1 个行动项。");
+      return false;
+    }
+    return true;
+  }
+
+  async function submitMarkDone() {
+    if (!validateDigest()) return;
+    const ok = await call("PATCH", {
+      status: "done",
+      readOneLiner: readOneLiner.trim(),
+      readKeyPoints: [kp1.trim(), kp2.trim(), kp3.trim()],
+      readAction: readAction.trim(),
+    });
+    if (ok) closeDigest();
+  }
+
+  async function submitDigestEdit() {
+    if (!validateDigest()) return;
+    const ok = await call("PATCH", {
+      readOneLiner: readOneLiner.trim(),
+      readKeyPoints: [kp1.trim(), kp2.trim(), kp3.trim()],
+      readAction: readAction.trim(),
+    });
+    if (ok) closeDigest();
   }
 
   const digestComplete =
@@ -78,18 +162,139 @@ export function ArticleCard({ article, showActions = true }: Props) {
     article.readAction?.trim() &&
     (Array.isArray(article.readKeyPoints) ? article.readKeyPoints : []).filter((p) => String(p).trim()).length === 3;
 
+  const metaModal = mounted && metaOpen && (
+    <div
+      className="modal-backdrop"
+      role="presentation"
+      onClick={(e) => e.target === e.currentTarget && closeMeta()}
+    >
+      <div className="modal-sheet" role="dialog" aria-modal="true" aria-labelledby="article-meta-modal-title" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-sheet-header">
+          <h2 id="article-meta-modal-title">编辑文章信息</h2>
+          <button type="button" className="modal-sheet-close" onClick={closeMeta} aria-label="关闭">
+            ×
+          </button>
+        </div>
+        <div className="modal-sheet-body">
+          <div className="row">
+            {article.status === "todo" && (
+              <>
+                <label className="muted-link">期望完成阅读时间</label>
+                <input
+                  className="input"
+                  type="date"
+                  value={dueDate}
+                  onChange={(e) => setDueDate(e.target.value)}
+                  aria-label="期望完成阅读时间"
+                />
+              </>
+            )}
+            <label className="muted-link">作者</label>
+            <input className="input" value={author} onChange={(e) => setAuthor(e.target.value)} placeholder="作者" />
+            <label className="muted-link">主题标签</label>
+            <input className="input" value={theme} onChange={(e) => setTheme(e.target.value)} placeholder="主题标签" />
+            <label className="muted-link">自定义标签（用逗号分隔）</label>
+            <input
+              className="input"
+              value={tagsText}
+              onChange={(e) => setTagsText(e.target.value)}
+              placeholder="自定义标签（用逗号分隔）"
+            />
+            <label className="featured-check-row">
+              <input
+                type="checkbox"
+                className="featured-check-input"
+                checked={featured}
+                onChange={(e) => setFeatured(e.target.checked)}
+              />
+              <span className="featured-check-text">精选文章</span>
+            </label>
+          </div>
+        </div>
+        <div className="modal-sheet-footer">
+          <button className="btn secondary" type="button" disabled={busy} onClick={saveMeta}>
+            保存
+          </button>
+          <button className="btn secondary" type="button" disabled={busy} onClick={closeMeta}>
+            取消
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
+  const digestModal = mounted && digestOpen && (
+    <div
+      className="modal-backdrop"
+      role="presentation"
+      onClick={(e) => e.target === e.currentTarget && closeDigest()}
+    >
+      <div className="modal-sheet" role="dialog" aria-modal="true" aria-labelledby="article-digest-modal-title" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-sheet-header">
+          <h2 id="article-digest-modal-title">{digestMode === "markDone" ? "标记已读（必填）" : "编辑读后笔记"}</h2>
+          <button type="button" className="modal-sheet-close" onClick={closeDigest} aria-label="关闭">
+            ×
+          </button>
+        </div>
+        <div className="modal-sheet-body">
+          <div className="row">
+            <label className="muted-link">一句话总结</label>
+            <input
+              className="input"
+              value={readOneLiner}
+              onChange={(e) => setReadOneLiner(e.target.value)}
+              placeholder="用一句话概括你从文中带走的核心信息"
+            />
+            <label className="muted-link">3 个重要观点</label>
+            <input className="input" value={kp1} onChange={(e) => setKp1(e.target.value)} placeholder="观点 1" />
+            <input className="input" value={kp2} onChange={(e) => setKp2(e.target.value)} placeholder="观点 2" />
+            <input className="input" value={kp3} onChange={(e) => setKp3(e.target.value)} placeholder="观点 3" />
+            <label className="muted-link">1 个行动项</label>
+            <input
+              className="input"
+              value={readAction}
+              onChange={(e) => setReadAction(e.target.value)}
+              placeholder="你打算在工作中具体做什么"
+            />
+          </div>
+        </div>
+        <div className="modal-sheet-footer">
+          {digestMode === "markDone" ? (
+            <button className="btn secondary" type="button" disabled={busy} onClick={submitMarkDone}>
+              标记已读
+            </button>
+          ) : (
+            <button className="btn secondary" type="button" disabled={busy} onClick={submitDigestEdit}>
+              保存读后笔记
+            </button>
+          )}
+          <button className="btn secondary" type="button" disabled={busy} onClick={closeDigest}>
+            取消
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
   return (
     <article className="article-card">
-      <div className="meta-row">
-        <span className="tag theme">{article.theme}</span>
-        {article.featured && <span className="tag today">精选</span>}
-        <span className={`tag ${article.recommendedDepth}`}>
-          {article.recommendedDepth === "deep" ? "重点精读" : "快速扫览"}
-        </span>
-        <span className={`tag ${status.kind}`}>{status.label}</span>
-        <span>
-          {article.estimatedMinutes} 分钟 · {article.domain}
-        </span>
+      <div className="article-card-top">
+        <div className="meta-row article-card-meta">
+          <span className="tag theme">{article.theme}</span>
+          {article.featured && <span className="tag today">精选</span>}
+          <span className={`tag ${article.recommendedDepth}`}>
+            {article.recommendedDepth === "deep" ? "重点精读" : "快速扫览"}
+          </span>
+          <span className={`tag ${status.kind}`}>{status.label}</span>
+          <span>
+            {article.estimatedMinutes} 分钟 · {article.domain}
+          </span>
+        </div>
+        {showActions && (
+          <button type="button" className="article-card-edit-top" onClick={() => setMetaOpen(true)}>
+            编辑
+          </button>
+        )}
       </div>
       <h3 className="title">{article.title}</h3>
       <div className="muted-link">作者：{article.author || "未知作者"}</div>
@@ -98,7 +303,7 @@ export function ArticleCard({ article, showActions = true }: Props) {
         <div className="read-digest">
           <div className="read-digest-label">读后输出</div>
           {!digestComplete ? (
-            <p className="muted-link">历史数据缺少读后笔记，可在下方补全并保存。</p>
+            <p className="muted-link">历史数据缺少读后笔记，可点下方「读后笔记」补全。</p>
           ) : (
             <>
               <p className="read-digest-one">{article.readOneLiner}</p>
@@ -150,137 +355,65 @@ export function ArticleCard({ article, showActions = true }: Props) {
 
       {showActions && (
         <>
-          <div className="row" style={{ marginTop: 10 }}>
-            {article.status === "todo" && (
-              <input
-                className="input"
-                type="date"
-                value={dueDate}
-                onChange={(e) => setDueDate(e.target.value)}
-                aria-label="期望完成阅读时间"
-              />
-            )}
-            <input className="input" value={author} onChange={(e) => setAuthor(e.target.value)} placeholder="作者" />
-            <input className="input" value={theme} onChange={(e) => setTheme(e.target.value)} placeholder="主题标签" />
-            <input
-              className="input"
-              value={tagsText}
-              onChange={(e) => setTagsText(e.target.value)}
-              placeholder="自定义标签（用逗号分隔）"
-            />
-            <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <input type="checkbox" checked={featured} onChange={(e) => setFeatured(e.target.checked)} />
-              精选文章
-            </label>
-            <button
-              className="btn secondary"
-              type="button"
-              disabled={busy}
-              onClick={() =>
-                call("PATCH", {
-                  dueDate,
-                  theme: theme.trim(),
-                  author: author.trim(),
-                  featured,
-                  customTags: tagsText
-                    .split(",")
-                    .map((t) => t.trim())
-                    .filter(Boolean),
-                })
-              }
-            >
-              保存标签与属性
-            </button>
-          </div>
-
-          {article.status === "todo" && (
-            <div className="card read-submit-card">
-              <h2>标记已读（必填）</h2>
-              <label className="muted-link">一句话总结</label>
-              <input
-                className="input"
-                value={readOneLiner}
-                onChange={(e) => setReadOneLiner(e.target.value)}
-                placeholder="用一句话概括你从文中带走的核心信息"
-              />
-              <label className="muted-link">3 个重要观点</label>
-              <input className="input" value={kp1} onChange={(e) => setKp1(e.target.value)} placeholder="观点 1" />
-              <input className="input" value={kp2} onChange={(e) => setKp2(e.target.value)} placeholder="观点 2" />
-              <input className="input" value={kp3} onChange={(e) => setKp3(e.target.value)} placeholder="观点 3" />
-              <label className="muted-link">1 个行动项</label>
-              <input
-                className="input"
-                value={readAction}
-                onChange={(e) => setReadAction(e.target.value)}
-                placeholder="你打算在工作中具体做什么"
-              />
-            </div>
-          )}
-
-          {article.status === "done" && (
-            <div className="card read-submit-card">
-              <h2>编辑读后笔记</h2>
-              <label className="muted-link">一句话总结</label>
-              <input className="input" value={readOneLiner} onChange={(e) => setReadOneLiner(e.target.value)} />
-              <label className="muted-link">3 个重要观点</label>
-              <input className="input" value={kp1} onChange={(e) => setKp1(e.target.value)} placeholder="观点 1" />
-              <input className="input" value={kp2} onChange={(e) => setKp2(e.target.value)} placeholder="观点 2" />
-              <input className="input" value={kp3} onChange={(e) => setKp3(e.target.value)} placeholder="观点 3" />
-              <label className="muted-link">1 个行动项</label>
-              <input className="input" value={readAction} onChange={(e) => setReadAction(e.target.value)} />
-              <button
-                className="btn secondary"
-                type="button"
-                disabled={busy}
-                style={{ marginTop: 8 }}
-                onClick={() =>
-                  call("PATCH", {
-                    readOneLiner: readOneLiner.trim(),
-                    readKeyPoints: [kp1.trim(), kp2.trim(), kp3.trim()],
-                    readAction: readAction.trim(),
-                  })
-                }
-              >
-                保存读后笔记
-              </button>
-            </div>
-          )}
-
-          <div className="actions">
+          <div className="article-card-actions">
             {article.status === "todo" ? (
-              <button
-                className="btn secondary"
-                type="button"
-                disabled={busy}
-                onClick={() =>
-                  call("PATCH", {
-                    status: "done",
-                    readOneLiner: readOneLiner.trim(),
-                    readKeyPoints: [kp1.trim(), kp2.trim(), kp3.trim()],
-                    readAction: readAction.trim(),
-                  })
-                }
-              >
-                标记已读
-              </button>
+              <>
+                <button
+                  className="btn secondary"
+                  type="button"
+                  disabled={busy}
+                  onClick={() => {
+                    setDigestMode("markDone");
+                    setDigestOpen(true);
+                  }}
+                >
+                  标记已读
+                </button>
+                <button
+                  className="btn danger"
+                  type="button"
+                  disabled={busy}
+                  onClick={() => {
+                    if (confirm("删除这篇文章？")) call("DELETE");
+                  }}
+                >
+                  删除
+                </button>
+              </>
             ) : (
-              <button className="btn secondary" type="button" disabled={busy} onClick={() => call("PATCH", { status: "todo" })}>
-                恢复待读
-              </button>
+              <>
+                <button className="btn secondary" type="button" disabled={busy} onClick={() => call("PATCH", { status: "todo" })}>
+                  恢复待读
+                </button>
+                <button
+                  className="btn secondary"
+                  type="button"
+                  disabled={busy}
+                  onClick={() => {
+                    setDigestMode("edit");
+                    setDigestOpen(true);
+                  }}
+                >
+                  读后笔记
+                </button>
+                <button
+                  className="btn danger btn-fullrow"
+                  type="button"
+                  disabled={busy}
+                  onClick={() => {
+                    if (confirm("删除这篇文章？")) call("DELETE");
+                  }}
+                >
+                  删除
+                </button>
+              </>
             )}
-            <button
-              className="btn danger"
-              type="button"
-              disabled={busy}
-              onClick={() => {
-                if (confirm("删除这篇文章？")) call("DELETE");
-              }}
-            >
-              删除
-            </button>
           </div>
         </>
       )}
+
+      {metaModal && createPortal(metaModal, document.body)}
+      {digestModal && createPortal(digestModal, document.body)}
     </article>
   );
 }
