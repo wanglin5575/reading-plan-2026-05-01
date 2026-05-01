@@ -66,7 +66,9 @@ export function mergeBrowseFeed(
   for (const x of prev.items) byUrl.set(x.url, x);
 
   for (const h of newHits) {
-    if (h.publishedTime) {
+    const existedBefore = prev.items.some((x) => x.url === h.url);
+    /** 仅过滤「更新用」的旧元数据：新出现的链接不因 publishedTime 被误杀（很多站点元数据日期不准） */
+    if (existedBefore && h.publishedTime) {
       const t = Date.parse(h.publishedTime);
       if (!Number.isNaN(t) && t < sinceMs) continue;
     }

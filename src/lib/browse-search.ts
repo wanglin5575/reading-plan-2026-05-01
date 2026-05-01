@@ -2,6 +2,13 @@ import FirecrawlApp from "@mendable/firecrawl-js";
 import type { BrowseHit, BrowseTopic } from "@/lib/types";
 import type { Document, SearchData, SearchResultWeb } from "@mendable/firecrawl-js";
 
+/** 主搜：条数少一些省抓取配额 */
+const BROWSE_SEARCH_LIMIT_PRIMARY = 10;
+/** 补搜：更少条数、且不抓取正文，显著省额度 */
+const BROWSE_SEARCH_LIMIT_FALLBACK = 6;
+/** 与「上次刷新」间隔过长时，cdr 窗最多向前覆盖的天数，避免又大又难搜的区间 */
+const BROWSE_CDR_MAX_SPAN_DAYS = 21;
+
 export function browseTopicToQuery(topic: Pick<BrowseTopic, "name" | "keywords">): string {
   const kws = topic.keywords.map((k) => k.trim()).filter(Boolean);
   const escaped = kws.map((k) => {
@@ -15,27 +22,40 @@ function isFullDocument(item: SearchResultWeb | Document): item is Document {
   return "markdown" in item || "html" in item || !!(item as Document).metadata;
 }
 
-/** Google 自定义日期区间 tbs：按本地日历日的 0 点比较 */
+const DAY_MS = 86400000;
+
+/**
+ * Google tbs：偏宽、易出结果，又控制区间别无限拉大。
+ * - 同一天内：用 qdr:w（约一周），比 qdr:d 宽松很多
+ * - 跨日：cdr，且 since 若过早则截断为距 until 最多 BROWSE_CDR_MAX_SPAN_DAYS 天
+ */
 export function browseTbsForWindow(since: Date, until: Date): string {
   const s = since.getTime();
   const u = until.getTime();
   const start = s <= u ? since : until;
   const end = s <= u ? until : since;
 
-  const startDay = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+  let rangeStart = start;
+  const spanMs = end.getTime() - rangeStart.getTime();
+  if (spanMs > BROWSE_CDR_MAX_SPAN_DAYS * DAY_MS) {
+    rangeStart = new Date(end.getTime() - BROWSE_CDR_MAX_SPAN_DAYS * DAY_MS);
+  }
+
+  const startDay = new Date(rangeStart.getFullYear(), rangeStart.getMonth(), rangeStart.getDate());
   const endDay = new Date(end.getFullYear(), end.getMonth(), end.getDate());
 
   const fmt = (d: Date) => `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
 
   if (startDay.getTime() === endDay.getTime()) {
-    return "qdr:d";
+    return "qdr:w";
   }
   return `cdr:1,cd_min:${fmt(startDay)},cd_max:${fmt(endDay)}`;
 }
 
 /**
- * Firecrawl v2 search：since～until 时间窗（同日用 qdr:d，跨日用 cdr）。
- * 若无结果则去掉 tbs 再搜一次；客户端仍会用 publishedTime 相对 since 过滤合并。
+ * Firecrawl v2 search：
+ * 1）主搜：较宽 tbs + 少量条数 + scrape（摘要/节选质量）
+ * 2）仍无结果：补搜不加 scrape、更少条数，省配额且常能拿到 SERP 摘要
  */
 export async function fetchBrowseHits(
   topic: Pick<BrowseTopic, "name" | "keywords">,
@@ -110,18 +130,17 @@ export async function fetchBrowseHits(
   };
 
   const data = await app.search(query, {
-    limit: 18,
+    limit: BROWSE_SEARCH_LIMIT_PRIMARY,
     tbs,
     scrapeOptions,
   });
 
   let hits = toHits(data);
   if (!hits.length) {
-    const dataWide = await app.search(query, {
-      limit: 18,
-      scrapeOptions,
+    const dataLite = await app.search(query, {
+      limit: BROWSE_SEARCH_LIMIT_FALLBACK,
     });
-    hits = toHits(dataWide);
+    hits = toHits(dataLite);
   }
 
   return hits;
