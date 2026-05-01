@@ -495,7 +495,7 @@ export function ArticleCard({ article, showActions = true, collapseOriginalSumma
         </div>
       )}
       {collapseOriginalSummary && hasUsableSummary && (
-        <ArticleSummaryFooter summary={article.summary!} />
+        <ArticleSummaryFooter summary={article.summary} />
       )}
     </>
   );
