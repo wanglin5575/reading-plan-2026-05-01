@@ -140,7 +140,7 @@ export function MeAccountClient({ authEnabled }: { authEnabled: boolean }) {
   return (
     <div className="card me-account-card">
       <h2>账号</h2>
-      <p className="muted-link me-intro">登录后可多设备同步；登录后在「复盘」页右上角小人图标里可改密码或退出。</p>
+      <p className="muted-link me-intro">邮箱登录或注册；入口在底部「我的」页右上角小人图标。</p>
 
       <div className="me-mode-switch">
         <button

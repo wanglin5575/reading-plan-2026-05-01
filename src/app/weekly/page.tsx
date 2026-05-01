@@ -2,7 +2,7 @@ import { listArticlesForUser } from "@/lib/db";
 import { startOfWeekIso, todayIso } from "@/lib/plan";
 import { getServerAuthUser } from "@/lib/auth/server";
 import WeeklyReviewClient from "@/components/WeeklyReviewClient";
-import { AccountAvatarMenu } from "@/components/AccountAvatarMenu";
+import { WeeklyAccountEntry } from "@/components/WeeklyAccountEntry";
 
 export const dynamic = "force-dynamic";
 
@@ -14,10 +14,10 @@ export default async function WeeklyPage() {
     <>
       <header className="app-header app-header-with-actions">
         <div className="app-header-titles">
-          <h1>复盘</h1>
+          <h1>我的复盘</h1>
           <span className="sub">按自然周或按日浏览历史，查看复盘建议</span>
         </div>
-        {user?.email ? <AccountAvatarMenu email={user.email} /> : null}
+        <WeeklyAccountEntry email={user?.email ?? null} />
       </header>
 
       <WeeklyReviewClient articles={articles} initialWeekStart={startOfWeekIso()} initialDay={todayIso()} />
