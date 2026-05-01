@@ -14,11 +14,20 @@
 
 ```bash
 cd "/Users/wuwanlin/Cursor Projects/reading-plan-2026-05-01"
-cp .env.example .env.local        # 编辑后填入 DATABASE_URL；本地体验示例数据可设 SEED_DEMO_ARTICLES=1
-npm run dev
+cp .env.example .env.local        # 填入 DATABASE_URL 时用库内数据；不设库时 `next dev` 会自动带 1 待读+1 已读示例仅用于看样式
+npm run dev                       # 默认使用 Webpack dev（更稳）；若要 Turbopack 可用 npm run dev:turbo
 ```
 
-打开 http://localhost:3000 即可。
+打开 http://localhost:3000 即可。（若遇 **`EMFILE: too many open files`**，先在终端执行 **`ulimit -n 10240`** 再 `npm run dev`。）
+
+### 故障排除
+
+- 若出现 **React Client Manifest / global-error** 相关报错：已包含 `src/app/global-error.tsx`；本机可先 **停掉 dev**，删除缓存目录 `.next` 后再执行 `npm run dev`。若仍异常，可试 **`npm run dev:turbo`**（Turbopack，更快但偶发缓存问题）。
+- 若页面仅显示 **Internal Server Error**：先删除 `.next` 后重新 `npm run build && npm run start`（或 `npm run dev`）。若曾启用 `output: "standalone"` 却用 `next start`，易与 Next 16 不兼容；当前配置已去掉 standalone，本地请用常规 `next start`。
+- 浏览器 **连不上 localhost:3000**（如 Safari **错误 -102**）：多半是 dev 没在跑，或旧进程已退出但留下 **`.next/dev/lock`**，新终端里 `npm run dev` 会误报「已有服务」。删掉 **`reading-plan-…/.next/dev/lock`** 后再执行 **`npm run dev`**。若终端出现 **`EMFILE: too many open files`**，在本机提高句柄上限后再开 dev（例如 `ulimit -n 10240`）。
+- 访问 **/** 却出现 **404 This page could not be found**：Dev 下的路由缓存可能坏了（例如 **`.next/dev/server/app-paths-manifest.json`** 里几乎没有路由）。在项目根执行 **`rm -rf .next`** 后重新 **`npm run dev`**（会先慢一轮编译，属正常）。也可直接：**`npm run dev:clean`**。
+- 若终端报 **`ENOENT`** 且指向 **`build-manifest.json`** 或 Turbopack **`Compaction failed`**：先 **`rm -rf .next`**，执行 **`ulimit -n 10240`**，再 **`npm run dev`**（当前默认已是 **Webpack**，一般可避开 Turbopack 缓存损坏）。仍要 Turbopack 时用 **`npm run dev:turbo`**。
+- 浏览器只显示 **Internal Server Error**：看运行 **`npm run dev` 的终端**里红色堆栈（常见：数据库连不上、`.next` 损坏）。可先 **`rm -rf .next`** 再 **`npm run dev`**；页面级错误会尽量由 **`error.tsx`** 显示具体原因并可点「重试」。
 
 ## 移动端访问（同一 WiFi）
 

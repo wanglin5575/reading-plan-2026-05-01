@@ -29,19 +29,24 @@ function daysInMonth(year: number, monthIndex: number): number {
 const WEEK_LABELS = ["一", "二", "三", "四", "五", "六", "日"];
 
 type Props = {
-  selectedIso: string;
+  /** 高亮选中的日期；周视图下不传则不高亮具体日 */
+  selectedIso?: string;
+  /** 无选中时用于定位显示的月份（如当前自然周的起始日） */
+  anchorIso: string;
   maxIso: string;
   onSelect: (iso: string) => void;
 };
 
-export function MonthCalendarPicker({ selectedIso, maxIso, onSelect }: Props) {
+export function MonthCalendarPicker({ selectedIso, anchorIso, maxIso, onSelect }: Props) {
   const max = useMemo(() => parseIsoLocal(maxIso), [maxIso]);
 
-  const [viewMonth, setViewMonth] = useState(() => startOfMonth(parseIsoLocal(selectedIso)));
+  const monthAnchorIso = selectedIso ?? anchorIso;
+
+  const [viewMonth, setViewMonth] = useState(() => startOfMonth(parseIsoLocal(monthAnchorIso)));
 
   useEffect(() => {
-    setViewMonth(startOfMonth(parseIsoLocal(selectedIso)));
-  }, [selectedIso]);
+    setViewMonth(startOfMonth(parseIsoLocal(monthAnchorIso)));
+  }, [monthAnchorIso]);
 
   const { year, monthIndex, cells } = useMemo(() => {
     const y = viewMonth.getFullYear();
@@ -99,7 +104,7 @@ export function MonthCalendarPicker({ selectedIso, maxIso, onSelect }: Props) {
           }
           const d = new Date(year, monthIndex, cell.day);
           const iso = isoFromLocal(d);
-          const isSel = iso === selectedIso;
+          const isSel = selectedIso != null && selectedIso !== "" && iso === selectedIso;
           const isFuture = iso > maxIso;
           return (
             <button

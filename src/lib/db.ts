@@ -1,6 +1,67 @@
 import { Pool } from "pg";
 import type { Article } from "./types";
 
+/**
+ * 未配置 DATABASE_URL 时，在 next dev 下返回与 seed 一致的示例数据，便于本地直接看待读/已读样式。
+ */
+function devFallbackArticles(): Article[] {
+  const now = new Date().toISOString();
+  const today = now.slice(0, 10);
+  const excerpt = "这是本地演示用的节选文本，用于展示列表与左滑标记已读。";
+  return [
+    {
+      id: "11111111-1111-4111-8111-111111111101",
+      url: "https://example.com/demo-todo",
+      title: "示例 · 待读（可左滑露出已读）",
+      author: "本地演示",
+      domain: "example.com",
+      theme: "效率 / 工具",
+      customTags: ["演示"],
+      featured: false,
+      summary: "用于本地开发演示：在待读列表中可见，向左滑动卡片可露出「已读」按钮。",
+      language: "zh",
+      charCount: 120,
+      wordCount: 20,
+      estimatedMinutes: 3,
+      recommendedDepth: "skim",
+      knowledgeTags: ["演示", "待读"],
+      status: "todo",
+      addedAt: now,
+      dueDate: today,
+      completedAt: null,
+      readOneLiner: "",
+      readKeyPoints: [],
+      readAction: "",
+      rawExcerpt: excerpt,
+    },
+    {
+      id: "22222222-2222-4222-8222-222222222202",
+      url: "https://example.com/demo-done",
+      title: "示例 · 已读（含读后笔记）",
+      author: "本地演示",
+      domain: "example.com",
+      theme: "产品 / 设计",
+      customTags: ["复盘"],
+      featured: true,
+      summary: "已读列表示例：包含完整读后输出，可从「更多」里编辑信息或删除。",
+      language: "zh",
+      charCount: 150,
+      wordCount: 25,
+      estimatedMinutes: 4,
+      recommendedDepth: "deep",
+      knowledgeTags: ["已读", "示例"],
+      status: "done",
+      addedAt: now,
+      dueDate: today,
+      completedAt: now,
+      readOneLiner: "演示用一句话总结：读懂了如何把交互做完。",
+      readKeyPoints: ["演示观点一", "演示观点二", "演示观点三"],
+      readAction: "在本周复盘里跟进一条行动项。",
+      rawExcerpt: excerpt,
+    },
+  ];
+}
+
 function getConnectionString(): string | null {
   return (
     process.env.DATABASE_URL ||
@@ -69,7 +130,10 @@ async function ensureSchema(): Promise<void> {
         ALTER TABLE articles ADD COLUMN IF NOT EXISTS read_action TEXT NOT NULL DEFAULT '';
       `);
       await seedDemoIfEmpty(p);
-    })();
+    })().catch((err) => {
+      schemaReady = null;
+      throw err;
+    });
   }
   return schemaReady;
 }
@@ -84,7 +148,7 @@ async function seedDemoIfEmpty(p: Pool): Promise<void> {
   const todoId = "11111111-1111-4111-8111-111111111101";
   const doneId = "22222222-2222-4222-8222-222222222202";
 
-  const excerpt = "这是本地演示用的节选文本，用于展示列表与右滑标记已读。";
+  const excerpt = "这是本地演示用的节选文本，用于展示列表与左滑标记已读。";
 
   await p.query(
     `INSERT INTO articles (
@@ -99,13 +163,13 @@ async function seedDemoIfEmpty(p: Pool): Promise<void> {
     [
       todoId,
       "https://example.com/demo-todo",
-      "示例 · 待读（可右滑露出已读）",
+      "示例 · 待读（可左滑露出已读）",
       "本地演示",
       "example.com",
       "效率 / 工具",
       JSON.stringify(["演示"]),
       false,
-      "用于本地开发演示：在待读列表中可见，向右滑动卡片可露出「已读」按钮。",
+      "用于本地开发演示：在待读列表中可见，向左滑动卡片可露出「已读」按钮。",
       "zh",
       120,
       20,
@@ -352,7 +416,12 @@ export async function updateArticle(article: Article): Promise<void> {
 export async function listArticles(): Promise<Article[]> {
   try {
     const p = getPoolOrNull();
-    if (!p) return [];
+    if (!p) {
+      if (process.env.NODE_ENV === "development") {
+        return devFallbackArticles();
+      }
+      return [];
+    }
     await ensureSchema();
     const { rows } = await p.query<ArticleRow>("SELECT * FROM articles ORDER BY due_date ASC, added_at DESC");
     return rows.map(rowToArticle);

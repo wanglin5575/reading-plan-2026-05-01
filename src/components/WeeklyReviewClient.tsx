@@ -80,13 +80,6 @@ export default function WeeklyReviewClient({
 
   const weekEndDisplay = shiftDays(weekStart, 6);
 
-  const newThemesVersusPrevWeek = useMemo(() => {
-    const prevStart = shiftDays(weekStart, -7);
-    const prevArts = filterDoneInWeek(articles, prevStart);
-    const prevSet = new Set(prevArts.map((a) => a.theme));
-    return [...new Set(weekArticles.map((a) => a.theme))].filter((t) => !prevSet.has(t));
-  }, [articles, weekArticles, weekStart]);
-
   const today = todayIso();
 
   const thisWeekStart = useMemo(
@@ -137,8 +130,11 @@ export default function WeeklyReviewClient({
     setDayCalendarOpen(false);
   };
 
+  /** 按日查看时展示，或周不在当前自然周时展示，便于回到「本周」周视图 */
+  const showThisWeekBtn = viewMode === "day" || weekStart !== thisWeekStart;
+
   return (
-    <>
+    <div className="weekly-review-stack">
       {viewMode === "week" ? (
         <section className="kpi-row">
           <div className="kpi">
@@ -191,7 +187,7 @@ export default function WeeklyReviewClient({
         <div className="day-picker-card-head">
           <h2>选择日期</h2>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-            {weekStart !== thisWeekStart && (
+            {showThisWeekBtn && (
               <button type="button" className="week-picker-this" onClick={goThisWeek}>
                 本周
               </button>
@@ -230,7 +226,7 @@ export default function WeeklyReviewClient({
             {weekStripIsos.map((iso, idx) => {
               const isFuture = iso > today;
               const isSelected = viewMode === "day" && iso === selectedDay;
-              const isTodayCell = iso === today;
+              const isTodayCell = viewMode === "day" && iso === today;
               return (
                 <button
                   key={iso}
@@ -268,8 +264,13 @@ export default function WeeklyReviewClient({
         )}
         {dayCalendarOpen && (
           <div className="day-calendar-expanded">
-            <MonthCalendarPicker selectedIso={selectedDay} maxIso={today} onSelect={onCalendarPick} />
-            <button type="button" className="btn secondary" style={{ marginTop: 14 }} onClick={jumpToday}>
+            <MonthCalendarPicker
+              selectedIso={viewMode === "day" ? selectedDay : undefined}
+              anchorIso={viewMode === "day" ? selectedDay : weekStart}
+              maxIso={today}
+              onSelect={onCalendarPick}
+            />
+            <button type="button" className="btn secondary weekly-review-jump-today" onClick={jumpToday}>
               跳到今日
             </button>
           </div>
@@ -278,19 +279,6 @@ export default function WeeklyReviewClient({
 
       {viewMode === "week" ? (
         <>
-          <div className="card">
-            <h2>知识点</h2>
-            {weekReview.knowledgePoints.length === 0 ? (
-              <p className="muted-link">暂无聚合知识点。</p>
-            ) : (
-              <ul className="review-list-plain">
-                {weekReview.knowledgePoints.map((k) => (
-                  <li key={k}>{k}</li>
-                ))}
-              </ul>
-            )}
-          </div>
-
           <div className="card">
             <h2>复盘建议</h2>
             <p className="review-advice">{weekReview.advice}</p>
@@ -304,35 +292,9 @@ export default function WeeklyReviewClient({
               weekArticles.map((a) => <ArticleCard key={a.id} article={a} />)
             )}
           </div>
-
-          {newThemesVersusPrevWeek.length > 0 && (
-            <div className="card">
-              <h2>相对上一周新增的主题</h2>
-              <div className="theme-list">
-                {newThemesVersusPrevWeek.map((t) => (
-                  <span key={t} className="chip">
-                    {t}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
         </>
       ) : (
         <>
-          <div className="card">
-            <h2>知识点</h2>
-            {dayReview.knowledgePoints.length === 0 ? (
-              <p className="muted-link">暂无聚合知识点。</p>
-            ) : (
-              <ul className="review-list-plain">
-                {dayReview.knowledgePoints.map((k) => (
-                  <li key={k}>{k}</li>
-                ))}
-              </ul>
-            )}
-          </div>
-
           <div className="card">
             <h2>复盘建议</h2>
             <p className="review-advice">{dayReview.advice}</p>
@@ -348,6 +310,6 @@ export default function WeeklyReviewClient({
           </div>
         </>
       )}
-    </>
+    </div>
   );
 }

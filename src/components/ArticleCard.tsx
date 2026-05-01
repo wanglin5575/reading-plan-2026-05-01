@@ -3,7 +3,7 @@
 import { useEffect, useTransition, useState, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
-import type { Article } from "@/lib/types";
+import { type Article, isIntensiveRead } from "@/lib/types";
 
 interface Props {
   article: Article;
@@ -13,6 +13,14 @@ interface Props {
 type DigestMode = "markDone" | "edit";
 
 const SWIPE_MAX_PX = 76;
+
+function joinKeyPointsProse(points: unknown[] | undefined): string {
+  const parts = (Array.isArray(points) ? points : [])
+    .map((p) => String(p).trim())
+    .filter(Boolean);
+  if (!parts.length) return "";
+  return parts.join("；");
+}
 
 function useSwipeTodoFace(enabled: boolean) {
   const [offset, setOffset] = useState(0);
@@ -35,7 +43,7 @@ function useSwipeTodoFace(enabled: boolean) {
     !(t as HTMLElement | null)?.closest?.("a, button, input, textarea, select, label, summary");
 
   const snap = useCallback(() => {
-    setOffset((o) => (o > SWIPE_MAX_PX / 2 ? SWIPE_MAX_PX : 0));
+    setOffset((o) => (o < -SWIPE_MAX_PX / 2 ? -SWIPE_MAX_PX : 0));
   }, []);
 
   const style: React.CSSProperties = {
@@ -56,7 +64,7 @@ function useSwipeTodoFace(enabled: boolean) {
     (e: React.TouchEvent) => {
       if (!enabled || !dragRef.current) return;
       const dx = e.touches[0].clientX - dragRef.current.start;
-      setOffset(Math.min(SWIPE_MAX_PX, Math.max(0, dragRef.current.origin + dx)));
+      setOffset(Math.max(-SWIPE_MAX_PX, Math.min(0, dragRef.current.origin + dx)));
     },
     [enabled],
   );
@@ -82,7 +90,7 @@ function useSwipeTodoFace(enabled: boolean) {
     const onMove = (e: MouseEvent) => {
       if (!dragRef.current) return;
       const dx = e.clientX - dragRef.current.start;
-      setOffset(Math.min(SWIPE_MAX_PX, Math.max(0, dragRef.current.origin + dx)));
+      setOffset(Math.max(-SWIPE_MAX_PX, Math.min(0, dragRef.current.origin + dx)));
     };
     const onUp = () => {
       dragRef.current = null;
@@ -127,7 +135,7 @@ export function ArticleCard({ article, showActions = true }: Props) {
   const [dueDate, setDueDate] = useState(article.dueDate);
   const [theme, setTheme] = useState(article.theme);
   const [author, setAuthor] = useState(article.author || "");
-  const [featured, setFeatured] = useState(article.featured);
+  const [intensiveRead, setIntensiveRead] = useState(() => isIntensiveRead(article));
   const [tagsText, setTagsText] = useState((article.customTags || []).join(", "));
   const [readOneLiner, setReadOneLiner] = useState(article.readOneLiner || "");
   const [kp1, setKp1] = useState(article.readKeyPoints?.[0] || "");
@@ -141,7 +149,7 @@ export function ArticleCard({ article, showActions = true }: Props) {
     setDueDate(article.dueDate);
     setTheme(article.theme);
     setAuthor(article.author || "");
-    setFeatured(article.featured);
+    setIntensiveRead(isIntensiveRead(article));
     setTagsText((article.customTags || []).join(", "));
     setReadOneLiner(article.readOneLiner || "");
     setKp1(article.readKeyPoints?.[0] || "");
@@ -154,6 +162,7 @@ export function ArticleCard({ article, showActions = true }: Props) {
     article.theme,
     article.author,
     article.featured,
+    article.recommendedDepth,
     article.summary,
     article.readOneLiner,
     article.readAction,
@@ -253,7 +262,7 @@ export function ArticleCard({ article, showActions = true }: Props) {
       dueDate,
       theme: theme.trim(),
       author: author.trim(),
-      featured,
+      featured: intensiveRead,
       customTags: tagsText
         .split(",")
         .map((t) => t.trim())
@@ -329,14 +338,11 @@ export function ArticleCard({ article, showActions = true }: Props) {
     <div className="article-card-top">
       <div className="meta-row article-card-meta">
         <span className="tag theme">{article.theme}</span>
-        {article.featured && <span className="tag today">精选</span>}
-        <span className={`tag ${article.recommendedDepth}`}>
-          {article.recommendedDepth === "deep" ? "重点精读" : "快速扫览"}
+        <span className={`tag ${isIntensiveRead(article) ? "deep" : "skim"}`}>
+          {isIntensiveRead(article) ? "重点精读" : "快速扫览"}
         </span>
         <span className={`tag ${status.kind}`}>{status.label}</span>
-        <span>
-          {article.estimatedMinutes} 分钟 · {article.domain}
-        </span>
+        <span>{article.estimatedMinutes} 分钟</span>
       </div>
       {showActions && (
         <div className="article-card-more-wrap">
@@ -362,37 +368,24 @@ export function ArticleCard({ article, showActions = true }: Props) {
       <h3 className="title">{article.title}</h3>
       <div className="muted-link">作者：{article.author || "未知作者"}</div>
 
-      {article.status === "done" && (
-        <div className="read-digest">
-          <div className="read-digest-label">读后输出</div>
-          {!digestComplete ? (
-            <p className="muted-link">历史数据缺少读后笔记，可从「更多」或下方「读后笔记」补全。</p>
-          ) : (
-            <>
-              <p className="read-digest-one">{article.readOneLiner}</p>
-              <ol className="read-digest-points">
-                {(Array.isArray(article.readKeyPoints) ? article.readKeyPoints : []).map((p, i) => (
-                  <li key={i}>{p}</li>
-                ))}
-              </ol>
-              <p className="read-digest-action">
-                <span className="read-digest-sublabel">行动项</span> {article.readAction}
-              </p>
-            </>
-          )}
-        </div>
-      )}
-
-      {article.status === "done" && article.summary && article.summary !== "(暂无摘要)" && (
-        <details className="read-auto-summary">
-          <summary>原文自动摘要（参考）</summary>
-          <p className="summary">{article.summary}</p>
-        </details>
-      )}
-
       {article.status === "todo" && article.summary && article.summary !== "(暂无摘要)" && (
         <p className="summary">{article.summary}</p>
       )}
+
+      {article.status === "done" && article.summary && article.summary !== "(暂无摘要)" && (
+        <p className="summary">{article.summary}</p>
+      )}
+
+      {article.status === "done" &&
+        (digestComplete ? (
+          <div className="read-after-stack">
+            <p className="summary">{article.readOneLiner}</p>
+            <p className="read-after-points">{joinKeyPointsProse(article.readKeyPoints)}</p>
+            <p className="read-after-points">{article.readAction}</p>
+          </div>
+        ) : (
+          <p className="muted-link">可从 ⋯ 补全读后笔记。</p>
+        ))}
 
       {Array.isArray(article.knowledgeTags) && article.knowledgeTags.length > 0 && (
         <div className="meta-row" style={{ marginTop: 6 }}>
@@ -460,10 +453,10 @@ export function ArticleCard({ article, showActions = true }: Props) {
               <input
                 type="checkbox"
                 className="featured-check-input"
-                checked={featured}
-                onChange={(e) => setFeatured(e.target.checked)}
+                checked={intensiveRead}
+                onChange={(e) => setIntensiveRead(e.target.checked)}
               />
-              <span className="featured-check-text">精选文章</span>
+              <span className="featured-check-text">重点精读</span>
             </label>
           </div>
         </div>
@@ -532,27 +525,6 @@ export function ArticleCard({ article, showActions = true }: Props) {
     </div>
   );
 
-  const doneActions =
-    showActions &&
-    article.status === "done" && (
-      <div className="article-card-actions">
-        <button className="btn secondary" type="button" disabled={busy} onClick={() => call("PATCH", { status: "todo" })}>
-          恢复待读
-        </button>
-        <button
-          className="btn secondary"
-          type="button"
-          disabled={busy}
-          onClick={() => {
-            setDigestMode("edit");
-            setDigestOpen(true);
-          }}
-        >
-          读后笔记
-        </button>
-      </div>
-    );
-
   const moreMenu =
     mounted && showActions && moreOpen && morePos
       ? createPortal(
@@ -586,6 +558,35 @@ export function ArticleCard({ article, showActions = true }: Props) {
               >
                 标记已读
               </button>
+            )}
+            {article.status === "done" && (
+              <>
+                <button
+                  type="button"
+                  className="article-more-item"
+                  role="menuitem"
+                  disabled={busy}
+                  onClick={async () => {
+                    closeMore();
+                    await call("PATCH", { status: "todo" });
+                  }}
+                >
+                  恢复待读
+                </button>
+                <button
+                  type="button"
+                  className="article-more-item"
+                  role="menuitem"
+                  disabled={busy}
+                  onClick={() => {
+                    closeMore();
+                    setDigestMode("edit");
+                    setDigestOpen(true);
+                  }}
+                >
+                  读后笔记
+                </button>
+              </>
             )}
             <button type="button" className="article-more-item danger" role="menuitem" onClick={() => deleteArticle()} disabled={busy}>
               删除
@@ -626,7 +627,6 @@ export function ArticleCard({ article, showActions = true }: Props) {
     <>
       <article className="article-card">
         {cardMiddle}
-        {doneActions}
       </article>
       {moreMenu}
       {metaModal && createPortal(metaModal, document.body)}

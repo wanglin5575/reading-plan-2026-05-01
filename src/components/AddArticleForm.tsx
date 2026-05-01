@@ -8,7 +8,7 @@ export function AddArticleForm() {
   const router = useRouter();
   const [url, setUrl] = useState("");
   const [dueDate, setDueDate] = useState(defaultDueDate());
-  /** false = 否，true = 精选 */
+  /** 添加时勾选 = 标记为「重点精读」 */
   const [featured, setFeatured] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -77,7 +77,7 @@ export function AddArticleForm() {
           />
           <div className="featured-wrap">
             <div className="muted-link featured-choice-label" id="add-featured-label">
-              是否精选文章
+              是否标记为重点精读
             </div>
             <label className="featured-check-row" htmlFor="add-featured-check">
               <input
@@ -88,7 +88,7 @@ export function AddArticleForm() {
                 onChange={(e) => setFeatured(e.target.checked)}
                 aria-labelledby="add-featured-label"
               />
-              <span className="featured-check-text">精选</span>
+              <span className="featured-check-text">重点精读</span>
             </label>
           </div>
           <button className="btn" type="submit" disabled={loading || isPending}>

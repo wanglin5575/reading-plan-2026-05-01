@@ -1,4 +1,4 @@
-import type { Article, DailyPlan, PeriodReview, WeeklyReview } from "./types";
+import { type Article, type DailyPlan, type PeriodReview, type WeeklyReview, isIntensiveRead } from "./types";
 
 export function todayIso(): string {
   return new Date().toISOString().slice(0, 10);
@@ -23,14 +23,14 @@ export function buildDailyPlan(all: Article[], date: string = todayIso()): Daily
     .filter((a) => a.status === "todo" && a.dueDate <= date)
     .sort((a, b) => {
       if (a.dueDate !== b.dueDate) return a.dueDate.localeCompare(b.dueDate);
-      const aPri = a.recommendedDepth === "deep" ? 0 : 1;
-      const bPri = b.recommendedDepth === "deep" ? 0 : 1;
+      const aPri = isIntensiveRead(a) ? 0 : 1;
+      const bPri = isIntensiveRead(b) ? 0 : 1;
       return aPri - bPri;
     });
 
   const totalMinutes = candidates.reduce((acc, a) => acc + a.estimatedMinutes, 0);
   const themesToday = Array.from(new Set(candidates.map((a) => a.theme)));
-  const deepCount = candidates.filter((a) => a.recommendedDepth === "deep").length;
+  const deepCount = candidates.filter((a) => isIntensiveRead(a)).length;
   const skimCount = candidates.length - deepCount;
 
   return {
@@ -178,12 +178,12 @@ export function buildAdviceForPeriod(articles: Article[], periodLabel: string): 
   }
   const totalMin = articles.reduce((s, a) => s + a.estimatedMinutes, 0);
   const themes = [...new Set(articles.map((a) => a.theme))];
-  const featured = articles.filter((a) => a.featured).length;
+  const intensiveCount = articles.filter((a) => isIntensiveRead(a)).length;
   const parts: string[] = [];
   parts.push(`${periodLabel}共完成 ${articles.length} 篇，累计预估阅读约 ${totalMin} 分钟。`);
   parts.push(`内容覆盖：${themes.slice(0, 8).join("、")}${themes.length > 8 ? "…" : ""}。`);
-  if (featured > 0) {
-    parts.push(`其中有 ${featured} 篇精选，建议优先核对你的「一句话总结」是否仍适用于当前工作上下文。`);
+  if (intensiveCount > 0) {
+    parts.push(`其中有 ${intensiveCount} 篇重点精读，建议优先核对你的「一句话总结」是否仍适用于当前工作上下文。`);
   }
   const actions = [...new Set(articles.map((a) => a.readAction).filter(Boolean))];
   if (actions.length) {

@@ -85,7 +85,10 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   if (body.theme) article.theme = body.theme;
   if (typeof body.author === "string") article.author = body.author.trim() || "未知作者";
   if (Array.isArray(body.customTags)) article.customTags = body.customTags.slice(0, 12);
-  if (typeof body.featured === "boolean") article.featured = body.featured;
+  if (typeof body.featured === "boolean") {
+    article.featured = body.featured;
+    article.recommendedDepth = body.featured ? "deep" : "skim";
+  }
 
   try {
     await updateArticle(article);

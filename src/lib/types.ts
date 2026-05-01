@@ -29,6 +29,11 @@ export interface Article {
   rawExcerpt: string;
 }
 
+/** 「重点精读」：算法深读或用户手动标记（原「精选」与 deep 合并展示） */
+export function isIntensiveRead(article: Article): boolean {
+  return article.recommendedDepth === "deep" || article.featured;
+}
+
 export interface DailyPlan {
   date: string;
   totalMinutes: number;
