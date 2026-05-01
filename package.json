@@ -13,6 +13,8 @@
   },
   "dependencies": {
     "@mendable/firecrawl-js": "^4.20.1",
+    "@supabase/ssr": "^0.10.2",
+    "@supabase/supabase-js": "^2.105.1",
     "next": "^16.2.4",
     "pg": "^8.20.0",
     "react": "^19.2.5",

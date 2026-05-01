@@ -8,6 +8,7 @@ const TABS = [
   { href: "/read", label: "已读" },
   { href: "/add", label: "添加" },
   { href: "/weekly", label: "复盘" },
+  { href: "/me", label: "我的" },
 ];
 
 export function Tabbar() {

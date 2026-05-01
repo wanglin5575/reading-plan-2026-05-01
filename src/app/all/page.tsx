@@ -1,7 +1,8 @@
-import { listArticles } from "@/lib/db";
+import { listArticlesForUser } from "@/lib/db";
 import { ArticleCard } from "@/components/ArticleCard";
 import { AllFilters } from "./AllFilters";
 import type { Article } from "@/lib/types";
+import { getServerAuthUser } from "@/lib/auth/server";
 
 export const dynamic = "force-dynamic";
 
@@ -13,7 +14,8 @@ interface SearchParams {
 
 export default async function AllPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const params = await searchParams;
-  const articles = await listArticles();
+  const user = await getServerAuthUser();
+  const articles = await listArticlesForUser(user?.id ?? null);
   const themes = Array.from(new Set(articles.map((a) => a.theme))).sort();
 
   const filtered = articles.filter((a) => {

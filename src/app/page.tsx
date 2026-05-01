@@ -1,11 +1,13 @@
-import { listArticles } from "@/lib/db";
+import { listArticlesForUser } from "@/lib/db";
 import { buildDailyPlan } from "@/lib/plan";
 import { TodoPageClient } from "@/components/TodoPageClient";
+import { getServerAuthUser } from "@/lib/auth/server";
 
 export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
-  const all = await listArticles();
+  const user = await getServerAuthUser();
+  const all = await listArticlesForUser(user?.id ?? null);
   const plan = buildDailyPlan(all);
   const unread = all.filter((a) => a.status === "todo");
 

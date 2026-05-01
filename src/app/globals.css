@@ -206,7 +206,7 @@ a:active { opacity: 0.7; }
   background: var(--card);
   border-top: 1px solid var(--border);
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   align-items: stretch;
   justify-items: stretch;
   z-index: 50;
@@ -319,6 +319,60 @@ a:active { opacity: 0.7; }
 .tabbar a.active {
   color: var(--brand);
   font-weight: var(--fw-semibold);
+}
+
+.me-account-card h2 {
+  margin-top: 0;
+}
+
+.me-intro {
+  margin-bottom: 0;
+}
+
+.me-mode-switch {
+  display: flex;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.me-mode-btn {
+  flex: 1;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-weight: var(--fw-semibold);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.me-mode-btn.active {
+  background: var(--brand-soft);
+  color: var(--brand);
+  border-color: var(--brand);
+}
+
+.me-logged-email span {
+  font-weight: var(--fw-semibold);
+  word-break: break-all;
+}
+
+.me-logged-hint {
+  margin-bottom: 12px;
+}
+
+.me-code {
+  font-size: var(--fs-small);
+  word-break: break-all;
+}
+
+.me-msg {
+  margin: 10px 0 0;
+  font-size: var(--fs-small);
+  color: var(--muted);
+  line-height: var(--lh-snug);
 }
 
 .card {

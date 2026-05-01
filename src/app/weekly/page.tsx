@@ -1,11 +1,13 @@
-import { listArticles } from "@/lib/db";
+import { listArticlesForUser } from "@/lib/db";
 import { startOfWeekIso, todayIso } from "@/lib/plan";
+import { getServerAuthUser } from "@/lib/auth/server";
 import WeeklyReviewClient from "@/components/WeeklyReviewClient";
 
 export const dynamic = "force-dynamic";
 
 export default async function WeeklyPage() {
-  const articles = await listArticles();
+  const user = await getServerAuthUser();
+  const articles = await listArticlesForUser(user?.id ?? null);
 
   return (
     <>

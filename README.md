@@ -47,6 +47,15 @@ dev server 已绑定 `0.0.0.0`，所以同 WiFi 下手机可以直接打开。
 - 有密钥时：自动使用 Firecrawl 抓取 markdown，质量好得多。
 - 申请：https://firecrawl.dev/  → 拿到 `fc-xxx` key 后写入 `.env.local` 的 `FIRECRAWL_API_KEY`。
 
+## 账号（Supabase Auth）
+
+1. 在 [Supabase](https://supabase.com) 创建项目，**Authentication → Providers** 中保持 **Email** 开启（本地测试可在 **Auth** 设置里关闭「Confirm email」以免收信）。
+2. 在 **Project Settings → API** 复制 **Project URL**、**anon public** key，写入环境变量：
+   - `NEXT_PUBLIC_SUPABASE_URL`
+   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+3. 仍使用同一项目的 **Database** 连接串作为 `DATABASE_URL`。首次部署后表 `articles` 会增加 `user_id` 列；**新写入的文章归属当前登录用户**；未登录时无法读写需登录的数据接口。
+4. 若仅配置了数据库、**未**配置上述两项，应用行为与旧版一致（不按用户隔离）。
+
 ## 数据库配置（Supabase）
 
 1. 在 Supabase 创建项目。
@@ -60,7 +69,8 @@ dev server 已绑定 `0.0.0.0`，所以同 WiFi 下手机可以直接打开。
 - **重点 / 扫览**：长文 + 主修方向 → 重点精读；短文 → 快速扫览。
 - **主题分类**：内置 AI / 产品 / 工程 / 数据 / 商业 / 设计 / 管理等规则。
 - **阅读时长估算**：按中文 350 字/分、英文 220 词/分。
-- **每周回顾**：本周读了多少、覆盖哪些主题、关键词、与上周对比、新接触的主题。
+- **我的**：邮箱注册与登录（可选启用 Supabase Auth），阅读数据按账号隔离。
+- **每周回顾**：按自然周或单日查看已读与复盘建议。
 - **PWA-friendly**：移动端深色模式自动适配，可加入主屏幕。
 
 ## 后续可扩展（v3 备选）
@@ -95,5 +105,6 @@ reading-plan-2026-05-01/
 2. 在 Vercel 导入仓库，选 Next.js 框架。
 3. 在 Vercel Dashboard → Settings → Environment Variables 配置：
    - `DATABASE_URL`（Supabase Postgres）
+   - `NEXT_PUBLIC_SUPABASE_URL`、`NEXT_PUBLIC_SUPABASE_ANON_KEY`（启用邮箱注册 / 登录与按用户隔离数据时必填）
    - `FIRECRAWL_API_KEY`（可选）
 4. 重新部署后即可公网访问，数据持久化在 Supabase。

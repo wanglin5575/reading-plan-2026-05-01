@@ -1,4 +1,5 @@
 import { Pool } from "pg";
+import { isAuthEnabled } from "./auth";
 import type { Article } from "./types";
 
 /**
@@ -122,6 +123,10 @@ async function ensureSchema(): Promise<void> {
         CREATE INDEX IF NOT EXISTS idx_articles_completed_at ON articles(completed_at);
       `);
       await p.query(`
+        ALTER TABLE articles ADD COLUMN IF NOT EXISTS user_id TEXT;
+        CREATE INDEX IF NOT EXISTS idx_articles_user_id ON articles(user_id);
+      `);
+      await p.query(`
         ALTER TABLE articles ADD COLUMN IF NOT EXISTS author TEXT NOT NULL DEFAULT '未知作者';
         ALTER TABLE articles ADD COLUMN IF NOT EXISTS custom_tags JSONB NOT NULL DEFAULT '[]'::jsonb;
         ALTER TABLE articles ADD COLUMN IF NOT EXISTS featured BOOLEAN NOT NULL DEFAULT FALSE;
@@ -140,6 +145,7 @@ async function ensureSchema(): Promise<void> {
 
 async function seedDemoIfEmpty(p: Pool): Promise<void> {
   if (process.env.SEED_DEMO_ARTICLES !== "1") return;
+  if (isAuthEnabled()) return;
   const { rows } = await p.query<{ c: string }>("SELECT COUNT(*)::text AS c FROM articles");
   if (parseInt(rows[0].c, 10) > 0) return;
 
@@ -154,11 +160,11 @@ async function seedDemoIfEmpty(p: Pool): Promise<void> {
     `INSERT INTO articles (
       id, url, title, author, domain, theme, custom_tags, featured, summary, language, char_count, word_count,
       estimated_minutes, recommended_depth, knowledge_tags, status, added_at, due_date, completed_at,
-      read_one_liner, read_key_points, read_action, raw_excerpt
+      read_one_liner, read_key_points, read_action, raw_excerpt, user_id
     ) VALUES (
       $1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12,
       $13, $14, $15::jsonb, $16, $17::timestamptz, $18::date, $19::timestamptz,
-      $20, $21::jsonb, $22, $23
+      $20, $21::jsonb, $22, $23, $24
     )`,
     [
       todoId,
@@ -184,6 +190,7 @@ async function seedDemoIfEmpty(p: Pool): Promise<void> {
       JSON.stringify([]),
       "",
       excerpt,
+      null,
     ],
   );
 
@@ -191,11 +198,11 @@ async function seedDemoIfEmpty(p: Pool): Promise<void> {
     `INSERT INTO articles (
       id, url, title, author, domain, theme, custom_tags, featured, summary, language, char_count, word_count,
       estimated_minutes, recommended_depth, knowledge_tags, status, added_at, due_date, completed_at,
-      read_one_liner, read_key_points, read_action, raw_excerpt
+      read_one_liner, read_key_points, read_action, raw_excerpt, user_id
     ) VALUES (
       $1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12,
       $13, $14, $15::jsonb, $16, $17::timestamptz, $18::date, $19::timestamptz,
-      $20, $21::jsonb, $22, $23
+      $20, $21::jsonb, $22, $23, $24
     )`,
     [
       doneId,
@@ -221,6 +228,7 @@ async function seedDemoIfEmpty(p: Pool): Promise<void> {
       JSON.stringify(["演示观点一", "演示观点二", "演示观点三"]),
       "在本周复盘里跟进一条行动项。",
       excerpt,
+      null,
     ],
   );
 }
@@ -320,19 +328,21 @@ function rowToArticle(row: ArticleRow): Article {
   };
 }
 
-export async function insertArticle(article: Article): Promise<void> {
+export async function insertArticle(article: Article, ownerUserId: string | null): Promise<void> {
   const p = getPoolOrNull();
   if (!p) throw new Error("db_not_configured");
   await ensureSchema();
+  const uid = isAuthEnabled() ? ownerUserId : null;
+  if (isAuthEnabled() && !uid) throw new Error("auth_required");
   await p.query(
     `INSERT INTO articles (
       id, url, title, author, domain, theme, custom_tags, featured, summary, language, char_count, word_count,
       estimated_minutes, recommended_depth, knowledge_tags, status, added_at, due_date, completed_at,
-      read_one_liner, read_key_points, read_action, raw_excerpt
+      read_one_liner, read_key_points, read_action, raw_excerpt, user_id
     ) VALUES (
       $1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12,
       $13, $14, $15::jsonb, $16, $17::timestamptz, $18::date, $19::timestamptz,
-      $20, $21::jsonb, $22, $23
+      $20, $21::jsonb, $22, $23, $24
     )`,
     [
       article.id,
@@ -358,14 +368,65 @@ export async function insertArticle(article: Article): Promise<void> {
       JSON.stringify(article.readKeyPoints || []),
       article.readAction || "",
       article.rawExcerpt,
+      uid,
     ],
   );
 }
 
-export async function updateArticle(article: Article): Promise<void> {
+export async function updateArticle(article: Article, ownerUserId: string | null): Promise<void> {
   const p = getPoolOrNull();
   if (!p) throw new Error("db_not_configured");
   await ensureSchema();
+  if (isAuthEnabled()) {
+    if (!ownerUserId) throw new Error("auth_required");
+    await p.query(
+      `UPDATE articles SET
+      title = $1,
+      author = $2,
+      theme = $3,
+      custom_tags = $4::jsonb,
+      featured = $5,
+      summary = $6,
+      language = $7,
+      char_count = $8,
+      word_count = $9,
+      estimated_minutes = $10,
+      recommended_depth = $11,
+      knowledge_tags = $12::jsonb,
+      status = $13,
+      due_date = $14::date,
+      completed_at = $15::timestamptz,
+      read_one_liner = $16,
+      read_key_points = $17::jsonb,
+      read_action = $18,
+      raw_excerpt = $19
+    WHERE id = $20 AND user_id = $21`,
+      [
+        article.title,
+        article.author || "未知作者",
+        article.theme,
+        JSON.stringify(article.customTags || []),
+        article.featured,
+        article.summary,
+        article.language,
+        article.charCount,
+        article.wordCount,
+        article.estimatedMinutes,
+        article.recommendedDepth,
+        JSON.stringify(article.knowledgeTags),
+        article.status,
+        article.dueDate,
+        article.completedAt,
+        article.readOneLiner || "",
+        JSON.stringify(article.readKeyPoints || []),
+        article.readAction || "",
+        article.rawExcerpt,
+        article.id,
+        ownerUserId,
+      ],
+    );
+    return;
+  }
   await p.query(
     `UPDATE articles SET
       title = $1,
@@ -413,7 +474,7 @@ export async function updateArticle(article: Article): Promise<void> {
   );
 }
 
-export async function listArticles(): Promise<Article[]> {
+export async function listArticlesForUser(userId: string | null): Promise<Article[]> {
   try {
     const p = getPoolOrNull();
     if (!p) {
@@ -423,19 +484,36 @@ export async function listArticles(): Promise<Article[]> {
       return [];
     }
     await ensureSchema();
+    if (isAuthEnabled()) {
+      if (!userId) return [];
+      const { rows } = await p.query<ArticleRow>(
+        "SELECT * FROM articles WHERE user_id = $1 ORDER BY due_date ASC, added_at DESC",
+        [userId],
+      );
+      return rows.map(rowToArticle);
+    }
     const { rows } = await p.query<ArticleRow>("SELECT * FROM articles ORDER BY due_date ASC, added_at DESC");
     return rows.map(rowToArticle);
   } catch (error) {
-    console.error("[db] listArticles failed:", error);
+    console.error("[db] listArticlesForUser failed:", error);
     return [];
   }
 }
 
-export async function getArticle(id: string): Promise<Article | null> {
+export async function getArticle(id: string, ownerUserId: string | null): Promise<Article | null> {
   try {
     const p = getPoolOrNull();
     if (!p) return null;
     await ensureSchema();
+    if (isAuthEnabled()) {
+      if (!ownerUserId) return null;
+      const { rows } = await p.query<ArticleRow>(
+        "SELECT * FROM articles WHERE id = $1 AND user_id = $2 LIMIT 1",
+        [id, ownerUserId],
+      );
+      const row = rows[0];
+      return row ? rowToArticle(row) : null;
+    }
     const { rows } = await p.query<ArticleRow>("SELECT * FROM articles WHERE id = $1 LIMIT 1", [id]);
     const row = rows[0];
     return row ? rowToArticle(row) : null;
@@ -445,10 +523,15 @@ export async function getArticle(id: string): Promise<Article | null> {
   }
 }
 
-export async function deleteArticle(id: string): Promise<void> {
+export async function deleteArticle(id: string, ownerUserId: string | null): Promise<void> {
   const p = getPoolOrNull();
   if (!p) throw new Error("db_not_configured");
   await ensureSchema();
+  if (isAuthEnabled()) {
+    if (!ownerUserId) throw new Error("auth_required");
+    await p.query("DELETE FROM articles WHERE id = $1 AND user_id = $2", [id, ownerUserId]);
+    return;
+  }
   await p.query("DELETE FROM articles WHERE id = $1", [id]);
 }
 

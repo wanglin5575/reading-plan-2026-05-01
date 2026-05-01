@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { deleteArticle, getArticle, updateArticle } from "@/lib/db";
 import type { Article } from "@/lib/types";
+import { getRouteHandlerUserId } from "@/lib/auth/api";
+import { isAuthEnabled } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -23,7 +25,11 @@ function applyDigest(article: Article, one: string, points: string[], action: st
 
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
-  const article = await getArticle(id);
+  const ownerId = await getRouteHandlerUserId();
+  if (isAuthEnabled() && !ownerId) {
+    return NextResponse.json({ error: "unauthorized", message: "请先登录。" }, { status: 401 });
+  }
+  const article = await getArticle(id, ownerId ?? null);
   if (!article) return NextResponse.json({ error: "not_found" }, { status: 404 });
 
   let body: {
@@ -91,7 +97,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   }
 
   try {
-    await updateArticle(article);
+    await updateArticle(article, ownerId ?? null);
     return NextResponse.json({ article });
   } catch (error) {
     if (error instanceof Error && error.message === "db_not_configured") {
@@ -106,8 +112,12 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
 
 export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
+  const ownerId = await getRouteHandlerUserId();
+  if (isAuthEnabled() && !ownerId) {
+    return NextResponse.json({ error: "unauthorized", message: "请先登录。" }, { status: 401 });
+  }
   try {
-    await deleteArticle(id);
+    await deleteArticle(id, ownerId ?? null);
     return NextResponse.json({ ok: true });
   } catch (error) {
     if (error instanceof Error && error.message === "db_not_configured") {
