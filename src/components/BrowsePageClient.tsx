@@ -19,21 +19,6 @@ import {
 } from "@/lib/browse-storage";
 import { BrowseHitCard } from "@/components/BrowseHitCard";
 
-/** 随览列表顶部的文章卡片界面示例（非真实链接、不写库） */
-const BROWSE_ARTICLE_CARD_DEMO: BrowseStoredHit = {
-  url: "https://example.com/blog/reading-plan-demo-preview",
-  title: "示例：搭建可复现的 LLM 评测小流水线",
-  description: "",
-  summary:
-    "这是随览文章卡片的样式示例。左滑可露出「已读」「待读」；点按钮仅提示说明，不会写入待读或已读。Pat Chen 在文中建议用固定随机种子做回归。",
-  excerpt: "",
-  publishedTime: "2025-03-01T08:00:00.000Z",
-  author: null,
-  estimatedMinutes: 5,
-  firstSeenAt: new Date(0).toISOString(),
-  lastRefreshedAt: new Date(0).toISOString(),
-};
-
 function TopicTabButton({
   t,
   active,
@@ -741,28 +726,28 @@ export default function BrowsePageClient() {
       )}
 
       <div className="browse-hits">
-        {!loadingTopics && hits.length === 0 && (
-          <div className="browse-hit-demo-block">
-            <p className="browse-hit-demo-caption muted-link">文章卡片示例</p>
-            <BrowseHitCard
-              demo
-              hit={BROWSE_ARTICLE_CARD_DEMO}
-              topicName="示例"
-              busy={false}
-              onAddTodo={async () => {
-                setMsg("此为界面示例，未加入待读。");
+        {!loadingTopics && activeId && hits.length === 0 ? (
+          <div className="browse-empty-center">
+            <button
+              type="button"
+              className="browse-empty-refresh-btn"
+              disabled={refreshing}
+              aria-busy={refreshing}
+              aria-label={refreshing ? "正在刷新" : "点击刷新列表"}
+              onClick={() => {
+                if (!activeId || refreshingRef.current) return;
+                void runRefresh(activeId);
               }}
-              onAddDone={async () => {
-                setMsg("此为界面示例，未加入已读。");
-              }}
-            />
+            >
+              <span
+                className={`browse-empty-refresh-icon${refreshing ? " browse-empty-refresh-icon--spin" : ""}`}
+                aria-hidden
+              >
+                ↻
+              </span>
+            </button>
           </div>
-        )}
-        {!loadingTopics && hits.length === 0 && !msg && (
-          <p className="muted-link">
-            暂无内容。请先滚回页面顶部，再下拉（触屏）或按住拖拽（鼠标）获取更新；或在上方双击「随览」标题刷新。
-          </p>
-        )}
+        ) : null}
         {sortedHits.map((h) => (
           <BrowseHitCard
             key={h.url}
