@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { formatSupabaseAuthMessage } from "@/lib/auth";
 import { createBrowserSupabaseClient } from "@/lib/supabase/client";
 
 export function MeAccountClient({
@@ -29,7 +30,7 @@ export function MeAccountClient({
     try {
       const supabase = createBrowserSupabaseClient();
       const origin = typeof window !== "undefined" ? window.location.origin : "";
-      const { error } = await supabase.auth.signUp({
+      const { data, error } = await supabase.auth.signUp({
         email: email.trim(),
         password,
         options: origin
@@ -39,10 +40,18 @@ export function MeAccountClient({
           : undefined,
       });
       if (error) throw error;
-      setMsg("注册成功。若项目在 Supabase 中开启了「邮箱确认」，请查收邮件验证后再登录。");
-      setMode("login");
+      if (data.session) {
+        setMsg("注册成功，已登录。");
+        setPassword("");
+        router.refresh();
+      } else {
+        setMsg(
+          "账号已创建。若 Supabase 开启了「邮箱确认」，请查收邮件并点击链接验证后再登录；关闭确认时通常可直接登录。",
+        );
+        setMode("login");
+      }
     } catch (e: unknown) {
-      setMsg(e instanceof Error ? e.message : "注册失败");
+      setMsg(formatSupabaseAuthMessage(e));
     } finally {
       setBusy(false);
     }
@@ -62,7 +71,7 @@ export function MeAccountClient({
       setPassword("");
       router.refresh();
     } catch (e: unknown) {
-      setMsg(e instanceof Error ? e.message : "登录失败");
+      setMsg(formatSupabaseAuthMessage(e));
     } finally {
       setBusy(false);
     }
