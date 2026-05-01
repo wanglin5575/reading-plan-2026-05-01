@@ -538,8 +538,7 @@ export default function BrowsePageClient() {
             随览
           </h1>
           <span className="sub">
-            首次刷新约 6 个月窗、增量只补新链接；本地保留约 90 天 · 关键词右侧可切换列表排序 ·
-            已连接数据库时列表会同步到服务端，手机与电脑打开随览或切回标签页即可对齐；未配库时仍仅存本机
+            首次刷新约 6 个月窗、增量只补新链接；自首次收录起约保留 90 天（本地与服务端一致）。
           </span>
         </div>
         <button
@@ -597,22 +596,26 @@ export default function BrowsePageClient() {
             关键词：<span className="browse-kw-chips">{active.keywords.join(" · ")}</span>
           </p>
           {!loadingTopics ? (
-            <label className="browse-sort-inline" htmlFor="browse-sort-select">
+            <div className="browse-sort-text" role="group" aria-label="列表排序">
               <span className="browse-sort-inline-label">排序</span>
-              <select
-                id="browse-sort-select"
-                className="browse-sort-select"
-                value={sortBy}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  setSortBy(v === "published" ? "published" : "refreshed");
-                }}
-                aria-label="列表排序方式"
+              <button
+                type="button"
+                className={`browse-sort-link${sortBy === "refreshed" ? " browse-sort-link--on" : ""}`}
+                onClick={() => setSortBy("refreshed")}
               >
-                <option value="refreshed">刷新时间</option>
-                <option value="published">发布时间</option>
-              </select>
-            </label>
+                刷新时间
+              </button>
+              <span className="browse-sort-sep" aria-hidden>
+                ·
+              </span>
+              <button
+                type="button"
+                className={`browse-sort-link${sortBy === "published" ? " browse-sort-link--on" : ""}`}
+                onClick={() => setSortBy("published")}
+              >
+                发布时间
+              </button>
+            </div>
           ) : null}
         </div>
       )}

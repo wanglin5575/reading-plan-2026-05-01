@@ -2,7 +2,7 @@ import type { BrowseHit } from "./types";
 
 export const BROWSE_STORAGE_KEY = "reading-plan-browse-v2";
 
-/** 本地保留随览条目的最长时间：按 lastRefreshedAt 滚动，默认 90 天 */
+/** 随览条目最长保留：按「首次收录」firstSeenAt 起算，默认 90 天（客户端与服务端同一规则） */
 export const BROWSE_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
 
 /** 主题从未成功刷新过时，首次拉取的起始时间窗（约 6 个月） */
@@ -17,7 +17,7 @@ export type BrowseSortMode = "refreshed" | "published";
 
 export interface BrowseStoredHit extends BrowseHit {
   firstSeenAt: string;
-  /** 本条最后一次出现在随览抓取结果中的时间（排序、三个月淘汰） */
+  /** 本条最后一次出现在随览抓取结果中的时间（排序、与 90 天保留无冲突） */
   lastRefreshedAt: string;
 }
 
@@ -92,13 +92,21 @@ export function sortBrowseItemsForDisplay(items: BrowseStoredHit[], mode: Browse
   return mode === "published" ? sortBrowseItemsByPublished(items) : sortBrowseItemsByRefreshed(items);
 }
 
-/** 本地保留：按「首次随览收录」起算 90 天（与是否再次出现在检索结果无关） */
+/** 单条列表：按「首次随览收录」起算，超过保留期的条目剔除（与是否再次出现在检索结果无关） */
 export function pruneBrowseItems(items: BrowseStoredHit[], now = Date.now()): BrowseStoredHit[] {
   return items.filter((x) => {
     const t = Date.parse(x.firstSeenAt);
     if (Number.isNaN(t)) return false;
     return now - t < BROWSE_RETENTION_MS;
   });
+}
+
+/** 整份主题 feed 的 90 天裁剪（写入/读出数据库时与客户端合并逻辑共用） */
+export function pruneBrowseTopicFeed(feed: BrowseTopicFeed, now = Date.now()): BrowseTopicFeed {
+  return {
+    lastRefreshAt: feed.lastRefreshAt,
+    items: pruneBrowseItems(feed.items, now),
+  };
 }
 
 function hitRecencyMs(h: BrowseStoredHit): number {
