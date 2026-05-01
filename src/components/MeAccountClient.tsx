@@ -28,7 +28,16 @@ export function MeAccountClient({
     setBusy(true);
     try {
       const supabase = createBrowserSupabaseClient();
-      const { error } = await supabase.auth.signUp({ email: email.trim(), password });
+      const origin = typeof window !== "undefined" ? window.location.origin : "";
+      const { error } = await supabase.auth.signUp({
+        email: email.trim(),
+        password,
+        options: origin
+          ? {
+              emailRedirectTo: `${origin}/auth/callback`,
+            }
+          : undefined,
+      });
       if (error) throw error;
       setMsg("注册成功。若项目在 Supabase 中开启了「邮箱确认」，请查收邮件验证后再登录。");
       setMode("login");
