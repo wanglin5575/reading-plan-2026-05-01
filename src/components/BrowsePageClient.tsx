@@ -112,7 +112,8 @@ export default function BrowsePageClient() {
   const [rdK3, setRdK3] = useState("");
   const [rdAction, setRdAction] = useState("");
   const [sortBy, setSortBy] = useState<BrowseSortMode>("refreshed");
-
+  const [sortMenuOpen, setSortMenuOpen] = useState(false);
+  const sortDdRef = useRef<HTMLDivElement>(null);
   const activeIdRef = useRef<string | null>(null);
   useEffect(() => {
     activeIdRef.current = activeId;
@@ -152,6 +153,21 @@ export default function BrowsePageClient() {
     const v = typeof window !== "undefined" ? localStorage.getItem(BROWSE_SORT_LS_KEY) : null;
     if (v === "published" || v === "refreshed") setSortBy(v);
   }, []);
+
+  useEffect(() => {
+    if (!sortMenuOpen) return;
+    const close = (e: MouseEvent) => {
+      if (sortDdRef.current && !sortDdRef.current.contains(e.target as Node)) {
+        setSortMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [sortMenuOpen]);
+
+  useEffect(() => {
+    setSortMenuOpen(false);
+  }, [activeId]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -596,25 +612,52 @@ export default function BrowsePageClient() {
             关键词：<span className="browse-kw-chips">{active.keywords.join(" · ")}</span>
           </p>
           {!loadingTopics ? (
-            <div className="browse-sort-text" role="group" aria-label="列表排序">
-              <span className="browse-sort-inline-label">排序</span>
+            <div className="browse-sort-dd" ref={sortDdRef}>
               <button
                 type="button"
-                className={`browse-sort-link${sortBy === "refreshed" ? " browse-sort-link--on" : ""}`}
-                onClick={() => setSortBy("refreshed")}
+                className="browse-sort-dd-trigger"
+                aria-haspopup="listbox"
+                aria-expanded={sortMenuOpen}
+                aria-label="排序方式"
+                onClick={() => setSortMenuOpen((o) => !o)}
               >
-                刷新时间
+                <span className="browse-sort-dd-label">
+                  {sortBy === "refreshed" ? "按刷新时间" : "按发布时间"}
+                </span>
+                <span className={`browse-sort-dd-chevron${sortMenuOpen ? " browse-sort-dd-chevron--open" : ""}`} aria-hidden />
               </button>
-              <span className="browse-sort-sep" aria-hidden>
-                ·
-              </span>
-              <button
-                type="button"
-                className={`browse-sort-link${sortBy === "published" ? " browse-sort-link--on" : ""}`}
-                onClick={() => setSortBy("published")}
-              >
-                发布时间
-              </button>
+              {sortMenuOpen ? (
+                <ul className="browse-sort-dd-menu" role="listbox" aria-label="选择排序">
+                  <li role="none">
+                    <button
+                      type="button"
+                      role="option"
+                      aria-selected={sortBy === "refreshed"}
+                      className={`browse-sort-dd-item${sortBy === "refreshed" ? " browse-sort-dd-item--on" : ""}`}
+                      onClick={() => {
+                        setSortBy("refreshed");
+                        setSortMenuOpen(false);
+                      }}
+                    >
+                      按刷新时间
+                    </button>
+                  </li>
+                  <li role="none">
+                    <button
+                      type="button"
+                      role="option"
+                      aria-selected={sortBy === "published"}
+                      className={`browse-sort-dd-item${sortBy === "published" ? " browse-sort-dd-item--on" : ""}`}
+                      onClick={() => {
+                        setSortBy("published");
+                        setSortMenuOpen(false);
+                      }}
+                    >
+                      按发布时间
+                    </button>
+                  </li>
+                </ul>
+              ) : null}
             </div>
           ) : null}
         </div>
