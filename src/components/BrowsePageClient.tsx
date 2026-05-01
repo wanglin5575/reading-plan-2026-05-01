@@ -567,12 +567,12 @@ export default function BrowsePageClient() {
         ) : null}
       </div>
 
-      <div className="browse-topic-tabs-bar">
-        <div className="browse-topic-tabs">
-          {loadingTopics ? (
-            <span className="muted-link">加载主题…</span>
-          ) : (
-            topics.map((t) => (
+      <div className="browse-topic-tabs">
+        {loadingTopics ? (
+          <span className="muted-link">加载主题…</span>
+        ) : (
+          <>
+            {topics.map((t) => (
               <TopicTabButton
                 key={t.id}
                 t={t}
@@ -580,17 +580,17 @@ export default function BrowsePageClient() {
                 onSelect={setActiveId}
                 onLongPress={openEditTopic}
               />
-            ))
-          )}
-        </div>
-        <button
-          type="button"
-          className="browse-add-topic-btn"
-          aria-label="添加主题"
-          onClick={() => setFormOpen(true)}
-        >
-          +
-        </button>
+            ))}
+            <button
+              type="button"
+              className="browse-topic-tab browse-topic-tab-add"
+              aria-label="添加主题"
+              onClick={() => setFormOpen(true)}
+            >
+              +
+            </button>
+          </>
+        )}
       </div>
 
       {active && (
