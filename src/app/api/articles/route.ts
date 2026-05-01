@@ -9,7 +9,7 @@ import type { Article } from "@/lib/types";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  return NextResponse.json({ articles: listArticles() });
+  return NextResponse.json({ articles: await listArticles() });
 }
 
 export async function POST(req: Request) {
@@ -44,6 +44,6 @@ export async function POST(req: Request) {
     ...classification,
   };
 
-  insertArticle(article);
+  await insertArticle(article);
   return NextResponse.json({ article }, { status: 201 });
 }

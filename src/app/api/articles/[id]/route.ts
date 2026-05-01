@@ -5,7 +5,7 @@ export const dynamic = "force-dynamic";
 
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
-  const article = getArticle(id);
+  const article = await getArticle(id);
   if (!article) return NextResponse.json({ error: "not_found" }, { status: 404 });
 
   let body: { status?: "todo" | "done"; dueDate?: string; theme?: string };
@@ -22,12 +22,12 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   if (body.dueDate) article.dueDate = body.dueDate;
   if (body.theme) article.theme = body.theme;
 
-  updateArticle(article);
+  await updateArticle(article);
   return NextResponse.json({ article });
 }
 
 export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
-  deleteArticle(id);
+  await deleteArticle(id);
   return NextResponse.json({ ok: true });
 }

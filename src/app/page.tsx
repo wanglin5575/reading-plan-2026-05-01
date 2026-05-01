@@ -5,8 +5,8 @@ import { ArticleCard } from "@/components/ArticleCard";
 
 export const dynamic = "force-dynamic";
 
-export default function HomePage() {
-  const all = listArticles();
+export default async function HomePage() {
+  const all = await listArticles();
   const plan = buildDailyPlan(all);
 
   return (

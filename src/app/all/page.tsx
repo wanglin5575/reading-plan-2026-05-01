@@ -1,6 +1,7 @@
 import { listArticles } from "@/lib/db";
 import { ArticleCard } from "@/components/ArticleCard";
 import { AllFilters } from "./AllFilters";
+import type { Article } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -12,7 +13,7 @@ interface SearchParams {
 
 export default async function AllPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const params = await searchParams;
-  const articles = listArticles();
+  const articles = await listArticles();
   const themes = Array.from(new Set(articles.map((a) => a.theme))).sort();
 
   const filtered = articles.filter((a) => {
@@ -51,8 +52,8 @@ export default async function AllPage({ searchParams }: { searchParams: Promise<
   );
 }
 
-function groupByDueDate(items: ReturnType<typeof listArticles>) {
-  const map = new Map<string, ReturnType<typeof listArticles>>();
+function groupByDueDate(items: Article[]) {
+  const map = new Map<string, Article[]>();
   for (const a of items) {
     const key = a.status === "done" ? "done" : a.dueDate;
     if (!map.has(key)) map.set(key, []);

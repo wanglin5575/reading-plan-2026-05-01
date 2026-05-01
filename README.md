@@ -4,9 +4,9 @@
 
 ## 技术栈
 
-- Next.js 15（App Router）
+- Next.js 16（App Router）
 - TypeScript + React 19
-- SQLite（better-sqlite3）本地数据库
+- Supabase Postgres（`pg`）
 - Firecrawl 网页正文抓取（可选，强烈推荐）
 - 纯规则法分类与阅读时长估算（无需 AI key）
 
@@ -14,7 +14,7 @@
 
 ```bash
 cd "/Users/wuwanlin/Cursor Projects/reading-plan-2026-05-01"
-cp .env.example .env.local        # 编辑后填入 FIRECRAWL_API_KEY（可选）
+cp .env.example .env.local        # 编辑后填入 DATABASE_URL，FIRECRAWL_API_KEY 可选
 npm run dev
 ```
 
@@ -38,9 +38,12 @@ dev server 已绑定 `0.0.0.0`，所以同 WiFi 下手机可以直接打开。
 - 有密钥时：自动使用 Firecrawl 抓取 markdown，质量好得多。
 - 申请：https://firecrawl.dev/  → 拿到 `fc-xxx` key 后写入 `.env.local` 的 `FIRECRAWL_API_KEY`。
 
-## 数据存放
+## 数据库配置（Supabase）
 
-默认数据库在 `./data/reading-plan.db`。要重置数据，删除该文件即可。
+1. 在 Supabase 创建项目。
+2. 进入 `Project Settings -> Database`，复制连接串（建议 pooler 连接）。
+3. 写入 `.env.local` 的 `DATABASE_URL`。
+4. 首次请求会自动建表（`articles`）。
 
 ## 主要功能
 
@@ -54,7 +57,6 @@ dev server 已绑定 `0.0.0.0`，所以同 WiFi 下手机可以直接打开。
 ## 后续可扩展（v3 备选）
 
 - 接入 OpenAI / Claude，把规则法升级为真正的 AI 摘要 + 分类 + 个性化推荐
-- 接入 Turso / Supabase 数据库后部署到 Vercel（SQLite 文件在 Vercel 的无状态环境里不持久）
 - iOS Shortcut：在 Safari 用「分享 → 阅读计划」一键添加链接
 - 多用户/账号系统
 - 复习模式（根据遗忘曲线提醒重读）
@@ -71,7 +73,6 @@ reading-plan-2026-05-01/
 │   │   └── api/articles/   # CRUD / 刷新
 │   ├── components/         # AddArticleForm, ArticleCard, Tabbar
 │   └── lib/                # db.ts / scrape.ts / classify.ts / plan.ts
-├── data/                   # SQLite 数据库（运行后生成）
 ├── legacy/                 # v1 静态版本（保留参考）
 ├── package.json
 ├── next.config.mjs
@@ -83,5 +84,7 @@ reading-plan-2026-05-01/
 
 1. 把项目 push 到 GitHub。
 2. 在 Vercel 导入仓库，选 Next.js 框架。
-3. **必须**把 SQLite 替换为云数据库（Turso / Supabase / PlanetScale），因为 Vercel 函数文件系统是只读的。改 `src/lib/db.ts` 即可。
-4. 在 Vercel Dashboard → Settings → Environment Variables 配 `FIRECRAWL_API_KEY` 和数据库连接串。
+3. 在 Vercel Dashboard → Settings → Environment Variables 配置：
+   - `DATABASE_URL`（Supabase Postgres）
+   - `FIRECRAWL_API_KEY`（可选）
+4. 重新部署后即可公网访问，数据持久化在 Supabase。

@@ -3,8 +3,8 @@ import { buildWeeklyReview } from "@/lib/plan";
 
 export const dynamic = "force-dynamic";
 
-export default function WeeklyPage() {
-  const review = buildWeeklyReview(listArticles());
+export default async function WeeklyPage() {
+  const review = buildWeeklyReview(await listArticles());
   const { comparedToLast } = review;
 
   return (
