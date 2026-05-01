@@ -478,9 +478,19 @@ export default function BrowsePageClient() {
     <>
       <header className="app-header app-header-with-actions browse-header-row">
         <div className="app-header-titles">
-          <h1>随览</h1>
+          <h1
+            className="browse-title-refresh"
+            title="双击刷新当前主题列表（与下拉刷新相同）"
+            onDoubleClick={() => {
+              if (loadingTopics || !activeId || refreshingRef.current) return;
+              void runRefresh(activeId);
+            }}
+          >
+            随览
+          </h1>
           <span className="sub">
-            首次刷新约 6 个月窗、增量只补新链接；本地保留约 90 天 · 可按刷新/发布时间排序
+            首次刷新约 6 个月窗、增量只补新链接；本地保留约 90 天 · 可按刷新/发布时间排序 ·
+            文章列表仅存当前浏览器，手机与电脑需各自刷新（双击标题或下拉）
           </span>
         </div>
         <button
@@ -655,7 +665,7 @@ export default function BrowsePageClient() {
         )}
         {!loadingTopics && hits.length === 0 && !msg && (
           <p className="muted-link">
-            暂无内容。请先滚回页面顶部，再下拉（触屏）或按住拖拽（鼠标）获取更新。
+            暂无内容。请先滚回页面顶部，再下拉（触屏）或按住拖拽（鼠标）获取更新；或在上方双击「随览」标题刷新。
           </p>
         )}
         {sortedHits.map((h) => (
