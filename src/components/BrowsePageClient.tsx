@@ -538,7 +538,7 @@ export default function BrowsePageClient() {
             随览
           </h1>
           <span className="sub">
-            首次刷新约 6 个月窗、增量只补新链接；本地保留约 90 天 · 可按刷新/发布时间排序 ·
+            首次刷新约 6 个月窗、增量只补新链接；本地保留约 90 天 · 关键词右侧可切换列表排序 ·
             已连接数据库时列表会同步到服务端，手机与电脑打开随览或切回标签页即可对齐；未配库时仍仅存本机
           </span>
         </div>
@@ -592,28 +592,28 @@ export default function BrowsePageClient() {
       </div>
 
       {active && (
-        <p className="muted-link browse-kw-line">
-          关键词：<span className="browse-kw-chips">{active.keywords.join(" · ")}</span>
-        </p>
-      )}
-
-      {!loadingTopics && active && (
-        <div className="browse-sort-bar" role="group" aria-label="列表排序">
-          <span className="muted-link browse-sort-label">排序</span>
-          <button
-            type="button"
-            className={`browse-sort-btn${sortBy === "refreshed" ? " browse-sort-btn--active" : ""}`}
-            onClick={() => setSortBy("refreshed")}
-          >
-            刷新时间
-          </button>
-          <button
-            type="button"
-            className={`browse-sort-btn${sortBy === "published" ? " browse-sort-btn--active" : ""}`}
-            onClick={() => setSortBy("published")}
-          >
-            发布时间
-          </button>
+        <div className="browse-kw-row">
+          <p className="muted-link browse-kw-line browse-kw-main">
+            关键词：<span className="browse-kw-chips">{active.keywords.join(" · ")}</span>
+          </p>
+          {!loadingTopics ? (
+            <label className="browse-sort-inline" htmlFor="browse-sort-select">
+              <span className="browse-sort-inline-label">排序</span>
+              <select
+                id="browse-sort-select"
+                className="browse-sort-select"
+                value={sortBy}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setSortBy(v === "published" ? "published" : "refreshed");
+                }}
+                aria-label="列表排序方式"
+              >
+                <option value="refreshed">刷新时间</option>
+                <option value="published">发布时间</option>
+              </select>
+            </label>
+          ) : null}
         </div>
       )}
 
