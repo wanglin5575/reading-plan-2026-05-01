@@ -363,6 +363,10 @@ a:active { opacity: 0.7; }
   margin-bottom: 12px;
 }
 
+.me-change-pw {
+  margin-bottom: 8px;
+}
+
 .me-code {
   font-size: var(--fs-small);
   word-break: break-all;
@@ -373,6 +377,37 @@ a:active { opacity: 0.7; }
   font-size: var(--fs-small);
   color: var(--muted);
   line-height: var(--lh-snug);
+}
+
+.me-auth-extras {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin-top: 8px;
+  font-size: var(--fs-small);
+}
+
+.me-auth-sep {
+  color: var(--border);
+  user-select: none;
+}
+
+.me-link-btn {
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: inherit;
+  color: var(--brand);
+  text-decoration: underline;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.me-link-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .card {

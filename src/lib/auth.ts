@@ -27,7 +27,7 @@ export function formatSupabaseAuthMessage(err: unknown): string {
     /invalid login credentials/i.test(raw) ||
     /invalid credentials/i.test(raw)
   ) {
-    return "无法登录：请检查邮箱与密码是否正确。若项目开启了「邮箱确认」，须先点击邮件里的验证链接后才能用密码登录；也可在 Supabase → Authentication → Providers → Email 中暂时关闭 Confirm email 以便测试。若忘记密码，可在控制台为用户重设或使用 Magic link。";
+    return "登录失败：请核对邮箱与密码。若已注册但未完成邮箱验证，可先点下面「重发验证邮件」再查收邮箱。";
   }
   if (code === "user_already_exists" || code === "email_exists") {
     return "该邮箱已注册，请直接登录或使用其他邮箱。";
