@@ -1,7 +1,9 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: 'standalone',
-  reactStrictMode: true,
+  env: {
+    DATA_DIR: '/tmp'
+  }
 }
 
 module.exports = nextConfig
