@@ -289,7 +289,7 @@ export default function WeeklyReviewClient({
             {weekArticles.length === 0 ? (
               <p className="muted-link">该周内暂无已读文章。</p>
             ) : (
-              weekArticles.map((a) => <ArticleCard key={a.id} article={a} />)
+              weekArticles.map((a) => <ArticleCard key={a.id} article={a} collapseOriginalSummary />)
             )}
           </div>
         </>
@@ -305,7 +305,7 @@ export default function WeeklyReviewClient({
             {dayReview.articles.length === 0 ? (
               <p className="muted-link">该日暂无已读文章。</p>
             ) : (
-              dayReview.articles.map((a) => <ArticleCard key={a.id} article={a} />)
+              dayReview.articles.map((a) => <ArticleCard key={a.id} article={a} collapseOriginalSummary />)
             )}
           </div>
         </>

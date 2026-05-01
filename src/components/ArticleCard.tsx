@@ -8,6 +8,8 @@ import { type Article, isIntensiveRead } from "@/lib/types";
 interface Props {
   article: Article;
   showActions?: boolean;
+  /** 为 true 时：原抓取摘要移到卡片底部，单行_gray 小字，可点开 >> 展开 */
+  collapseOriginalSummary?: boolean;
 }
 
 type DigestMode = "markDone" | "edit";
@@ -20,6 +22,26 @@ function joinKeyPointsProse(points: unknown[] | undefined): string {
     .filter(Boolean);
   if (!parts.length) return "";
   return parts.join("；");
+}
+
+function ArticleSummaryFooter({ summary }: { summary: string }) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <div className="article-summary-footer">
+      <p className={`article-summary-footer-text ${expanded ? "is-expanded" : "is-collapsed"}`}>{summary}</p>
+      <button
+        type="button"
+        className="article-summary-footer-toggle"
+        onClick={() => setExpanded((v) => !v)}
+        aria-expanded={expanded}
+        aria-label={expanded ? "收起原文摘要" : "展开原文摘要"}
+      >
+        <span className={`article-summary-footer-chevron ${expanded ? "is-expanded" : ""}`} aria-hidden>
+          &gt;&gt;
+        </span>
+      </button>
+    </div>
+  );
 }
 
 function useSwipeTodoFace(enabled: boolean) {
@@ -177,7 +199,7 @@ function ArticleTitleLink({ url, children }: { url: string; children: ReactNode 
   );
 }
 
-export function ArticleCard({ article, showActions = true }: Props) {
+export function ArticleCard({ article, showActions = true, collapseOriginalSummary = false }: Props) {
   const router = useRouter();
   const [, startTransition] = useTransition();
   const [mounted, setMounted] = useState(false);
@@ -424,6 +446,9 @@ export function ArticleCard({ article, showActions = true }: Props) {
     </div>
   );
 
+  const hasUsableSummary = Boolean(article.summary && article.summary !== "(暂无摘要)");
+  const showSummaryInBody = hasUsableSummary && !collapseOriginalSummary;
+
   const cardMiddle = (
     <>
       {cardTop}
@@ -432,11 +457,11 @@ export function ArticleCard({ article, showActions = true }: Props) {
       </ArticleTitleLink>
       <div className="muted-link">作者：{article.author || "未知作者"}</div>
 
-      {article.status === "todo" && article.summary && article.summary !== "(暂无摘要)" && (
+      {article.status === "todo" && showSummaryInBody && (
         <p className="summary">{article.summary}</p>
       )}
 
-      {article.status === "done" && article.summary && article.summary !== "(暂无摘要)" && (
+      {article.status === "done" && showSummaryInBody && (
         <p className="summary">{article.summary}</p>
       )}
 
@@ -468,6 +493,9 @@ export function ArticleCard({ article, showActions = true }: Props) {
             </span>
           ))}
         </div>
+      )}
+      {collapseOriginalSummary && hasUsableSummary && (
+        <ArticleSummaryFooter summary={article.summary!} />
       )}
     </>
   );

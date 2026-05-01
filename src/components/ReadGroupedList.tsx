@@ -51,7 +51,7 @@ export function ReadGroupedList({ items, mode }: { items: Article[]; mode: ReadG
                 {g.label} · {g.items.length} 篇
               </h3>
             )}
-            {!collapsed && g.items.map((a) => <ArticleCard key={a.id} article={a} />)}
+            {!collapsed && g.items.map((a) => <ArticleCard key={a.id} article={a} collapseOriginalSummary />)}
           </section>
         );
       })}
