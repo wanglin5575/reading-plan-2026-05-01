@@ -1,12 +1,18 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { BrowseHit, BrowseTopic } from "@/lib/types";
 import {
   loadBrowseStorage,
   mergeBrowseFeed,
   saveBrowseStorage,
+  pruneBrowseItems,
+  sortBrowseItemsForDisplay,
+  BROWSE_BOOTSTRAP_SINCE_MS,
+  BROWSE_EXCLUDE_URLS_MAX,
+  BROWSE_SORT_LS_KEY,
+  type BrowseSortMode,
   type BrowseStoredHit,
 } from "@/lib/browse-storage";
 import { BrowseHitCard } from "@/components/BrowseHitCard";
@@ -23,6 +29,7 @@ const BROWSE_ARTICLE_CARD_DEMO: BrowseStoredHit = {
   author: null,
   estimatedMinutes: 5,
   firstSeenAt: new Date(0).toISOString(),
+  lastRefreshedAt: new Date(0).toISOString(),
 };
 
 function TopicTabButton({
@@ -102,6 +109,7 @@ export default function BrowsePageClient() {
   const [rdK2, setRdK2] = useState("");
   const [rdK3, setRdK3] = useState("");
   const [rdAction, setRdAction] = useState("");
+  const [sortBy, setSortBy] = useState<BrowseSortMode>("refreshed");
 
   const activeIdRef = useRef<string | null>(null);
   useEffect(() => {
@@ -139,7 +147,14 @@ export default function BrowsePageClient() {
 
   useEffect(() => {
     setMounted(true);
+    const v = typeof window !== "undefined" ? localStorage.getItem(BROWSE_SORT_LS_KEY) : null;
+    if (v === "published" || v === "refreshed") setSortBy(v);
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    localStorage.setItem(BROWSE_SORT_LS_KEY, sortBy);
+  }, [sortBy]);
 
   useEffect(() => {
     if (!activeId) {
@@ -147,7 +162,13 @@ export default function BrowsePageClient() {
       return;
     }
     const store = loadBrowseStorage();
-    const feed = store.topics[activeId] ?? { lastRefreshAt: null, items: [] };
+    let feed = store.topics[activeId] ?? { lastRefreshAt: null, items: [] };
+    const pruned = pruneBrowseItems(feed.items);
+    if (pruned.length !== feed.items.length) {
+      feed = { ...feed, items: pruned };
+      store.topics[activeId] = feed;
+      saveBrowseStorage(store);
+    }
     setHits(feed.items);
   }, [activeId]);
 
@@ -158,16 +179,32 @@ export default function BrowsePageClient() {
     try {
       const store = loadBrowseStorage();
       const feed = store.topics[topicId] ?? { lastRefreshAt: null, items: [] };
-      const sinceIso =
-        feed.lastRefreshAt ?? new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      const isBootstrap = feed.lastRefreshAt == null;
+      const sinceIso = isBootstrap
+        ? new Date(Date.now() - BROWSE_BOOTSTRAP_SINCE_MS).toISOString()
+        : (feed.lastRefreshAt ?? new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString());
       const sinceMs = Date.parse(sinceIso);
+
+      const excludeUrls = isBootstrap
+        ? []
+        : feed.items.map((x) => x.url).slice(0, BROWSE_EXCLUDE_URLS_MAX);
 
       const r = await fetch("/api/browse/fetch", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ topicId, since: sinceIso }),
+        body: JSON.stringify({
+          topicId,
+          since: sinceIso,
+          bootstrap: isBootstrap,
+          excludeUrls,
+        }),
       });
-      const d = (await r.json()) as { hits?: BrowseHit[]; fetchedAt?: string; error?: string };
+      const d = (await r.json()) as {
+        hits?: BrowseHit[];
+        fetchedAt?: string;
+        error?: string;
+        skippedKnown?: number;
+      };
       if (!r.ok) throw new Error(d.error || "检索失败");
 
       const fetchedAt = d.fetchedAt ?? new Date().toISOString();
@@ -177,6 +214,14 @@ export default function BrowsePageClient() {
 
       if (activeIdRef.current === topicId) {
         setHits(merged.items);
+      }
+
+      if ((d.hits?.length ?? 0) > 0) {
+        setMsg(null);
+      } else if ((d.skippedKnown ?? 0) > 0) {
+        setMsg("本次无新增链接；已跳过已有网址，未做重复翻译。");
+      } else {
+        setMsg("本次未发现新结果，可改日再试或调整关键词。");
       }
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "检索失败");
@@ -424,6 +469,8 @@ export default function BrowsePageClient() {
 
   const active = topics.find((t) => t.id === activeId);
 
+  const sortedHits = useMemo(() => sortBrowseItemsForDisplay(hits, sortBy), [hits, sortBy]);
+
   const showPullVisual = pullPx > 4 || refreshing;
   const pullProgress = refreshing ? 1 : Math.min(1, pullPx / 48);
 
@@ -432,7 +479,9 @@ export default function BrowsePageClient() {
       <header className="app-header app-header-with-actions browse-header-row">
         <div className="app-header-titles">
           <h1>随览</h1>
-          <span className="sub">主题与关键词为且、同主题多词为或 · 轻点主题切换 · 联网更新</span>
+          <span className="sub">
+            首次刷新约 6 个月窗、增量只补新链接；本地保留约 90 天 · 可按刷新/发布时间排序
+          </span>
         </div>
         <button
           type="button"
@@ -487,6 +536,26 @@ export default function BrowsePageClient() {
         <p className="muted-link browse-kw-line">
           关键词：<span className="browse-kw-chips">{active.keywords.join(" · ")}</span>
         </p>
+      )}
+
+      {active && hits.length > 0 && (
+        <div className="browse-sort-bar" role="group" aria-label="列表排序">
+          <span className="muted-link browse-sort-label">排序</span>
+          <button
+            type="button"
+            className={`browse-sort-btn${sortBy === "refreshed" ? " browse-sort-btn--active" : ""}`}
+            onClick={() => setSortBy("refreshed")}
+          >
+            刷新时间
+          </button>
+          <button
+            type="button"
+            className={`browse-sort-btn${sortBy === "published" ? " browse-sort-btn--active" : ""}`}
+            onClick={() => setSortBy("published")}
+          >
+            发布时间
+          </button>
+        </div>
       )}
 
       {msg && <p className="me-msg browse-msg">{msg}</p>}
@@ -589,7 +658,7 @@ export default function BrowsePageClient() {
             暂无内容。请先滚回页面顶部，再下拉（触屏）或按住拖拽（鼠标）获取更新。
           </p>
         )}
-        {hits.map((h) => (
+        {sortedHits.map((h) => (
           <BrowseHitCard
             key={h.url}
             hit={h}

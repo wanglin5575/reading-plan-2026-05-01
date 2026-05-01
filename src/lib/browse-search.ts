@@ -1,16 +1,24 @@
 import FirecrawlApp from "@mendable/firecrawl-js";
 import type { BrowseHit, BrowseTopic } from "@/lib/types";
-import type { Document, SearchData, SearchResultWeb } from "@mendable/firecrawl-js";
+import type { Document, SearchData, SearchResultNews, SearchResultWeb, ScrapeOptions } from "@mendable/firecrawl-js";
 import { browseTopicToQuery } from "@/lib/browse-query";
-import { coalescePublishedTimeRaw, pickAuthorFromMetadata } from "@/lib/browse-attribution";
+import { pickAuthorFromMetadata } from "@/lib/browse-attribution";
+import {
+  normalizeBrowseUrlKey,
+  normalizePublishedToIso,
+  resolveBrowsePublishedTime,
+} from "@/lib/browse-published";
 import { countChars, countWords, detectLanguage, estimateMinutes } from "@/lib/classify";
 
 /** 主搜：条数少一些省抓取配额 */
 const BROWSE_SEARCH_LIMIT_PRIMARY = 10;
 /** 补搜：更少条数、且不抓取正文，显著省额度 */
 const BROWSE_SEARCH_LIMIT_FALLBACK = 6;
-/** 与「上次刷新」间隔过长时，cdr 窗最多向前覆盖的天数，避免又大又难搜的区间 */
-const BROWSE_CDR_MAX_SPAN_DAYS = 21;
+/** 与「上次刷新」间隔过长时，cdr 窗最多向前覆盖的天数（增量刷新） */
+export const BROWSE_TBS_MAX_DAYS_INCREMENTAL = 21;
+
+/** 首次刷新（主题尚无成功抓取记录）时允许更长的 Google 时间窗，覆盖约 6 个月 */
+export const BROWSE_TBS_MAX_DAYS_BOOTSTRAP = 186;
 
 export { browseTopicToQuery };
 
@@ -23,14 +31,36 @@ function isFullDocument(item: SearchResultWeb | Document): item is Document {
   return "markdown" in item || "html" in item || !!(item as Document).metadata;
 }
 
+function isLikelyNewsHit(item: object): item is SearchResultNews {
+  if ("markdown" in item || "rawHtml" in item) return false;
+  if (!("url" in item) || typeof (item as SearchResultNews).url !== "string") return false;
+  const d = (item as SearchResultNews).date;
+  return typeof d === "string" && Boolean(d.trim());
+}
+
+function collectNewsPublishedByUrl(data: SearchData): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const item of data.news ?? []) {
+    if (!item || typeof item !== "object") continue;
+    if (isLikelyNewsHit(item)) {
+      const u = (item.url || "").trim();
+      const d = (item.date || "").trim();
+      if (!u || !d) continue;
+      const iso = normalizePublishedToIso(d);
+      if (iso) map.set(normalizeBrowseUrlKey(u), iso);
+    }
+  }
+  return map;
+}
+
 const DAY_MS = 86400000;
 
 /**
  * Google tbs：偏宽、易出结果，又控制区间别无限拉大。
  * - 同一天内：用 qdr:w（约一周），比 qdr:d 宽松很多
- * - 跨日：cdr，且 since 若过早则截断为距 until 最多 BROWSE_CDR_MAX_SPAN_DAYS 天
+ * - 跨日：cdr，且 since 若过早则截断为距 until 最多 maxSpanDays 天
  */
-export function browseTbsForWindow(since: Date, until: Date): string {
+export function browseTbsForWindow(since: Date, until: Date, maxSpanDays = BROWSE_TBS_MAX_DAYS_INCREMENTAL): string {
   const s = since.getTime();
   const u = until.getTime();
   const start = s <= u ? since : until;
@@ -38,8 +68,8 @@ export function browseTbsForWindow(since: Date, until: Date): string {
 
   let rangeStart = start;
   const spanMs = end.getTime() - rangeStart.getTime();
-  if (spanMs > BROWSE_CDR_MAX_SPAN_DAYS * DAY_MS) {
-    rangeStart = new Date(end.getTime() - BROWSE_CDR_MAX_SPAN_DAYS * DAY_MS);
+  if (spanMs > maxSpanDays * DAY_MS) {
+    rangeStart = new Date(end.getTime() - maxSpanDays * DAY_MS);
   }
 
   const startDay = new Date(rangeStart.getFullYear(), rangeStart.getMonth(), rangeStart.getDate());
@@ -55,12 +85,12 @@ export function browseTbsForWindow(since: Date, until: Date): string {
 
 /**
  * Firecrawl v2 search：
- * 1）主搜：较宽 tbs + 少量条数 + scrape（摘要/节选质量）
- * 2）仍无结果：补搜不加 scrape、更少条数，省配额且常能拿到 SERP 摘要
+ * 1）主搜：web + news（新闻结果常带日期）、带 markdown + rawHtml，整页解析利于 JSON-LD / meta 日期
+ * 2）仍无结果：补搜不 scrape，但仍带 news 以尽量匹配 SERP 日期
  */
 export async function fetchBrowseHits(
   topic: Pick<BrowseTopic, "name" | "keywords">,
-  options: { since: Date; until?: Date },
+  options: { since: Date; until?: Date; tbsMaxSpanDays?: number },
 ): Promise<BrowseHit[]> {
   const apiKey = process.env.FIRECRAWL_API_KEY?.trim();
   if (!apiKey) throw new Error("missing_firecrawl");
@@ -68,14 +98,17 @@ export async function fetchBrowseHits(
   const app = new FirecrawlApp({ apiKey });
   const query = browseTopicToQuery(topic);
   const until = options.until ?? new Date();
-  const tbs = browseTbsForWindow(options.since, until);
+  const tbs = browseTbsForWindow(options.since, until, options.tbsMaxSpanDays ?? BROWSE_TBS_MAX_DAYS_INCREMENTAL);
 
-  const scrapeOptions = {
-    formats: ["markdown" as const],
-    onlyMainContent: true,
+  const scrapeOptions: ScrapeOptions = {
+    formats: ["markdown", "rawHtml"],
+    /** false：保留页头/脚本区转写，便于从 HTML/markdown 中解析 pubdate、JSON-LD */
+    onlyMainContent: false,
   };
 
   const toHits = (data: SearchData): BrowseHit[] => {
+    const newsMap = collectNewsPublishedByUrl(data);
+
     const web = data.web ?? [];
     const seen = new Set<string>();
     const hits: BrowseHit[] = [];
@@ -90,13 +123,18 @@ export async function fetchBrowseHits(
         seen.add(url);
         const description = (w.description || "").trim();
         const est = estimateBrowseReadMinutes(description, description, description);
+        const publishedTime =
+          resolveBrowsePublishedTime({
+            serpDescription: description,
+            newsDate: newsMap.get(normalizeBrowseUrlKey(url)) ?? null,
+          }) ?? null;
         hits.push({
           url,
           title: (w.title || "无标题").trim(),
           description,
           summary: description,
           excerpt: description,
-          publishedTime: null,
+          publishedTime,
           author: null,
           estimatedMinutes: est,
         });
@@ -117,7 +155,16 @@ export async function fetchBrowseHits(
           ? ((doc as { summary: string }).summary || "").trim()
           : "";
       const summary = docSummary || description;
-      const publishedTime = coalescePublishedTimeRaw(meta) ?? null;
+      const html = typeof doc.rawHtml === "string" ? doc.rawHtml : typeof doc.html === "string" ? doc.html : undefined;
+      const publishedTime =
+        resolveBrowsePublishedTime({
+          meta,
+          markdown: md,
+          rawHtml: html,
+          json: doc.json,
+          serpDescription: description,
+          newsDate: newsMap.get(normalizeBrowseUrlKey(url)) ?? null,
+        }) ?? null;
       const authorRaw = pickAuthorFromMetadata(meta);
       const est = estimateBrowseReadMinutes(summary, excerpt || description, description);
       hits.push({
@@ -138,6 +185,7 @@ export async function fetchBrowseHits(
   const data = await app.search(query, {
     limit: BROWSE_SEARCH_LIMIT_PRIMARY,
     tbs,
+    sources: ["web", "news"],
     scrapeOptions,
   });
 
@@ -145,6 +193,8 @@ export async function fetchBrowseHits(
   if (!hits.length) {
     const dataLite = await app.search(query, {
       limit: BROWSE_SEARCH_LIMIT_FALLBACK,
+      tbs,
+      sources: ["web", "news"],
     });
     hits = toHits(dataLite);
   }

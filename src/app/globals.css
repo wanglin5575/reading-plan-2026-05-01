@@ -608,6 +608,36 @@ a:active { opacity: 0.7; }
   flex-wrap: wrap;
 }
 
+.browse-sort-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 10px 4px;
+}
+
+.browse-sort-label {
+  margin-right: 4px;
+}
+
+.browse-sort-btn {
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--muted);
+  font-size: var(--fs-small);
+  cursor: pointer;
+  font: inherit;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.browse-sort-btn--active {
+  border-color: var(--brand);
+  color: var(--brand);
+  font-weight: var(--fw-semibold);
+}
+
 .browse-hits {
   display: flex;
   flex-direction: column;

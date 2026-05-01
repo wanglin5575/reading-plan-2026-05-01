@@ -18,21 +18,6 @@ export function pickAuthorFromMetadata(meta: DocumentMetadata | undefined): stri
   return null;
 }
 
-export function coalescePublishedTimeRaw(meta: DocumentMetadata | undefined): string | null {
-  if (!meta) return null;
-  const candidates = [
-    meta.publishedTime,
-    meta.dcDate,
-    meta.dcTermsCreated,
-    meta.dcDateCreated,
-    meta.modifiedTime,
-  ];
-  for (const raw of candidates) {
-    if (typeof raw === "string" && raw.trim()) return raw.trim();
-  }
-  return null;
-}
-
 /** 展示用：原文网页发布时间 */
 export function formatPublishedTimeZh(iso: string | null | undefined): string | null {
   if (!iso?.trim()) return null;

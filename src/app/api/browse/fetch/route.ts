@@ -1,15 +1,21 @@
 import { NextResponse } from "next/server";
 import { getRouteHandlerUserId } from "@/lib/auth/api";
-import { browseTopicToQuery, fetchBrowseHits } from "@/lib/browse-search";
+import { browseTopicToQuery, fetchBrowseHits, BROWSE_TBS_MAX_DAYS_BOOTSTRAP, BROWSE_TBS_MAX_DAYS_INCREMENTAL } from "@/lib/browse-search";
 import { getBrowseTopic } from "@/lib/db";
 import { translateBrowseHitsToChinese } from "@/lib/translate-zh";
 import { countChars, countWords, detectLanguage, estimateMinutes } from "@/lib/classify";
+import { BROWSE_EXCLUDE_URLS_MAX } from "@/lib/browse-storage";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
   const uid = await getRouteHandlerUserId();
-  const body = (await req.json().catch(() => ({}))) as { topicId?: unknown; since?: unknown };
+  const body = (await req.json().catch(() => ({}))) as {
+    topicId?: unknown;
+    since?: unknown;
+    bootstrap?: unknown;
+    excludeUrls?: unknown;
+  };
   const topicId = typeof body.topicId === "string" ? body.topicId : "";
   if (!topicId) return NextResponse.json({ error: "缺少 topicId" }, { status: 400 });
 
@@ -17,6 +23,8 @@ export async function POST(req: Request) {
   if (!topic) return NextResponse.json({ error: "主题不存在" }, { status: 404 });
 
   const until = new Date();
+  const bootstrap = body.bootstrap === true;
+
   let since: Date;
   if (typeof body.since === "string" && body.since.trim()) {
     const parsed = new Date(body.since);
@@ -28,10 +36,24 @@ export async function POST(req: Request) {
     since = new Date(until.getTime() - 60 * 1000);
   }
 
+  const excludeRaw = Array.isArray(body.excludeUrls) ? body.excludeUrls : [];
+  const excludeSet = new Set<string>(
+    excludeRaw
+      .filter((u): u is string => typeof u === "string")
+      .map((u) => u.trim())
+      .filter(Boolean)
+      .slice(0, BROWSE_EXCLUDE_URLS_MAX),
+  );
+
   try {
     const query = browseTopicToQuery(topic);
-    const rawHits = await fetchBrowseHits(topic, { since, until });
-    const translated = await translateBrowseHitsToChinese(rawHits);
+    const rawHits = await fetchBrowseHits(topic, {
+      since,
+      until,
+      tbsMaxSpanDays: bootstrap ? BROWSE_TBS_MAX_DAYS_BOOTSTRAP : BROWSE_TBS_MAX_DAYS_INCREMENTAL,
+    });
+    const novelHits = excludeSet.size ? rawHits.filter((h) => !excludeSet.has(h.url.trim())) : rawHits;
+    const translated = await translateBrowseHitsToChinese(novelHits);
     const hits = translated.map((h) => {
       const blob = `${h.summary}\n${h.excerpt}\n${h.description}`;
       return {
@@ -40,7 +62,14 @@ export async function POST(req: Request) {
       };
     });
     const fetchedAt = until.toISOString();
-    return NextResponse.json({ query, hits, fetchedAt, since: since.toISOString() });
+    return NextResponse.json({
+      query,
+      hits,
+      fetchedAt,
+      since: since.toISOString(),
+      bootstrap,
+      skippedKnown: rawHits.length - novelHits.length,
+    });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : "fetch_failed";
     if (msg === "missing_firecrawl") {
