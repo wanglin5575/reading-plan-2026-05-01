@@ -1,0 +1,41 @@
+import { NextResponse } from "next/server";
+import { getRouteHandlerUserId } from "@/lib/auth/api";
+import { browseTopicToQuery, fetchBrowseHits } from "@/lib/browse-search";
+import { getBrowseTopic } from "@/lib/db";
+
+export const dynamic = "force-dynamic";
+
+export async function POST(req: Request) {
+  const uid = await getRouteHandlerUserId();
+  const body = (await req.json().catch(() => ({}))) as { topicId?: unknown; since?: unknown };
+  const topicId = typeof body.topicId === "string" ? body.topicId : "";
+  if (!topicId) return NextResponse.json({ error: "缺少 topicId" }, { status: 400 });
+
+  const topic = await getBrowseTopic(topicId, uid);
+  if (!topic) return NextResponse.json({ error: "主题不存在" }, { status: 404 });
+
+  const until = new Date();
+  let since: Date;
+  if (typeof body.since === "string" && body.since.trim()) {
+    const parsed = new Date(body.since);
+    since = Number.isNaN(parsed.getTime()) ? new Date(until.getTime() - 24 * 60 * 60 * 1000) : parsed;
+  } else {
+    since = new Date(until.getTime() - 24 * 60 * 60 * 1000);
+  }
+  if (since.getTime() > until.getTime()) {
+    since = new Date(until.getTime() - 60 * 1000);
+  }
+
+  try {
+    const query = browseTopicToQuery(topic);
+    const hits = await fetchBrowseHits(topic, { since, until });
+    const fetchedAt = until.toISOString();
+    return NextResponse.json({ query, hits, fetchedAt, since: since.toISOString() });
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : "fetch_failed";
+    if (msg === "missing_firecrawl") {
+      return NextResponse.json({ error: "请配置 FIRECRAWL_API_KEY 后使用随览联网检索。" }, { status: 503 });
+    }
+    return NextResponse.json({ error: msg === "fetch_failed" ? "检索失败，请稍后重试。" : msg }, { status: 502 });
+  }
+}

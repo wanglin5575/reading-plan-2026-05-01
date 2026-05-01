@@ -20,6 +20,10 @@ npm run dev                       # 默认使用 Webpack dev（更稳）；若�
 
 打开 http://localhost:3000 即可。（若遇 **`EMFILE: too many open files`**，先在终端执行 **`ulimit -n 10240`** 再 `npm run dev`。）
 
+底栏圆形「添加」与行高比例可在浏览器直接打开静态预览（无需 dev）：[public/tabbar-preview.html](public/tabbar-preview.html)（路径含空格时 URL 里请写 `%20`）。
+
+「随览」页文案与布局示意：开发服务器运行时打开 **http://localhost:3000/browse-preview**（推荐）；离线可打开 [public/browse-preview.html](public/browse-preview.html)。
+
 ### 故障排除
 
 - 若出现 **React Client Manifest / global-error** 相关报错：已包含 `src/app/global-error.tsx`；本机可先 **停掉 dev**，删除缓存目录 `.next` 后再执行 `npm run dev`。若仍异常，可试 **`npm run dev:turbo`**（Turbopack，更快但偶发缓存问题）。
@@ -108,5 +112,5 @@ reading-plan-2026-05-01/
 3. 在 Vercel Dashboard → Settings → Environment Variables 配置：
    - `DATABASE_URL`（Supabase Postgres）
    - `NEXT_PUBLIC_SUPABASE_URL`、`NEXT_PUBLIC_SUPABASE_ANON_KEY`（启用邮箱注册 / 登录与按用户隔离数据时必填）
-   - `FIRECRAWL_API_KEY`（可选）
+   - `FIRECRAWL_API_KEY`（随览联网检索需要；其它抓取能力可选）
 4. 重新部署后即可公网访问，数据持久化在 Supabase。

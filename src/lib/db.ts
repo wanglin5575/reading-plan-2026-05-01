@@ -1,6 +1,7 @@
 import { Pool } from "pg";
+import { randomUUID } from "node:crypto";
 import { isAuthEnabled } from "./auth";
-import type { Article } from "./types";
+import type { Article, BrowseTopic } from "./types";
 
 /**
  * 未配置 DATABASE_URL 时，在 next dev 下返回与 seed 一致的示例数据，便于本地直接看待读/已读样式。
@@ -133,6 +134,18 @@ async function ensureSchema(): Promise<void> {
         ALTER TABLE articles ADD COLUMN IF NOT EXISTS read_one_liner TEXT NOT NULL DEFAULT '';
         ALTER TABLE articles ADD COLUMN IF NOT EXISTS read_key_points JSONB NOT NULL DEFAULT '[]'::jsonb;
         ALTER TABLE articles ADD COLUMN IF NOT EXISTS read_action TEXT NOT NULL DEFAULT '';
+      `);
+      await p.query(`
+        CREATE TABLE IF NOT EXISTS browse_topics (
+          id TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL,
+          name TEXT NOT NULL,
+          keywords JSONB NOT NULL DEFAULT '[]'::jsonb,
+          sort_order INT NOT NULL DEFAULT 0,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          UNIQUE (user_id, name)
+        );
+        CREATE INDEX IF NOT EXISTS idx_browse_topics_user_id ON browse_topics(user_id);
       `);
       await seedDemoIfEmpty(p);
     })().catch((err) => {
@@ -549,4 +562,166 @@ export async function listCompletedBetween(startIso: string, endIso: string): Pr
     console.error("[db] listCompletedBetween failed:", error);
     return [];
   }
+}
+
+const NO_DB_BROWSE_TOPIC_ID = "local-browse-default";
+
+const STATIC_DEFAULT_BROWSE_TOPIC: BrowseTopic = {
+  id: NO_DB_BROWSE_TOPIC_ID,
+  name: "AI Evals",
+  keywords: ["Hamel", "Shreya", "Stella&Amy", "Anthropic"],
+  sortOrder: 0,
+  createdAt: new Date(0).toISOString(),
+};
+
+function browseOwnerKey(userId: string | null): string {
+  return userId ?? "anon";
+}
+
+interface BrowseTopicRow {
+  id: string;
+  name: string;
+  keywords: unknown;
+  sort_order: number;
+  created_at: Date | string;
+}
+
+function rowToBrowseTopic(row: BrowseTopicRow): BrowseTopic {
+  const raw = safeJsonArray(row.keywords);
+  const keywords: string[] = Array.isArray(raw) ? raw.map(String) : [];
+  const createdAt = row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at);
+  return {
+    id: row.id,
+    name: row.name,
+    keywords,
+    sortOrder: row.sort_order,
+    createdAt,
+  };
+}
+
+async function seedBrowseTopicsIfEmpty(p: Pool, userId: string): Promise<void> {
+  const { rows } = await p.query<{ c: string }>(
+    "SELECT COUNT(*)::text AS c FROM browse_topics WHERE user_id = $1",
+    [userId],
+  );
+  if (parseInt(rows[0].c, 10) > 0) return;
+  await p.query(
+    `INSERT INTO browse_topics (id, user_id, name, keywords, sort_order)
+     VALUES ($1, $2, $3, $4::jsonb, 0)`,
+    [
+      randomUUID(),
+      userId,
+      "AI Evals",
+      JSON.stringify(["Hamel", "Shreya", "Stella&Amy", "Anthropic"]),
+    ],
+  );
+}
+
+export async function listBrowseTopics(userId: string | null): Promise<BrowseTopic[]> {
+  const owner = browseOwnerKey(userId);
+  const p = getPoolOrNull();
+  if (!p) return [{ ...STATIC_DEFAULT_BROWSE_TOPIC, createdAt: new Date().toISOString() }];
+  try {
+    await ensureSchema();
+    await seedBrowseTopicsIfEmpty(p, owner);
+    const { rows } = await p.query<BrowseTopicRow>(
+      "SELECT id, name, keywords, sort_order, created_at FROM browse_topics WHERE user_id = $1 ORDER BY sort_order ASC, created_at ASC",
+      [owner],
+    );
+    return rows.map(rowToBrowseTopic);
+  } catch (e) {
+    console.error("[db] listBrowseTopics failed:", e);
+    return [{ ...STATIC_DEFAULT_BROWSE_TOPIC, createdAt: new Date().toISOString() }];
+  }
+}
+
+export async function getBrowseTopic(id: string, userId: string | null): Promise<BrowseTopic | null> {
+  const owner = browseOwnerKey(userId);
+  const p = getPoolOrNull();
+  if (!p) return id === NO_DB_BROWSE_TOPIC_ID ? { ...STATIC_DEFAULT_BROWSE_TOPIC, createdAt: new Date().toISOString() } : null;
+  try {
+    await ensureSchema();
+    const { rows } = await p.query<BrowseTopicRow>(
+      "SELECT id, name, keywords, sort_order, created_at FROM browse_topics WHERE id = $1 AND user_id = $2 LIMIT 1",
+      [id, owner],
+    );
+    const row = rows[0];
+    return row ? rowToBrowseTopic(row) : null;
+  } catch (e) {
+    console.error("[db] getBrowseTopic failed:", e);
+    return null;
+  }
+}
+
+export async function insertBrowseTopic(
+  userId: string | null,
+  name: string,
+  keywords: string[],
+): Promise<BrowseTopic> {
+  const p = getPoolOrNull();
+  if (!p) throw new Error("db_not_configured");
+  const owner = browseOwnerKey(userId);
+  const cleanKw = keywords.map((k) => k.trim()).filter(Boolean);
+  const trimmedName = name.trim();
+  if (!trimmedName) throw new Error("invalid_name");
+  if (!cleanKw.length) throw new Error("invalid_keywords");
+  await ensureSchema();
+  const id = randomUUID();
+  const { rows: maxRows } = await p.query<{ m: string | null }>(
+    "SELECT MAX(sort_order)::text AS m FROM browse_topics WHERE user_id = $1",
+    [owner],
+  );
+  const m = maxRows[0]?.m;
+  const nextOrder = m != null && m !== "" ? parseInt(m, 10) + 1 : 0;
+  await p.query(
+    `INSERT INTO browse_topics (id, user_id, name, keywords, sort_order) VALUES ($1, $2, $3, $4::jsonb, $5)`,
+    [id, owner, trimmedName, JSON.stringify(cleanKw), nextOrder],
+  );
+  const row = await getBrowseTopic(id, userId);
+  if (!row) throw new Error("insert_failed");
+  return row;
+}
+
+export async function updateBrowseTopic(
+  id: string,
+  userId: string | null,
+  patch: { name?: string; keywords?: string[] },
+): Promise<void> {
+  const p = getPoolOrNull();
+  if (!p) throw new Error("db_not_configured");
+  const owner = browseOwnerKey(userId);
+  await ensureSchema();
+  if (patch.name !== undefined && patch.keywords !== undefined) {
+    const cleanKw = patch.keywords.map((k) => k.trim()).filter(Boolean);
+    if (!cleanKw.length) throw new Error("invalid_keywords");
+    await p.query(
+      "UPDATE browse_topics SET name = $1, keywords = $2::jsonb WHERE id = $3 AND user_id = $4",
+      [patch.name.trim(), JSON.stringify(cleanKw), id, owner],
+    );
+    return;
+  }
+  if (patch.name !== undefined) {
+    await p.query("UPDATE browse_topics SET name = $1 WHERE id = $2 AND user_id = $3", [
+      patch.name.trim(),
+      id,
+      owner,
+    ]);
+  }
+  if (patch.keywords !== undefined) {
+    const cleanKw = patch.keywords.map((k) => k.trim()).filter(Boolean);
+    if (!cleanKw.length) throw new Error("invalid_keywords");
+    await p.query("UPDATE browse_topics SET keywords = $1::jsonb WHERE id = $2 AND user_id = $3", [
+      JSON.stringify(cleanKw),
+      id,
+      owner,
+    ]);
+  }
+}
+
+export async function deleteBrowseTopic(id: string, userId: string | null): Promise<void> {
+  const p = getPoolOrNull();
+  if (!p) throw new Error("db_not_configured");
+  const owner = browseOwnerKey(userId);
+  await ensureSchema();
+  await p.query("DELETE FROM browse_topics WHERE id = $1 AND user_id = $2", [id, owner]);
 }

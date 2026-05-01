@@ -28,6 +28,16 @@
   --lh-relaxed: 1.62;
   --fw-semibold: 600;
   --fw-bold: 700;
+
+  /* Bottom tab bar: FAB diameter → strip height = 7/9 (see public/tabbar-preview.html) */
+  --tabbar-fab: 56px;
+  --tabbar-strip: calc(var(--tabbar-fab) * 7 / 9);
+}
+
+@media (min-width: 430px) {
+  :root {
+    --tabbar-fab: 60px;
+  }
 }
 
 @media (prefers-color-scheme: dark) {
@@ -61,7 +71,7 @@ a:active { opacity: 0.7; }
 .app {
   max-width: 720px;
   margin: 0 auto;
-  padding: 16px 14px 122px;
+  padding: 16px 14px calc(24px + var(--tabbar-fab) + env(safe-area-inset-bottom));
 }
 
 .app-header {
@@ -219,13 +229,25 @@ a:active { opacity: 0.7; }
   left: 0;
   right: 0;
   background: var(--card);
-  border-top: 1px solid var(--border);
+  border-top: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
   display: grid;
+  grid-template-rows: var(--tabbar-strip);
   align-items: stretch;
   justify-items: stretch;
   z-index: 50;
-  min-height: calc(56px + env(safe-area-inset-bottom));
-  padding-bottom: env(safe-area-inset-bottom);
+  min-height: calc(var(--tabbar-strip) + 8px + env(safe-area-inset-bottom));
+  padding: 4px 3px calc(4px + env(safe-area-inset-bottom));
+  overflow: visible;
+  box-shadow: 0 -1px 0 color-mix(in srgb, var(--border) 70%, transparent),
+    0 -6px 24px rgba(15, 23, 42, 0.05);
+}
+
+@supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  .tabbar {
+    background: color-mix(in srgb, var(--card) 88%, transparent);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
 }
 
 .tabbar-cols-4 {
@@ -326,22 +348,268 @@ a:active { opacity: 0.7; }
 }
 
 .tabbar a {
-  padding: 14px 6px 16px;
+  position: relative;
+  padding: 0 4px;
+  margin: 0;
+  min-height: 0;
   color: var(--muted);
-  font-size: calc(var(--fs-sub) * 1.3);
+  font-size: 0.9375rem;
+  line-height: 1.25;
+  letter-spacing: 0.02em;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 2px;
+  text-align: center;
   width: 100%;
   min-width: 0;
   box-sizing: border-box;
+  text-decoration: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: color 0.18s ease, opacity 0.15s ease, transform 0.15s ease;
+}
+
+.tabbar a:not(.tabbar-add) {
+  align-self: stretch;
+  height: 100%;
+  min-height: 0;
 }
 
 .tabbar a.active {
   color: var(--brand);
   font-weight: var(--fw-semibold);
+}
+
+.tabbar a:not(.tabbar-add):active {
+  opacity: 0.72;
+}
+
+/* 添加：圆形 Tab；底边与栏内底相切，向上溢出（--tabbar-fab / --tabbar-strip） */
+.tabbar a.tabbar-add {
+  width: var(--tabbar-fab);
+  height: var(--tabbar-fab);
+  min-width: var(--tabbar-fab);
+  max-width: var(--tabbar-fab);
+  min-height: 0;
+  padding: 0;
+  border-radius: 50%;
+  background: #fff;
+  color: var(--muted);
+  font-weight: var(--fw-semibold);
+  border: 1px solid color-mix(in srgb, var(--border) 92%, var(--muted));
+  align-self: end;
+  justify-self: center;
+  margin-top: 0;
+  margin-bottom: 0;
+  line-height: 1.25;
+  letter-spacing: 0.02em;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06),
+    0 4px 14px rgba(15, 23, 42, 0.09);
+  transition: color 0.18s ease, background-color 0.18s ease, border-color 0.18s ease,
+    box-shadow 0.22s ease, transform 0.18s ease;
+}
+
+.tabbar a.tabbar-add.active {
+  background: var(--brand);
+  color: #fff;
+  font-weight: var(--fw-bold);
+  border-color: color-mix(in srgb, var(--brand) 65%, #fff);
+  box-shadow: 0 2px 6px color-mix(in srgb, var(--brand) 32%, transparent),
+    0 8px 22px color-mix(in srgb, var(--brand) 26%, transparent),
+    0 0 0 1px color-mix(in srgb, #fff 25%, var(--brand));
+}
+
+.tabbar a.tabbar-add:active {
+  transform: scale(0.96);
+  opacity: 1;
+}
+
+/* iPhone 15 Pro Max 等寬屏機型：--tabbar-fab 60px（见 :root 媒体查询） */
+@media (min-width: 430px) {
+  .tabbar {
+    min-height: calc(var(--tabbar-strip) + 8px + env(safe-area-inset-bottom));
+    padding: 4px 4px calc(4px + env(safe-area-inset-bottom));
+  }
+
+  .tabbar a {
+    font-size: 1rem;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  .tabbar {
+    box-shadow: 0 -1px 0 color-mix(in srgb, var(--border) 80%, transparent),
+      0 -8px 36px rgba(0, 0, 0, 0.35);
+  }
+
+  .tabbar a.tabbar-add {
+    background: color-mix(in srgb, #fff 97%, var(--ink));
+    border-color: color-mix(in srgb, var(--border) 80%, transparent);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 6px 18px rgba(0, 0, 0, 0.42);
+  }
+
+  .tabbar a.tabbar-add.active {
+    border-color: color-mix(in srgb, var(--brand) 50%, transparent);
+    box-shadow: 0 2px 10px color-mix(in srgb, var(--brand) 42%, transparent),
+      0 10px 26px rgba(0, 0, 0, 0.48),
+      0 0 0 1px color-mix(in srgb, var(--brand) 35%, transparent);
+  }
+}
+
+.browse-intro {
+  margin-bottom: 10px;
+  font-size: var(--fs-small);
+  line-height: var(--lh-snug);
+}
+
+.browse-pull-rail {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  transition: min-height 0.12s ease-out;
+}
+
+.browse-pull-icon {
+  font-size: 1.35rem;
+  line-height: 1;
+  color: var(--muted);
+  user-select: none;
+}
+
+.browse-pull-icon--active {
+  color: var(--brand);
+}
+
+.browse-pull-icon--spin {
+  display: inline-block;
+  animation: browse-pull-spin 0.75s linear infinite;
+}
+
+@keyframes browse-pull-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.browse-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: color-mix(in srgb, #000 42%, transparent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px 16px;
+  box-sizing: border-box;
+}
+
+.browse-modal {
+  width: 100%;
+  max-width: 400px;
+  max-height: min(90vh, 520px);
+  overflow: auto;
+  margin: 0;
+}
+
+.browse-modal h2 {
+  margin-top: 0;
+  font-size: var(--fs-title);
+}
+
+.browse-topic-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+  align-items: center;
+}
+
+.browse-topic-tab {
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--fs-small);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.browse-topic-tab.active {
+  border-color: var(--brand);
+  color: var(--brand);
+  background: var(--brand-soft);
+  font-weight: var(--fw-semibold);
+}
+
+.browse-topic-tab-add {
+  border-style: dashed;
+}
+
+.browse-kw-line {
+  margin: 0 0 8px;
+  font-size: var(--fs-small);
+}
+
+.browse-toolbar {
+  margin-bottom: 8px;
+}
+
+.browse-query {
+  font-size: var(--fs-micro);
+  word-break: break-all;
+  margin: 0 0 8px;
+}
+
+.browse-msg {
+  margin-bottom: 8px;
+}
+
+.browse-form-card h2 {
+  margin-top: 0;
+}
+
+.browse-form-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.browse-hits {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.browse-hit-card {
+  margin-bottom: 0;
+}
+
+.browse-hit-title {
+  display: block;
+  font-size: var(--fs-title);
+  font-weight: var(--fw-semibold);
+  color: var(--brand);
+  margin-bottom: 6px;
+  word-break: break-word;
+}
+
+.browse-hit-body {
+  margin: 0;
+  font-size: var(--fs-small);
+  color: var(--muted);
+  line-height: var(--lh-snug);
+}
+
+a.account-avatar-btn.account-avatar-btn--link {
+  text-decoration: none;
+  box-sizing: border-box;
+}
+
+a.account-avatar-btn.account-avatar-btn--link:active {
+  opacity: 0.85;
 }
 
 .account-menu-wrap {

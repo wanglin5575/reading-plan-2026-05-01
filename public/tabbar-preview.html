@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Tab bar geometry preview</title>
+  <style>
+    :root {
+      --tabbar-fab: 56px;
+      --tabbar-strip: calc(var(--tabbar-fab) * 7 / 9);
+      --pad-y: 4px;
+      /* fake home indicator / safe area for illustration */
+      --fake-safe: 20px;
+    }
+    @media (min-width: 430px) {
+      :root { --tabbar-fab: 60px; }
+    }
+    * { box-sizing: border-box; }
+    body {
+      font: 14px/1.4 system-ui, sans-serif;
+      margin: 0;
+      padding: 24px 16px 48px;
+      background: #e8ebf2;
+      color: #14202b;
+    }
+    h1 { font-size: 1rem; margin: 0 0 8px; }
+    p { margin: 0 0 16px; font-size: 0.8125rem; color: #5f6c7b; max-width: 420px; }
+    .demo {
+      position: relative;
+      width: 100%;
+      max-width: 360px;
+      background: #fff;
+      border: 1px solid #e3e8ef;
+      border-radius: 12px;
+      padding: 12px 12px calc(12px + var(--fake-safe));
+      overflow: visible;
+    }
+    .tabbar {
+      position: relative;
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      grid-template-rows: var(--tabbar-strip);
+      align-items: stretch;
+      overflow: visible;
+      min-height: calc(var(--tabbar-strip) + var(--pad-y) * 2 + var(--fake-safe));
+      padding: var(--pad-y) 6px calc(var(--pad-y) + var(--fake-safe));
+      background: color-mix(in srgb, #fff 92%, #14202b);
+      border: 1px dashed #c5cdd8;
+      border-radius: 8px;
+    }
+    .tabbar::before {
+      content: "";
+      position: absolute;
+      left: 8px;
+      right: 8px;
+      bottom: calc(var(--pad-y) + var(--fake-safe));
+      height: var(--tabbar-strip);
+      border: 2px solid #2f9b51;
+      border-radius: 4px;
+      pointer-events: none;
+      z-index: 0;
+    }
+    .tab {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.75rem;
+      color: #5f6c7b;
+      border-right: 1px dotted #e3e8ef;
+    }
+    .tab:last-child { border-right: none; }
+    .fab {
+      justify-self: center;
+      align-self: end;
+      width: var(--tabbar-fab);
+      height: var(--tabbar-fab);
+      min-height: 0;
+      border-radius: 50%;
+      background: #fff;
+      border: 2px solid #2e6cdf;
+      box-shadow: 0 2px 10px rgba(15, 23, 42, 0.12);
+    }
+    .tab, .fab { position: relative; z-index: 1; }
+    .dims {
+      margin-top: 20px;
+      font-size: 0.75rem;
+      color: #14202b;
+      display: grid;
+      gap: 6px;
+    }
+    .dims code { font-size: 0.7rem; background: #f0f2f7; padding: 2px 6px; border-radius: 4px; }
+    .legend { display: flex; flex-wrap: wrap; gap: 12px 16px; margin-top: 10px; font-size: 0.7rem; color: #5f6c7b; }
+    .lg-strip::before {
+      content: "";
+      display: inline-block;
+      width: 12px; height: 12px;
+      border: 2px solid #2f9b51;
+      border-radius: 2px;
+      margin-right: 6px;
+      vertical-align: middle;
+    }
+    .lg-fab::before {
+      content: "";
+      display: inline-block;
+      width: 12px; height: 12px;
+      border: 2px solid #2e6cdf;
+      border-radius: 50%;
+      margin-right: 6px;
+      vertical-align: middle;
+    }
+  </style>
+</head>
+<body>
+  <h1>底栏几何预览（静态）</h1>
+  <p>
+    与 <code>globals.css</code> 中 <code>--tabbar-fab</code>、<code>--tabbar-strip: calc(var(--tabbar-fab) * 7 / 9)</code> 一致。
+    绿色框为单行格高度；圆形底边与该格底边对齐，向上超出格顶。
+  </p>
+  <div class="demo">
+    <div class="tabbar">
+      <div class="tab">待读</div>
+      <div class="tab">已读</div>
+      <div class="fab" title="添加"></div>
+      <div class="tab">随览</div>
+      <div class="tab">我的</div>
+    </div>
+    <div class="dims">
+      <div><strong>D</strong>（<code>--tabbar-fab</code>）= <span id="fab"></span></div>
+      <div><strong>H</strong>（<code>--tabbar-strip</code>）= <code>calc(D × 7 / 9)</code> ≈ <span id="strip"></span></div>
+      <div><strong>上凸</strong> ≈ <code>D − H</code> = <span id="overhang"></span></div>
+      <div class="legend"><span class="lg-strip">绿色：tab 行高 H</span><span class="lg-fab">蓝色圆：直径 D</span></div>
+    </div>
+  </div>
+  <script>
+    (function () {
+      var root = getComputedStyle(document.documentElement);
+      var d = root.getPropertyValue("--tabbar-fab").trim() || "56px";
+      var stripPx = 0;
+      var el = document.createElement("div");
+      el.style.cssText = "position:absolute;left:-9999px;width:var(--tabbar-strip);height:var(--tabbar-strip);";
+      document.body.appendChild(el);
+      stripPx = el.getBoundingClientRect().width;
+      document.body.removeChild(el);
+      var dn = parseFloat(d) || 56;
+      var over = dn - stripPx;
+      document.getElementById("fab").textContent = d + "（≥430px 宽视口为 60px）";
+      document.getElementById("strip").textContent = stripPx.toFixed(2) + "px";
+      document.getElementById("overhang").textContent = over.toFixed(2) + "px";
+    })();
+  </script>
+</body>
+</html>

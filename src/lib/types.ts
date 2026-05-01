@@ -34,6 +34,26 @@ export function isIntensiveRead(article: Article): boolean {
   return article.recommendedDepth === "deep" || article.featured;
 }
 
+/** 随览：用户配置的追踪主题 */
+export interface BrowseTopic {
+  id: string;
+  name: string;
+  keywords: string[];
+  sortOrder: number;
+  createdAt: string;
+}
+
+/** 随览：单条检索结果（Firecrawl 联网 + 摘要/正文节选） */
+export interface BrowseHit {
+  url: string;
+  title: string;
+  description: string;
+  summary: string;
+  excerpt: string;
+  /** 页面元数据中的发布时间（ISO），用于排序与时间窗过滤 */
+  publishedTime?: string | null;
+}
+
 export interface DailyPlan {
   date: string;
   totalMinutes: number;

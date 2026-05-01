@@ -7,6 +7,10 @@ out/
 *.tsbuildinfo
 next-env.d.ts
 
+# local screenshots (勿提交)
+/tabbar-preview-viewport.png
+/reading-plan-2026-05-01-tabbar-home.png
+
 # Local SQLite / dev data (生产用 DATABASE_URL，勿提交库文件)
 /data/
 *.db
