@@ -554,7 +554,7 @@ export default function BrowsePageClient() {
             随览
           </h1>
           <span className="sub">
-            首次刷新约 6 个月窗、增量只补新链接；自首次收录起约保留 90 天（本地与服务端一致）。
+            首次刷新约 6 个月窗、增量只补新链接；自首次收录起约保留 90 天。
           </span>
         </div>
         <button
