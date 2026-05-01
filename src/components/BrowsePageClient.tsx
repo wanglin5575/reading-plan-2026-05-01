@@ -597,7 +597,7 @@ export default function BrowsePageClient() {
         </p>
       )}
 
-      {active && hits.length > 0 && (
+      {!loadingTopics && active && (
         <div className="browse-sort-bar" role="group" aria-label="列表排序">
           <span className="muted-link browse-sort-label">排序</span>
           <button
