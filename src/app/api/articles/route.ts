@@ -44,6 +44,16 @@ export async function POST(req: Request) {
     ...classification,
   };
 
-  await insertArticle(article);
-  return NextResponse.json({ article }, { status: 201 });
+  try {
+    await insertArticle(article);
+    return NextResponse.json({ article }, { status: 201 });
+  } catch (error) {
+    if (error instanceof Error && error.message === "db_not_configured") {
+      return NextResponse.json(
+        { error: "db_not_configured", message: "请先在 Vercel 设置 DATABASE_URL 后再添加文章。" },
+        { status: 503 },
+      );
+    }
+    throw error;
+  }
 }

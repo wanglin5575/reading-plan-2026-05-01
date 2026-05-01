@@ -14,13 +14,11 @@ function getConnectionString(): string | null {
 let pool: Pool | null = null;
 let schemaReady: Promise<void> | null = null;
 
-function getPool(): Pool {
+function getPoolOrNull(): Pool | null {
   if (pool) return pool;
   const connectionString = getConnectionString();
   if (!connectionString) {
-    throw new Error(
-      "Missing database connection string. Set DATABASE_URL (or POSTGRES_URL / POSTGRES_PRISMA_URL / SUPABASE_DB_URL).",
-    );
+    return null;
   }
   pool = new Pool({
     connectionString,
@@ -30,9 +28,11 @@ function getPool(): Pool {
 }
 
 async function ensureSchema(): Promise<void> {
+  const p = getPoolOrNull();
+  if (!p) return;
   if (!schemaReady) {
     schemaReady = (async () => {
-      await getPool().query(`
+      await p.query(`
         CREATE TABLE IF NOT EXISTS articles (
           id TEXT PRIMARY KEY,
           url TEXT NOT NULL,
@@ -111,8 +111,12 @@ function rowToArticle(row: ArticleRow): Article {
 }
 
 export async function insertArticle(article: Article): Promise<void> {
+  const p = getPoolOrNull();
+  if (!p) {
+    throw new Error("db_not_configured");
+  }
   await ensureSchema();
-  await getPool().query(
+  await p.query(
     `INSERT INTO articles (
       id, url, title, domain, theme, summary, language, char_count, word_count,
       estimated_minutes, recommended_depth, knowledge_tags, status, added_at, due_date,
@@ -145,8 +149,12 @@ export async function insertArticle(article: Article): Promise<void> {
 }
 
 export async function updateArticle(article: Article): Promise<void> {
+  const p = getPoolOrNull();
+  if (!p) {
+    throw new Error("db_not_configured");
+  }
   await ensureSchema();
-  await getPool().query(
+  await p.query(
     `UPDATE articles SET
       title = $1,
       theme = $2,
@@ -183,8 +191,10 @@ export async function updateArticle(article: Article): Promise<void> {
 
 export async function listArticles(): Promise<Article[]> {
   try {
+    const p = getPoolOrNull();
+    if (!p) return [];
     await ensureSchema();
-    const { rows } = await getPool().query<ArticleRow>("SELECT * FROM articles ORDER BY due_date ASC, added_at DESC");
+    const { rows } = await p.query<ArticleRow>("SELECT * FROM articles ORDER BY due_date ASC, added_at DESC");
     return rows.map(rowToArticle);
   } catch (error) {
     console.error("[db] listArticles failed:", error);
@@ -194,8 +204,10 @@ export async function listArticles(): Promise<Article[]> {
 
 export async function getArticle(id: string): Promise<Article | null> {
   try {
+    const p = getPoolOrNull();
+    if (!p) return null;
     await ensureSchema();
-    const { rows } = await getPool().query<ArticleRow>("SELECT * FROM articles WHERE id = $1 LIMIT 1", [id]);
+    const { rows } = await p.query<ArticleRow>("SELECT * FROM articles WHERE id = $1 LIMIT 1", [id]);
     const row = rows[0];
     return row ? rowToArticle(row) : null;
   } catch (error) {
@@ -205,14 +217,20 @@ export async function getArticle(id: string): Promise<Article | null> {
 }
 
 export async function deleteArticle(id: string): Promise<void> {
+  const p = getPoolOrNull();
+  if (!p) {
+    throw new Error("db_not_configured");
+  }
   await ensureSchema();
-  await getPool().query("DELETE FROM articles WHERE id = $1", [id]);
+  await p.query("DELETE FROM articles WHERE id = $1", [id]);
 }
 
 export async function listCompletedBetween(startIso: string, endIso: string): Promise<Article[]> {
   try {
+    const p = getPoolOrNull();
+    if (!p) return [];
     await ensureSchema();
-    const { rows } = await getPool().query<ArticleRow>(
+    const { rows } = await p.query<ArticleRow>(
       "SELECT * FROM articles WHERE status = 'done' AND completed_at >= $1 AND completed_at < $2 ORDER BY completed_at DESC",
       [startIso, endIso],
     );

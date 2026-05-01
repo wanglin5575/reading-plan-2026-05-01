@@ -14,6 +14,16 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
   const cls = buildArticleClassification(article.url, scraped.title, scraped.body);
 
   const updated = { ...article, ...cls };
-  await updateArticle(updated);
-  return NextResponse.json({ article: updated });
+  try {
+    await updateArticle(updated);
+    return NextResponse.json({ article: updated });
+  } catch (error) {
+    if (error instanceof Error && error.message === "db_not_configured") {
+      return NextResponse.json(
+        { error: "db_not_configured", message: "请先在 Vercel 设置 DATABASE_URL 后再刷新文章。" },
+        { status: 503 },
+      );
+    }
+    throw error;
+  }
 }
