@@ -91,7 +91,7 @@ interface ArticleRow {
   knowledge_tags: string[] | string;
   status: string;
   added_at: Date | string;
-  due_date: string;
+  due_date: string | Date;
   completed_at: Date | string | null;
   read_one_liner?: string | null;
   read_key_points?: string[] | string | null;
@@ -111,6 +111,19 @@ function safeJsonArray(value: unknown): unknown {
     }
   }
   return [];
+}
+
+/** PG `date` 在部分驱动/连接下会变为 JS Date，统一为 YYYY-MM-DD 供 localeCompare / input[type=date] 使用 */
+function normalizeDueDateIso(raw: unknown): string {
+  if (raw == null) return "";
+  if (typeof raw === "string") {
+    return raw.length >= 10 ? raw.slice(0, 10) : raw;
+  }
+  if (raw instanceof Date) {
+    return raw.toISOString().slice(0, 10);
+  }
+  const s = String(raw);
+  return s.length >= 10 ? s.slice(0, 10) : s;
 }
 
 function rowToArticle(row: ArticleRow): Article {
@@ -146,7 +159,7 @@ function rowToArticle(row: ArticleRow): Article {
     knowledgeTags,
     status: row.status as Article["status"],
     addedAt: addedAtIso,
-    dueDate: row.due_date,
+    dueDate: normalizeDueDateIso(row.due_date),
     completedAt: completedAtIso,
     readOneLiner: row.read_one_liner ?? "",
     readKeyPoints,
