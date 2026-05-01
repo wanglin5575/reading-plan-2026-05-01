@@ -526,7 +526,7 @@ export default function BrowsePageClient() {
 
   return (
     <>
-      <header className="app-header app-header-with-actions browse-header-row">
+      <header className="app-header browse-header-row">
         <div className="app-header-titles">
           <h1
             className="browse-title-refresh"
@@ -542,14 +542,6 @@ export default function BrowsePageClient() {
             首次刷新约 6 个月窗、增量只补新链接；自首次收录起约保留 90 天。
           </span>
         </div>
-        <button
-          type="button"
-          className="browse-add-topic-btn"
-          aria-label="添加主题"
-          onClick={() => setFormOpen(true)}
-        >
-          +
-        </button>
       </header>
 
       <div
@@ -575,20 +567,30 @@ export default function BrowsePageClient() {
         ) : null}
       </div>
 
-      <div className="browse-topic-tabs">
-        {loadingTopics ? (
-          <span className="muted-link">加载主题…</span>
-        ) : (
-          topics.map((t) => (
-            <TopicTabButton
-              key={t.id}
-              t={t}
-              active={t.id === activeId}
-              onSelect={setActiveId}
-              onLongPress={openEditTopic}
-            />
-          ))
-        )}
+      <div className="browse-topic-tabs-bar">
+        <div className="browse-topic-tabs">
+          {loadingTopics ? (
+            <span className="muted-link">加载主题…</span>
+          ) : (
+            topics.map((t) => (
+              <TopicTabButton
+                key={t.id}
+                t={t}
+                active={t.id === activeId}
+                onSelect={setActiveId}
+                onLongPress={openEditTopic}
+              />
+            ))
+          )}
+        </div>
+        <button
+          type="button"
+          className="browse-add-topic-btn"
+          aria-label="添加主题"
+          onClick={() => setFormOpen(true)}
+        >
+          +
+        </button>
       </div>
 
       {active && (
