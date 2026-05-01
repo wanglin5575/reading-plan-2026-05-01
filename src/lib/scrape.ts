@@ -2,6 +2,7 @@ import FirecrawlApp from "@mendable/firecrawl-js";
 
 export interface ScrapeResult {
   title: string;
+  author: string;
   body: string;
   source: "firecrawl" | "fallback";
 }
@@ -11,6 +12,7 @@ interface FirecrawlScrapeData {
   metadata?: {
     title?: string;
     ogTitle?: string;
+    author?: string;
   };
 }
 
@@ -20,6 +22,7 @@ interface FirecrawlScrapeResponse {
   metadata?: {
     title?: string;
     ogTitle?: string;
+    author?: string;
   };
 }
 
@@ -41,8 +44,10 @@ async function scrapeWithFirecrawl(url: string, apiKey: string): Promise<ScrapeR
   const data = raw.data ?? raw;
   const markdown = data?.markdown ?? "";
   const title = data?.metadata?.title || data?.metadata?.ogTitle || "";
+  const author = data?.metadata?.author || "";
   return {
     title,
+    author,
     body: stripMarkdown(markdown),
     source: "firecrawl",
   };
@@ -57,9 +62,11 @@ async function scrapeWithFallback(url: string): Promise<ScrapeResult> {
   });
   const html = await res.text();
   const title = extractTitle(html);
+  const author = extractAuthor(html);
   const body = extractBodyText(html);
   return {
     title,
+    author,
     body,
     source: "fallback",
   };
@@ -83,6 +90,14 @@ function extractBodyText(html: string): string {
     .replace(/<[^>]+>/g, " ")
     .replace(/\s+/g, " ");
   return decodeHtml(stripped).trim();
+}
+
+function extractAuthor(html: string): string {
+  const byMeta =
+    html.match(/<meta[^>]+name=["']author["'][^>]+content=["']([^"']+)["']/i)?.[1] ||
+    html.match(/<meta[^>]+property=["']article:author["'][^>]+content=["']([^"']+)["']/i)?.[1];
+  if (byMeta) return decodeHtml(byMeta.trim());
+  return "";
 }
 
 function stripMarkdown(md: string): string {

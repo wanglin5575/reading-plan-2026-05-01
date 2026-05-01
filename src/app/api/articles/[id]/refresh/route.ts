@@ -11,7 +11,7 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
   if (!article) return NextResponse.json({ error: "not_found" }, { status: 404 });
 
   const scraped = await scrapeUrl(article.url);
-  const cls = buildArticleClassification(article.url, scraped.title, scraped.body);
+  const cls = await buildArticleClassification(article.url, scraped.title, scraped.body);
 
   const updated = { ...article, ...cls };
   try {

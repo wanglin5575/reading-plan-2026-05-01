@@ -1,31 +1,29 @@
 import { listArticles } from "@/lib/db";
 import { buildDailyPlan } from "@/lib/plan";
-import { AddArticleForm } from "@/components/AddArticleForm";
-import { ArticleCard } from "@/components/ArticleCard";
+import { TodoGroupedList } from "@/components/TodoGroupedList";
 
 export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
   const all = await listArticles();
   const plan = buildDailyPlan(all);
+  const unread = all.filter((a) => a.status === "todo");
 
   return (
     <>
       <header className="app-header">
-        <h1>今日阅读</h1>
-        <span className="sub">{plan.date} · {plan.items.length} 篇待读 · 约 {plan.totalMinutes} 分钟</span>
+        <h1>待读</h1>
+        <span className="sub">共 {unread.length} 篇 · 今日建议 {plan.items.length} 篇 · 约 {plan.totalMinutes} 分钟</span>
       </header>
-
-      <AddArticleForm />
 
       <section className="kpi-grid">
         <div className="kpi">
-          <div className="label">总用时</div>
-          <div className="value">{plan.totalMinutes}<span style={{ fontSize: 13, color: "var(--muted)", marginLeft: 4 }}>分钟</span></div>
+          <div className="label">今日建议用时</div>
+          <div className="value">{plan.totalMinutes}<span className="text-unit">分钟</span></div>
         </div>
         <div className="kpi">
           <div className="label">待读篇数</div>
-          <div className="value">{plan.items.length}</div>
+          <div className="value">{unread.length}</div>
         </div>
         <div className="kpi">
           <div className="label">重点精读</div>
@@ -45,16 +43,12 @@ export default async function HomePage() {
               <span key={t} className="chip">{t}</span>
             ))}
           </div>
-          <p style={{ margin: 0, color: "var(--muted)", fontSize: 13 }}>{plan.knowledgePromise}</p>
+          <p className="review-advice">{plan.knowledgePromise}</p>
         </div>
       )}
 
-      <h3 className="section-title">待读列表（按截止日期排序）</h3>
-      {plan.items.length === 0 ? (
-        <div className="empty">今天的安排已读完，加几条新链接吧。</div>
-      ) : (
-        plan.items.map((article) => <ArticleCard key={article.id} article={article} />)
-      )}
+      <h3 className="section-title">待读列表（按期望完成时间）</h3>
+      <TodoGroupedList items={unread} />
     </>
   );
 }

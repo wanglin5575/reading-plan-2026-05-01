@@ -13,7 +13,7 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  let payload: { url?: string; dueDate?: string };
+  let payload: { url?: string; dueDate?: string; featured?: boolean };
   try {
     payload = await req.json();
   } catch {
@@ -32,7 +32,7 @@ export async function POST(req: Request) {
 
   const dueDate = payload.dueDate || shiftDays(todayIso(), 2);
   const scraped = await scrapeUrl(parsed.toString());
-  const classification = buildArticleClassification(parsed.toString(), scraped.title, scraped.body);
+  const classification = await buildArticleClassification(parsed.toString(), scraped.title, scraped.body);
 
   const article: Article = {
     id: randomUUID(),
@@ -41,6 +41,12 @@ export async function POST(req: Request) {
     addedAt: new Date().toISOString(),
     dueDate,
     completedAt: null,
+    author: scraped.author?.trim() || "未知作者",
+    customTags: [],
+    featured: Boolean(payload.featured),
+    readOneLiner: "",
+    readKeyPoints: [],
+    readAction: "",
     ...classification,
   };
 

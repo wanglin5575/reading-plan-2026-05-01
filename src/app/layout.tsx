@@ -4,7 +4,7 @@ import { Tabbar } from "@/components/Tabbar";
 
 export const metadata: Metadata = {
   title: "阅读计划",
-  description: "贴入文章链接，自动分类、估算阅读时长，每日推荐与每周回顾",
+  description: "贴入文章链接，自动分类、估算阅读时长，每日推荐与复盘",
 };
 
 export const viewport: Viewport = {

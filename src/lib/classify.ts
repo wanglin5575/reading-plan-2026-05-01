@@ -137,11 +137,32 @@ export function getDomain(urlString: string): string {
   }
 }
 
-export function buildArticleClassification(
+async function translateToChinese(text: string): Promise<string> {
+  const trimmed = text.trim();
+  if (!trimmed) return trimmed;
+  const lang = detectLanguage(trimmed);
+  if (lang === "zh") return trimmed;
+
+  try {
+    const endpoint = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(
+      trimmed.slice(0, 1200),
+    )}&langpair=en|zh-CN`;
+    const res = await fetch(endpoint);
+    if (!res.ok) return trimmed;
+    const data = (await res.json()) as { responseData?: { translatedText?: string } };
+    const translated = data.responseData?.translatedText?.trim();
+    return translated || trimmed;
+  } catch {
+    return trimmed;
+  }
+}
+
+export async function buildArticleClassification(
   url: string,
   rawTitle: string,
   rawBody: string,
-): Pick<
+): Promise<
+  Pick<
   Article,
   | "title"
   | "domain"
@@ -154,6 +175,7 @@ export function buildArticleClassification(
   | "recommendedDepth"
   | "knowledgeTags"
   | "rawExcerpt"
+>
 > {
   const title = (rawTitle || url).trim().slice(0, 200);
   const body = rawBody || "";
@@ -162,11 +184,13 @@ export function buildArticleClassification(
   const wordCount = countWords(body);
   const theme = classifyTheme(title, body, url);
   const summary = makeSummary(body);
+  const summaryZh = await translateToChinese(summary || "(暂无摘要)");
+
   return {
     title,
     domain: getDomain(url),
     theme,
-    summary: summary || "(暂无摘要)",
+    summary: summaryZh || "(暂无摘要)",
     language: lang,
     charCount,
     wordCount,

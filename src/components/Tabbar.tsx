@@ -4,9 +4,10 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 const TABS = [
-  { href: "/", label: "今日" },
-  { href: "/all", label: "全部" },
-  { href: "/weekly", label: "每周回顾" },
+  { href: "/", label: "待读" },
+  { href: "/read", label: "已读" },
+  { href: "/add", label: "添加" },
+  { href: "/weekly", label: "复盘" },
 ];
 
 export function Tabbar() {

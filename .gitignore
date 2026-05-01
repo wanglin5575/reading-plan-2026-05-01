@@ -6,3 +6,9 @@ out/
 .DS_Store
 *.tsbuildinfo
 next-env.d.ts
+
+# Local SQLite / dev data (生产用 DATABASE_URL，勿提交库文件)
+/data/
+*.db
+*.db-shm
+*.db-wal
