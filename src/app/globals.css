@@ -561,7 +561,7 @@ a:active { opacity: 0.7; }
 }
 
 .browse-topic-tab-add {
-  border: 1px dashed var(--border);
+  border-style: dashed;
   background: var(--card);
   color: var(--muted);
   font-size: 1.05rem;
@@ -722,7 +722,8 @@ a:active { opacity: 0.7; }
   border-radius: 0;
   background: transparent;
   box-shadow: none;
-  color: color-mix(in srgb, var(--brand) 26%, var(--muted));
+  /* 极淡纯蓝（与品牌色混白/背景，不掺灰） */
+  color: color-mix(in srgb, var(--brand) 15%, white 85%);
   font-size: 2.35rem;
   line-height: 1;
   cursor: pointer;
@@ -734,7 +735,7 @@ a:active { opacity: 0.7; }
 }
 
 .browse-empty-refresh-btn:hover:not(:disabled) {
-  color: color-mix(in srgb, var(--brand) 38%, var(--muted));
+  color: color-mix(in srgb, var(--brand) 26%, white 74%);
 }
 
 .browse-empty-refresh-btn:active:not(:disabled) {
@@ -744,8 +745,21 @@ a:active { opacity: 0.7; }
 
 .browse-empty-refresh-btn:disabled {
   cursor: default;
-  color: color-mix(in srgb, var(--brand) 22%, var(--muted));
-  opacity: 0.75;
+  color: color-mix(in srgb, var(--brand) 12%, white 88%);
+}
+
+@media (prefers-color-scheme: dark) {
+  .browse-empty-refresh-btn {
+    color: color-mix(in srgb, var(--brand) 22%, var(--bg) 78%);
+  }
+
+  .browse-empty-refresh-btn:hover:not(:disabled) {
+    color: color-mix(in srgb, var(--brand) 34%, var(--bg) 66%);
+  }
+
+  .browse-empty-refresh-btn:disabled {
+    color: color-mix(in srgb, var(--brand) 16%, var(--bg) 84%);
+  }
 }
 
 .browse-empty-refresh-icon {
