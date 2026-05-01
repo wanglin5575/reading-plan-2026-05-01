@@ -7,7 +7,7 @@ import { normalizeSupabaseUrl } from "@/lib/supabase/url";
 export async function GET(request: Request) {
   const requestUrl = new URL(request.url);
   const code = requestUrl.searchParams.get("code");
-  const nextRaw = requestUrl.searchParams.get("next") || "/me";
+  const nextRaw = requestUrl.searchParams.get("next") || "/weekly";
   const safePath =
     nextRaw.startsWith("/") && !nextRaw.startsWith("//") ? nextRaw : "/me";
 
@@ -15,7 +15,7 @@ export async function GET(request: Request) {
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim();
   const url = raw ? normalizeSupabaseUrl(raw) : "";
   if (!url || !key) {
-    return NextResponse.redirect(new URL("/me", request.url));
+    return NextResponse.redirect(new URL("/weekly", request.url));
   }
 
   if (code) {
@@ -40,5 +40,5 @@ export async function GET(request: Request) {
     }
   }
 
-  return NextResponse.redirect(new URL("/me?auth_error=1", requestUrl.origin));
+  return NextResponse.redirect(new URL("/weekly?auth_error=1", requestUrl.origin));
 }

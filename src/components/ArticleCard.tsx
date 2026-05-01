@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useTransition, useState, useCallback, useRef } from "react";
+import { useEffect, useTransition, useState, useCallback, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { type Article, isIntensiveRead } from "@/lib/types";
@@ -113,6 +113,68 @@ function useSwipeTodoFace(enabled: boolean) {
     onTouchEnd,
     onMouseDown,
   };
+}
+
+/** 点击打开原文；长按（约 0.55s）复制链接 */
+function ArticleTitleLink({ url, children }: { url: string; children: ReactNode }) {
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const blockClickRef = useRef(false);
+  const startRef = useRef<{ x: number; y: number } | null>(null);
+
+  const clearTimer = () => {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+  };
+
+  const onPointerDown = (e: React.PointerEvent) => {
+    blockClickRef.current = false;
+    startRef.current = { x: e.clientX, y: e.clientY };
+    clearTimer();
+    timerRef.current = setTimeout(() => {
+      timerRef.current = null;
+      blockClickRef.current = true;
+      void navigator.clipboard.writeText(url).then(
+        () => alert("已复制原文链接"),
+        () => alert("复制失败，请手动从浏览器地址栏复制"),
+      );
+      setTimeout(() => {
+        blockClickRef.current = false;
+      }, 400);
+    }, 550);
+  };
+
+  const onPointerMove = (e: React.PointerEvent) => {
+    if (!startRef.current) return;
+    const dx = e.clientX - startRef.current.x;
+    const dy = e.clientY - startRef.current.y;
+    if (dx * dx + dy * dy > 100) clearTimer();
+  };
+
+  const onPointerUp = () => {
+    startRef.current = null;
+    clearTimer();
+  };
+
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noreferrer"
+      className="article-title-link"
+      title="点击打开原文；长按复制链接"
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerUp}
+      onClick={(e) => {
+        if (blockClickRef.current) e.preventDefault();
+      }}
+    >
+      {children}
+    </a>
+  );
 }
 
 export function ArticleCard({ article, showActions = true }: Props) {
@@ -365,7 +427,9 @@ export function ArticleCard({ article, showActions = true }: Props) {
   const cardMiddle = (
     <>
       {cardTop}
-      <h3 className="title">{article.title}</h3>
+      <ArticleTitleLink url={article.url}>
+        <h3 className="title">{article.title}</h3>
+      </ArticleTitleLink>
       <div className="muted-link">作者：{article.author || "未知作者"}</div>
 
       {article.status === "todo" && article.summary && article.summary !== "(暂无摘要)" && (
@@ -405,9 +469,6 @@ export function ArticleCard({ article, showActions = true }: Props) {
           ))}
         </div>
       )}
-      <a href={article.url} target="_blank" rel="noreferrer" className="url">
-        {article.url}
-      </a>
     </>
   );
 

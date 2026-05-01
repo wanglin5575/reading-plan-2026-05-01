@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { isAuthEnabled } from "@/lib/auth";
 import { getServerAuthUser } from "@/lib/auth/server";
 import { MeAccountClient } from "@/components/MeAccountClient";
@@ -6,6 +7,7 @@ export const dynamic = "force-dynamic";
 
 export default async function MePage() {
   const user = await getServerAuthUser();
+  if (user) redirect("/weekly");
 
   return (
     <>
@@ -14,7 +16,7 @@ export default async function MePage() {
         <span className="sub">账号与数据归属</span>
       </header>
 
-      <MeAccountClient authEnabled={isAuthEnabled()} initialEmail={user?.email ?? null} />
+      <MeAccountClient authEnabled={isAuthEnabled()} />
     </>
   );
 }

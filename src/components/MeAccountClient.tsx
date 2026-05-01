@@ -3,23 +3,16 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { formatSupabaseAuthMessage } from "@/lib/auth";
+import { dispatchAuthChanged } from "@/lib/auth-events";
 import { createBrowserSupabaseClient } from "@/lib/supabase/client";
 
-export function MeAccountClient({
-  authEnabled,
-  initialEmail,
-}: {
-  authEnabled: boolean;
-  initialEmail: string | null;
-}) {
+export function MeAccountClient({ authEnabled }: { authEnabled: boolean }) {
   const router = useRouter();
   const [mode, setMode] = useState<"login" | "register">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [newPassword, setNewPassword] = useState("");
-  const [newPassword2, setNewPassword2] = useState("");
 
   async function onRegister(e: React.FormEvent) {
     e.preventDefault();
@@ -45,7 +38,9 @@ export function MeAccountClient({
       if (data.session) {
         setMsg("注册成功，已登录。");
         setPassword("");
+        dispatchAuthChanged();
         router.refresh();
+        router.replace("/weekly");
       } else {
         setMsg(
           "账号已创建。若 Supabase 开启了「邮箱确认」，请查收邮件并点击链接验证后再登录；关闭确认时通常可直接登录。",
@@ -71,7 +66,9 @@ export function MeAccountClient({
       });
       if (error) throw error;
       setPassword("");
+      dispatchAuthChanged();
       router.refresh();
+      router.replace("/weekly");
     } catch (e: unknown) {
       setMsg(formatSupabaseAuthMessage(e));
     } finally {
@@ -116,47 +113,10 @@ export function MeAccountClient({
       const supabase = createBrowserSupabaseClient();
       const origin = window.location.origin;
       const { error } = await supabase.auth.resetPasswordForEmail(em, {
-        redirectTo: `${origin}/auth/callback?next=/me`,
+        redirectTo: `${origin}/auth/callback?next=/weekly`,
       });
       if (error) throw error;
       setMsg("已发送重置密码邮件，请打开邮件中的链接；完成后会回到本站。");
-    } catch (e: unknown) {
-      setMsg(formatSupabaseAuthMessage(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function onLogout() {
-    setBusy(true);
-    try {
-      const supabase = createBrowserSupabaseClient();
-      await supabase.auth.signOut();
-      router.refresh();
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function onChangePassword(e: React.FormEvent) {
-    e.preventDefault();
-    setMsg(null);
-    if (newPassword.length < 6) {
-      setMsg("新密码至少 6 位");
-      return;
-    }
-    if (newPassword !== newPassword2) {
-      setMsg("两次输入的密码不一致");
-      return;
-    }
-    setBusy(true);
-    try {
-      const supabase = createBrowserSupabaseClient();
-      const { error } = await supabase.auth.updateUser({ password: newPassword });
-      if (error) throw error;
-      setNewPassword("");
-      setNewPassword2("");
-      setMsg("密码已更新。");
     } catch (e: unknown) {
       setMsg(formatSupabaseAuthMessage(e));
     } finally {
@@ -177,56 +137,10 @@ export function MeAccountClient({
     );
   }
 
-  if (initialEmail) {
-    return (
-      <div className="card me-account-card">
-        <h2>账号</h2>
-        <p className="me-logged-email">
-          已登录：<span>{initialEmail}</span>
-        </p>
-        <p className="muted-link me-logged-hint">你的待读、已读数据已与此账号关联。</p>
-        <form className="row me-change-pw" onSubmit={onChangePassword}>
-          <label className="muted-link" htmlFor="me-new-pw">
-            新密码（可选，用于重置后或日常修改）
-          </label>
-          <input
-            id="me-new-pw"
-            className="input"
-            type="password"
-            autoComplete="new-password"
-            value={newPassword}
-            onChange={(e) => setNewPassword(e.target.value)}
-            minLength={6}
-            placeholder="至少 6 位"
-          />
-          <label className="muted-link" htmlFor="me-new-pw2">
-            确认新密码
-          </label>
-          <input
-            id="me-new-pw2"
-            className="input"
-            type="password"
-            autoComplete="new-password"
-            value={newPassword2}
-            onChange={(e) => setNewPassword2(e.target.value)}
-            minLength={6}
-          />
-          <button className="btn secondary" type="submit" disabled={busy || !newPassword}>
-            {busy ? "保存中…" : "保存新密码"}
-          </button>
-        </form>
-        {msg && <p className="me-msg">{msg}</p>}
-        <button type="button" className="btn secondary" disabled={busy} onClick={onLogout}>
-          {busy ? "退出中…" : "退出登录"}
-        </button>
-      </div>
-    );
-  }
-
   return (
     <div className="card me-account-card">
       <h2>账号</h2>
-      <p className="muted-link me-intro">使用邮箱注册或登录后，即可在多台设备同步阅读计划。</p>
+      <p className="muted-link me-intro">登录后可多设备同步；登录后在「复盘」页右上角小人图标里可改密码或退出。</p>
 
       <div className="me-mode-switch">
         <button
@@ -282,12 +196,7 @@ export function MeAccountClient({
             {busy ? "登录中…" : "登录"}
           </button>
           <div className="me-auth-extras">
-            <button
-              type="button"
-              className="me-link-btn"
-              disabled={busy}
-              onClick={onResendConfirmation}
-            >
+            <button type="button" className="me-link-btn" disabled={busy} onClick={onResendConfirmation}>
               重发验证邮件
             </button>
             <span className="me-auth-sep" aria-hidden>
