@@ -35,21 +35,19 @@
   /** 底栏 Tab 默认间距（五 Tab 时用 .tabbar.tabbar-cols-5 覆盖为流体值） */
   --tabbar-col-gap: 6px;
   /** 底栏占地：蒙层与主内容底部留白 */
-  --auth-gate-tabbar-gap: calc(var(--tabbar-fab) + 16px + env(safe-area-inset-bottom) + var(--tabbar-extra-height));
+  --auth-gate-tabbar-gap: calc(var(--tabbar-fab) + 8px + env(safe-area-inset-bottom) + var(--tabbar-extra-height));
   /** 底栏竖向：底边贴屏 bottom:0（lift 预留） */
   --tabbar-edge-lift: 0px;
   /** 底栏加高（恒为 0；算式仍引用以保持改动面小） */
   --tabbar-extra-height: 0px;
-  /** 圆形「添加」相对栏内容上移；默认 0，窄屏在 .tabbar.tabbar-cols-5 媒体查询内用 clamp */
+  /** 圆形「添加」上移：`--tabbar-add-lift` 在 `.tabbar.tabbar-cols-5` 的媒体查询中设定 */
   --tabbar-add-lift: 0px;
-  /** 已读/随览 微移；五 Tab 时在 .tabbar.tabbar-cols-5 内按 --tabbar-col-gap 比例重算 */
-  --tabbar-adjacent-inset: 2px;
 }
 
 @media (min-width: 430px) {
   :root {
     --tabbar-fab: 60px;
-    --auth-gate-tabbar-gap: calc(var(--tabbar-fab) + 16px + env(safe-area-inset-bottom) + var(--tabbar-extra-height));
+    --auth-gate-tabbar-gap: calc(var(--tabbar-fab) + 8px + env(safe-area-inset-bottom) + var(--tabbar-extra-height));
   }
 }
 
@@ -61,6 +59,12 @@
 
   .tabbar.tabbar-cols-5 {
     --tabbar-add-lift: clamp(16px, 5.2vw, 24px);
+  }
+}
+
+@media (min-width: 769px) {
+  .tabbar.tabbar-cols-5 {
+    --tabbar-add-lift: clamp(14px, 1.75vw, 22px);
   }
 }
 
@@ -95,7 +99,7 @@ a:active { opacity: 0.7; }
 .app {
   max-width: 720px;
   margin: 0 auto;
-  padding: 16px 14px calc(24px + var(--tabbar-fab) + env(safe-area-inset-bottom) + var(--tabbar-extra-height));
+  padding: 16px 14px calc(16px + var(--tabbar-fab) + env(safe-area-inset-bottom) + var(--tabbar-extra-height));
 }
 
 .app-header {
@@ -271,8 +275,8 @@ a:active { opacity: 0.7; }
   align-items: stretch;
   justify-items: stretch;
   z-index: 50;
-  min-height: calc(var(--tabbar-strip) + 8px + env(safe-area-inset-bottom) + var(--tabbar-extra-height));
-  padding: 4px calc(0.5 * var(--tabbar-col-gap)) calc(4px + env(safe-area-inset-bottom) + var(--tabbar-extra-height));
+  min-height: calc(var(--tabbar-strip) + env(safe-area-inset-bottom) + var(--tabbar-extra-height));
+  padding: 0 calc(0.5 * var(--tabbar-col-gap)) calc(env(safe-area-inset-bottom) + var(--tabbar-extra-height));
   overflow: visible;
   box-shadow: 0 -1px 0 color-mix(in srgb, var(--border) 70%, transparent),
     0 -6px 24px rgba(15, 23, 42, 0.05);
@@ -293,7 +297,6 @@ a:active { opacity: 0.7; }
 .tabbar.tabbar-cols-5 {
   /** 五 Tab 比例：内侧 B=C=D=E = g；左右 A=F = g/2（见 .tabbar padding-inline）。vw 随屏宽连续变化。 */
   --tabbar-col-gap: clamp(6px, 2.2vw, 10px);
-  --tabbar-adjacent-inset: clamp(1px, calc(var(--tabbar-col-gap) * 0.28), 3px);
   display: flex;
   flex-direction: row;
   flex-wrap: nowrap;
@@ -421,15 +424,6 @@ a:active { opacity: 0.7; }
   transform: translateY(calc(var(--tabbar-strip) * -0.185));
 }
 
-.tabbar.tabbar-cols-5 > a[href="/read"] {
-  transform: translateY(calc(var(--tabbar-strip) * -0.185)) translateX(var(--tabbar-adjacent-inset));
-}
-
-.tabbar.tabbar-cols-5 > a[href="/browse"] {
-  transform: translateY(calc(var(--tabbar-strip) * -0.185))
-    translateX(calc(-1 * var(--tabbar-adjacent-inset)));
-}
-
 .tabbar a.active {
   color: var(--brand);
   font-weight: var(--fw-semibold);
@@ -483,8 +477,8 @@ a:active { opacity: 0.7; }
 /* iPhone 15 Pro Max 等寬屏機型：--tabbar-fab 60px（见 :root 媒体查询） */
 @media (min-width: 430px) {
   .tabbar {
-    min-height: calc(var(--tabbar-strip) + 8px + env(safe-area-inset-bottom) + var(--tabbar-extra-height));
-    padding: 4px calc(0.5 * var(--tabbar-col-gap)) calc(4px + env(safe-area-inset-bottom) + var(--tabbar-extra-height));
+    min-height: calc(var(--tabbar-strip) + env(safe-area-inset-bottom) + var(--tabbar-extra-height));
+    padding: 0 calc(0.5 * var(--tabbar-col-gap)) calc(env(safe-area-inset-bottom) + var(--tabbar-extra-height));
   }
 
   .tabbar a {
@@ -2259,16 +2253,21 @@ body.auth-gate-active .tabbar {
   justify-content: center;
   box-sizing: border-box;
   padding: 16px 14px calc(16px + var(--auth-gate-tabbar-gap));
-  background: color-mix(in srgb, var(--card) 18%, transparent);
-  backdrop-filter: blur(12px) saturate(1.06);
-  -webkit-backdrop-filter: blur(12px) saturate(1.06);
+  /** 手机：磨砂略加厚、掺灰（card+border 混色再叠透明度） */
+  background: color-mix(
+    in srgb,
+    color-mix(in srgb, var(--card) 82%, var(--border) 18%) 32%,
+    transparent
+  );
+  backdrop-filter: blur(12px) saturate(1.04);
+  -webkit-backdrop-filter: blur(12px) saturate(1.04);
   box-shadow: inset 0 1px 0 color-mix(in srgb, var(--border) 35%, transparent);
 }
 
 /** 电脑 Web：部分浏览器/环境下 backdrop-filter 不生效或几乎不可见，改与同站 modal 一致的半透明底板 */
 @media (min-width: 768px) {
   .auth-gate-overlay {
-    background: rgba(15, 23, 42, 0.45);
+    background: rgba(15, 23, 42, 0.54);
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
     box-shadow: none;
@@ -2277,7 +2276,18 @@ body.auth-gate-active .tabbar {
 
 @media (min-width: 768px) and (prefers-color-scheme: dark) {
   .auth-gate-overlay {
-    background: rgba(0, 0, 0, 0.58);
+    background: rgba(0, 0, 0, 0.68);
+  }
+}
+
+@media (max-width: 767px) and (prefers-color-scheme: dark) {
+  .auth-gate-overlay {
+    /** 暗色手机：同样略加重、偏中性灰的磨砂底 */
+    background: color-mix(
+      in srgb,
+      color-mix(in srgb, var(--card) 78%, var(--muted) 22%) 38%,
+      transparent
+    );
   }
 }
 

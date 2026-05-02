@@ -9,7 +9,6 @@ alwaysApply: false
 - **记号**：左右边距 A、F；相邻 Tab 间 B、C、D、E（已读–添加、添加–随览 等）。
 - **约束**：**B = C = D = E = 2A = 2F**。实现上：**flex `gap: g`**，且 **`.tabbar` 的 `padding-inline` = `0.5 * g`**（g 即 `--tabbar-col-gap`）。
 - **流体间距**：在 **`.tabbar.tabbar-cols-5`** 上设 **`--tabbar-col-gap: clamp(6px, 2.2vw, 10px)`**，随视口宽度连续变化、各机型保持同一比例关系；勿改回仅用断点固定 px 而丢掉 clamp。
-- **已读 / 随览**：相对格内向「添加」微移，**`--tabbar-adjacent-inset`** 由 **`calc(var(--tabbar-col-gap) * 0.28)`** 上下限夹紧，与 g 成比例。
-- **四字标签垂直位置**：**`translateY(calc(var(--tabbar-strip) * -0.185))`**，随 FAB/条带高度缩放。
-- **窄屏添加钮上移**：**`--tabbar-add-lift: clamp(16px, 5.2vw, 24px)`**（≤768px），与屏宽成比例。
+- **四字 Tab**：同一 **`translateY(calc(var(--tabbar-strip) * -0.185))`**，**禁止**对单 Tab 再设 **`translateX`**，以免破坏左右视觉等距。
+- **「添加」圆形上浮**：**`.tabbar.tabbar-cols-5`** 在 **≤768px** 为 **`clamp(16px, 5.2vw, 24px)`**；**≥769px** 网页为 **`clamp(14px, 1.75vw, 22px)`**，均通过 **`translateY(calc(-1 * var(--tabbar-add-lift)))`** 露出底栏上缘。
 - 结构保持 **`Tabbar.tsx`** 五链顺序与 **`tabbar tabbar-cols-5`** 类名；改 Tab 数量时需重算 flex/gap 关系。
