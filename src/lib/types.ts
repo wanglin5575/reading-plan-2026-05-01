@@ -68,6 +68,8 @@ export type BrowseAiRejectedItem = {
   author?: string | null;
   /** 发布位置 / 平台（由域名推断，如 YouTube、LinkedIn） */
   sourceLabel?: string | null;
+  /** 本条筛除记录最后写入/刷新的时间（ISO），用于按日分组 */
+  updatedAt?: string;
 };
 
 /** 随览：单条检索结果（Firecrawl 联网 + 摘要/正文节选） */

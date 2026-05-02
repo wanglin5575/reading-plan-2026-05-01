@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { BrowseAiRejectedItem, BrowseHit, BrowseTopic } from "@/lib/types";
 import {
@@ -9,6 +9,8 @@ import {
   loadRejectedSeenMap,
   mergeBrowseFeed,
   mergeBrowseTopicFeeds,
+  BROWSE_REJECTED_LEGACY_AT,
+  mergeBrowseAiRejectedForTopic,
   saveBrowseStorage,
   saveBrowseAiRejectedMap,
   saveRejectedSeenMap,
@@ -26,6 +28,20 @@ import { filterBrowseHitsByPublishedAge, effectiveMaxPublishedAgeDays } from "@/
 import { BROWSE_DEFAULT_MAX_PUBLISHED_AGE_DAYS } from "@/lib/browse-defaults";
 import { BrowseHitCard } from "@/components/BrowseHitCard";
 import { createBrowseUiDemoHit, isBrowseUiDemoHit } from "@/lib/browse-demo-preview";
+
+const KW_PREVIEW_MAX = 4;
+
+/** 筛除记录分割线左侧日期文案（本地日历日） */
+function formatRejectedDayLabel(iso?: string): string {
+  if (!iso || iso === BROWSE_REJECTED_LEGACY_AT) return "早期";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "早期";
+  if (d.getFullYear() < 1980) return "早期";
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
 
 function TopicTabButton({
   t,
@@ -113,8 +129,6 @@ export default function BrowsePageClient() {
   const [aiRejectedList, setAiRejectedList] = useState<BrowseAiRejectedItem[]>([]);
   const [rejectedSeenNonce, setRejectedSeenNonce] = useState(0);
   const [kwExpanded, setKwExpanded] = useState(false);
-  const [kwClampedOverflow, setKwClampedOverflow] = useState(false);
-  const kwChipsRef = useRef<HTMLSpanElement>(null);
   const sortDdRef = useRef<HTMLDivElement>(null);
   const activeIdRef = useRef<string | null>(null);
   const autoPullRafRef = useRef<number | null>(null);
@@ -323,9 +337,11 @@ export default function BrowsePageClient() {
     const rej = Array.isArray(d.aiRejected) ? d.aiRejected : [];
     if (typeof window !== "undefined") {
       const rmap = loadBrowseAiRejectedMap();
-      rmap[topicId] = rej;
+      const prev = rmap[topicId] ?? [];
+      const mergedRej = mergeBrowseAiRejectedForTopic(prev, rej, fetchedAt);
+      rmap[topicId] = mergedRej;
       saveBrowseAiRejectedMap(rmap);
-      if (activeIdRef.current === topicId) setAiRejectedList(rej);
+      if (activeIdRef.current === topicId) setAiRejectedList(mergedRej);
     }
 
     return {
@@ -692,23 +708,28 @@ export default function BrowsePageClient() {
 
   const active = topics.find((t) => t.id === activeId);
 
-  const kwLineText = active?.keywords.join(" · ") ?? "";
+  const kwDisplayText = useMemo(() => {
+    const kws = active?.keywords ?? [];
+    if (kws.length === 0) return "";
+    if (kwExpanded || kws.length <= KW_PREVIEW_MAX) return kws.join(" · ");
+    return `${kws.slice(0, KW_PREVIEW_MAX).join(" · ")} ···`;
+  }, [active?.keywords, kwExpanded]);
 
-  useLayoutEffect(() => {
-    const el = kwChipsRef.current;
-    if (!el) return;
-    const measure = () => {
-      if (kwExpanded) {
-        setKwClampedOverflow(false);
-        return;
-      }
-      setKwClampedOverflow(el.scrollHeight > el.clientHeight + 1);
-    };
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [kwLineText, kwExpanded, activeId]);
+  const kwNeedsExpand = (active?.keywords.length ?? 0) > KW_PREVIEW_MAX;
+
+  const rejectedGrouped = useMemo(() => {
+    const sorted = [...aiRejectedList].sort(
+      (a, b) => Date.parse(b.updatedAt ?? "0") - Date.parse(a.updatedAt ?? "0"),
+    );
+    const groups: { dayLabel: string; items: BrowseAiRejectedItem[] }[] = [];
+    for (const x of sorted) {
+      const label = formatRejectedDayLabel(x.updatedAt);
+      const last = groups[groups.length - 1];
+      if (last && last.dayLabel === label) last.items.push(x);
+      else groups.push({ dayLabel: label, items: [x] });
+    }
+    return groups;
+  }, [aiRejectedList]);
 
   const sortedHits = useMemo(() => {
     const s = sortBrowseItemsForDisplay(hits, sortBy);
@@ -795,29 +816,27 @@ export default function BrowsePageClient() {
       {active && (
         <div className="browse-kw-row">
           <div
-            className={`muted-link browse-kw-line browse-kw-main${kwExpanded ? " browse-kw-main--expanded" : ""}`}
+            className="muted-link browse-kw-line browse-kw-main"
           >
             <span className="browse-kw-fixed-label">关键词：</span>
             <button
               type="button"
-              className={`browse-kw-chips-btn${kwClampedOverflow || kwExpanded ? " browse-kw-chips-btn--interactive" : ""}`}
-              aria-expanded={kwClampedOverflow || kwExpanded ? kwExpanded : undefined}
+              className={`browse-kw-chips-btn${kwNeedsExpand || kwExpanded ? " browse-kw-chips-btn--interactive" : ""}`}
+              aria-expanded={kwNeedsExpand || kwExpanded ? kwExpanded : undefined}
               aria-label={
-                kwClampedOverflow || kwExpanded
+                kwNeedsExpand || kwExpanded
                   ? kwExpanded
                     ? "收起关键词全文"
                     : "展开关键词全文"
                   : undefined
               }
-              tabIndex={kwClampedOverflow || kwExpanded ? 0 : -1}
+              tabIndex={kwNeedsExpand || kwExpanded ? 0 : -1}
               onClick={() => {
-                if (!kwClampedOverflow && !kwExpanded) return;
+                if (!kwNeedsExpand && !kwExpanded) return;
                 setKwExpanded((v) => !v);
               }}
             >
-              <span ref={kwChipsRef} className="browse-kw-chips">
-                {kwLineText}
-              </span>
+              <span className="browse-kw-chips">{kwDisplayText}</span>
             </button>
           </div>
           {!loadingTopics ? (
@@ -1166,30 +1185,37 @@ export default function BrowsePageClient() {
                   </p>
                 ) : (
                   <ul className="browse-ai-rejected-list">
-                    {aiRejectedList.map((x) => {
-                      const src =
-                        (x.sourceLabel && String(x.sourceLabel).trim()) ||
-                        publicationSourceLabelFromUrl(x.url);
-                      const authorLine =
-                        x.author && String(x.author).trim() ? String(x.author).trim() : null;
-                      return (
-                        <li key={x.url}>
-                          <a
-                            href={x.url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="browse-ai-rejected-link"
-                          >
-                            {x.title}
-                          </a>
-                          <p className="browse-ai-rejected-meta">
-                            <span>{src}</span>
-                            {authorLine ? <span> · 作者：{authorLine}</span> : null}
-                          </p>
-                          <p className="browse-ai-rejected-reason">{x.reason}</p>
+                    {rejectedGrouped.map((g, gi) => (
+                      <Fragment key={`${g.dayLabel}-${gi}`}>
+                        <li className="browse-ai-rejected-day-split">
+                          <span className="browse-ai-rejected-day-label">{g.dayLabel}</span>
                         </li>
-                      );
-                    })}
+                        {g.items.map((x) => {
+                          const src =
+                            (x.sourceLabel && String(x.sourceLabel).trim()) ||
+                            publicationSourceLabelFromUrl(x.url);
+                          const authorLine =
+                            x.author && String(x.author).trim() ? String(x.author).trim() : null;
+                          return (
+                            <li key={x.url}>
+                              <a
+                                href={x.url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="browse-ai-rejected-link"
+                              >
+                                {x.title}
+                              </a>
+                              <p className="browse-ai-rejected-meta">
+                                <span>{src}</span>
+                                {authorLine ? <span> · 作者：{authorLine}</span> : null}
+                              </p>
+                              <p className="browse-ai-rejected-reason">{x.reason}</p>
+                            </li>
+                          );
+                        })}
+                      </Fragment>
+                    ))}
                   </ul>
                 )}
                 <div className="modal-sheet-footer">

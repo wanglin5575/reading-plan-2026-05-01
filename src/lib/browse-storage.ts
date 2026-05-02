@@ -69,6 +69,42 @@ export function saveBrowseStorage(s: BrowseStorage) {
   localStorage.setItem(BROWSE_STORAGE_KEY, JSON.stringify(s));
 }
 
+/** 无 updatedAt 的旧数据在合并时补此值；展示时映射为「早期」 */
+export const BROWSE_REJECTED_LEGACY_AT = "1970-01-01T00:00:00.000Z";
+
+/**
+ * 合并本次刷新返回的筛除列表：按 URL 去重，新数据覆盖同 URL；未再出现的旧记录保留。
+ * 本次批次中的每条 `updatedAt` 置为 `fetchedAtIso`。
+ */
+export function mergeBrowseAiRejectedForTopic(
+  existing: BrowseAiRejectedItem[],
+  incoming: BrowseAiRejectedItem[],
+  fetchedAtIso: string,
+): BrowseAiRejectedItem[] {
+  const map = new Map<string, BrowseAiRejectedItem>();
+  for (const x of existing) {
+    const u = x.url?.trim();
+    if (!u) continue;
+    map.set(u, {
+      ...x,
+      url: u,
+      updatedAt: x.updatedAt ?? BROWSE_REJECTED_LEGACY_AT,
+    });
+  }
+  for (const x of incoming) {
+    const u = x.url?.trim();
+    if (!u) continue;
+    map.set(u, {
+      ...x,
+      url: u,
+      updatedAt: fetchedAtIso,
+    });
+  }
+  return Array.from(map.values()).sort(
+    (a, b) => Date.parse(b.updatedAt ?? "0") - Date.parse(a.updatedAt ?? "0"),
+  );
+}
+
 /** 按原文发布时间倒序；无发布时间的排在后面，再按刷新时间倒序 */
 export function sortBrowseItemsByPublished(items: BrowseStoredHit[]): BrowseStoredHit[] {
   return [...items].sort((a, b) => {

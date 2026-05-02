@@ -100,6 +100,7 @@ export async function enrichBrowseHitsWithAi(hits: BrowseHit[]): Promise<EnrichB
         reason: reason.slice(0, 50),
         author: authorRaw ? authorRaw.slice(0, 120) : null,
         sourceLabel: publicationSourceLabelFromUrl(h.url),
+        updatedAt: new Date().toISOString(),
       });
       continue;
     }

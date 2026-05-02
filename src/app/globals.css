@@ -674,23 +674,14 @@ a:active { opacity: 0.7; }
   opacity: 0.96;
 }
 
-.browse-kw-main:not(.browse-kw-main--expanded) .browse-kw-chips {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 1;
-  overflow: hidden;
-  word-break: break-word;
-}
-
 .browse-kw-chips {
-  /* 实际折行/截断由父级 .browse-kw-main--expanded 控制 */
   word-break: break-word;
 }
 
 .browse-kw-actions {
   display: flex;
   align-items: baseline;
-  gap: 3px;
+  gap: 5px;
   flex-shrink: 0;
   font-size: var(--fs-small);
   line-height: var(--lh-snug);
@@ -733,7 +724,6 @@ a:active { opacity: 0.7; }
   height: 7px;
   border-radius: 50%;
   background: #f8bbd9;
-  box-shadow: 0 0 0 1.5px var(--card);
   pointer-events: none;
 }
 
@@ -756,6 +746,37 @@ a:active { opacity: 0.7; }
   margin-bottom: 12px;
   padding-bottom: 10px;
   border-bottom: 1px solid var(--border);
+}
+
+.browse-ai-rejected-list li.browse-ai-rejected-day-split {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 16px 0 12px;
+  padding-bottom: 0;
+  border-bottom: none;
+  list-style: none;
+}
+
+.browse-ai-rejected-list li.browse-ai-rejected-day-split:first-child {
+  margin-top: 0;
+}
+
+.browse-ai-rejected-list li.browse-ai-rejected-day-split::before,
+.browse-ai-rejected-list li.browse-ai-rejected-day-split::after {
+  content: "";
+  flex: 1;
+  min-width: 0;
+  height: 1px;
+  background: var(--border);
+}
+
+.browse-ai-rejected-day-label {
+  flex-shrink: 0;
+  max-width: 100%;
+  font-size: var(--fs-micro);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
 }
 
 .browse-ai-rejected-list li:last-child {
