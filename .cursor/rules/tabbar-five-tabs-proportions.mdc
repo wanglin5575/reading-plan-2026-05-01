@@ -1,0 +1,15 @@
+---
+description: 阅读计划 App 底部五 Tab 间距比例与改 globals.css 时的约束
+globs: reading-plan-2026-05-01/src/app/globals.css,reading-plan-2026-05-01/src/components/Tabbar.tsx
+alwaysApply: false
+---
+
+# 底部五 Tab 比例（待读 / 已读 / 添加 / 随览 / 我的）
+
+- **记号**：左右边距 A、F；相邻 Tab 间 B、C、D、E（已读–添加、添加–随览 等）。
+- **约束**：**B = C = D = E = 2A = 2F**。实现上：**flex `gap: g`**，且 **`.tabbar` 的 `padding-inline` = `0.5 * g`**（g 即 `--tabbar-col-gap`）。
+- **流体间距**：在 **`.tabbar.tabbar-cols-5`** 上设 **`--tabbar-col-gap: clamp(6px, 2.2vw, 10px)`**，随视口宽度连续变化、各机型保持同一比例关系；勿改回仅用断点固定 px 而丢掉 clamp。
+- **已读 / 随览**：相对格内向「添加」微移，**`--tabbar-adjacent-inset`** 由 **`calc(var(--tabbar-col-gap) * 0.28)`** 上下限夹紧，与 g 成比例。
+- **四字标签垂直位置**：**`translateY(calc(var(--tabbar-strip) * -0.185))`**，随 FAB/条带高度缩放。
+- **窄屏添加钮上移**：**`--tabbar-add-lift: clamp(16px, 5.2vw, 24px)`**（≤768px），与屏宽成比例。
+- 结构保持 **`Tabbar.tsx`** 五链顺序与 **`tabbar tabbar-cols-5`** 类名；改 Tab 数量时需重算 flex/gap 关系。

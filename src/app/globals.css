@@ -32,7 +32,7 @@
   /* Bottom tab bar: FAB diameter → strip height = 7/9 (see public/tabbar-preview.html) */
   --tabbar-fab: 56px;
   --tabbar-strip: calc(var(--tabbar-fab) * 7 / 9);
-  /** 底栏 Tab：相邻间距 B=C=D=E = --tabbar-col-gap；左右边距 A=F = 其一半（flex gap + padding-inline） */
+  /** 底栏 Tab 默认间距（五 Tab 时用 .tabbar.tabbar-cols-5 覆盖为流体值） */
   --tabbar-col-gap: 6px;
   /** 底栏占地：蒙层与主内容底部留白 */
   --auth-gate-tabbar-gap: calc(var(--tabbar-fab) + 16px + env(safe-area-inset-bottom) + var(--tabbar-extra-height));
@@ -40,9 +40,9 @@
   --tabbar-edge-lift: 0px;
   /** 底栏加高（恒为 0；算式仍引用以保持改动面小） */
   --tabbar-extra-height: 0px;
-  /** 圆形「添加」相对栏内容上移；移动端栏高收紧时用于保持按钮在屏上位置与此前一致 */
+  /** 圆形「添加」相对栏内容上移；默认 0，窄屏在 .tabbar.tabbar-cols-5 媒体查询内用 clamp */
   --tabbar-add-lift: 0px;
-  /** 已读/随览 相对格内向「添加」一侧微移 */
+  /** 已读/随览 微移；五 Tab 时在 .tabbar.tabbar-cols-5 内按 --tabbar-col-gap 比例重算 */
   --tabbar-adjacent-inset: 2px;
 }
 
@@ -54,14 +54,13 @@
 }
 
 @media (max-width: 768px) {
-  :root {
-    --tabbar-col-gap: 8px;
-    --tabbar-add-lift: 20px;
-  }
-
   html {
     overflow-x: clip;
     touch-action: manipulation;
+  }
+
+  .tabbar.tabbar-cols-5 {
+    --tabbar-add-lift: clamp(16px, 5.2vw, 24px);
   }
 }
 
@@ -292,6 +291,9 @@ a:active { opacity: 0.7; }
 }
 
 .tabbar.tabbar-cols-5 {
+  /** 五 Tab 比例：内侧 B=C=D=E = g；左右 A=F = g/2（见 .tabbar padding-inline）。vw 随屏宽连续变化。 */
+  --tabbar-col-gap: clamp(6px, 2.2vw, 10px);
+  --tabbar-adjacent-inset: clamp(1px, calc(var(--tabbar-col-gap) * 0.28), 3px);
   display: flex;
   flex-direction: row;
   flex-wrap: nowrap;
@@ -416,15 +418,16 @@ a:active { opacity: 0.7; }
   min-height: var(--tabbar-strip);
   flex: 1 1 0;
   min-width: 0;
-  transform: translateY(-8px);
+  transform: translateY(calc(var(--tabbar-strip) * -0.185));
 }
 
 .tabbar.tabbar-cols-5 > a[href="/read"] {
-  transform: translateY(-8px) translateX(var(--tabbar-adjacent-inset));
+  transform: translateY(calc(var(--tabbar-strip) * -0.185)) translateX(var(--tabbar-adjacent-inset));
 }
 
 .tabbar.tabbar-cols-5 > a[href="/browse"] {
-  transform: translateY(-8px) translateX(calc(-1 * var(--tabbar-adjacent-inset)));
+  transform: translateY(calc(var(--tabbar-strip) * -0.185))
+    translateX(calc(-1 * var(--tabbar-adjacent-inset)));
 }
 
 .tabbar a.active {
@@ -2260,6 +2263,22 @@ body.auth-gate-active .tabbar {
   backdrop-filter: blur(12px) saturate(1.06);
   -webkit-backdrop-filter: blur(12px) saturate(1.06);
   box-shadow: inset 0 1px 0 color-mix(in srgb, var(--border) 35%, transparent);
+}
+
+/** 电脑 Web：部分浏览器/环境下 backdrop-filter 不生效或几乎不可见，改与同站 modal 一致的半透明底板 */
+@media (min-width: 768px) {
+  .auth-gate-overlay {
+    background: rgba(15, 23, 42, 0.45);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    box-shadow: none;
+  }
+}
+
+@media (min-width: 768px) and (prefers-color-scheme: dark) {
+  .auth-gate-overlay {
+    background: rgba(0, 0, 0, 0.58);
+  }
 }
 
 .auth-gate-center {
