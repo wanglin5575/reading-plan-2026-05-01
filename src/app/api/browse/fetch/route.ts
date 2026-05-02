@@ -1,15 +1,41 @@
 import { NextResponse } from "next/server";
-import { getRouteHandlerUserId } from "@/lib/auth/api";
+import { getRouteHandlerUser, getRouteHandlerUserId } from "@/lib/auth/api";
+import { upsertUserRegistry } from "@/lib/db";
 import { browseTopicToQuery, fetchBrowseHits, BROWSE_TBS_MAX_DAYS_BOOTSTRAP, BROWSE_TBS_MAX_DAYS_INCREMENTAL } from "@/lib/browse-search";
+import { filterBrowseHitsByPublishedAge, effectiveMaxPublishedAgeDays } from "@/lib/browse-recency";
+import { fetchBrowseRssHits } from "@/lib/browse-rss";
+import type { BrowseHit } from "@/lib/types";
 import { getBrowseTopic } from "@/lib/db";
 import { translateBrowseHitsToChinese } from "@/lib/translate-zh";
 import { countChars, countWords, detectLanguage, estimateMinutes } from "@/lib/classify";
 import { BROWSE_EXCLUDE_URLS_MAX } from "@/lib/browse-storage";
 
+function mergeHitsPreferFirst(a: BrowseHit[], b: BrowseHit[]): BrowseHit[] {
+  const seen = new Set<string>();
+  const out: BrowseHit[] = [];
+  for (const list of [a, b]) {
+    for (const h of list) {
+      const u = h.url.trim();
+      if (!u || seen.has(u)) continue;
+      seen.add(u);
+      out.push(h);
+    }
+  }
+  return out;
+}
+
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
+  const session = await getRouteHandlerUser();
   const uid = await getRouteHandlerUserId();
+  if (session) {
+    await upsertUserRegistry({
+      userId: session.id,
+      email: session.email,
+      registeredAtIso: session.createdAt,
+    });
+  }
   const body = (await req.json().catch(() => ({}))) as {
     topicId?: unknown;
     since?: unknown;
@@ -47,13 +73,31 @@ export async function POST(req: Request) {
 
   try {
     const query = browseTopicToQuery(topic);
-    const rawHits = await fetchBrowseHits(topic, {
-      since,
-      until,
-      tbsMaxSpanDays: bootstrap ? BROWSE_TBS_MAX_DAYS_BOOTSTRAP : BROWSE_TBS_MAX_DAYS_INCREMENTAL,
-    });
-    const novelHits = excludeSet.size ? rawHits.filter((h) => !excludeSet.has(h.url.trim())) : rawHits;
-    const translated = await translateBrowseHitsToChinese(novelHits);
+    const rssHits =
+      topic.seedSources?.length && topic.seedSources.some((s) => s.trim())
+        ? await fetchBrowseRssHits(topic.seedSources ?? [])
+        : [];
+    let searchHits: BrowseHit[] = [];
+    try {
+      searchHits = await fetchBrowseHits(topic, {
+        since,
+        until,
+        tbsMaxSpanDays: bootstrap ? BROWSE_TBS_MAX_DAYS_BOOTSTRAP : BROWSE_TBS_MAX_DAYS_INCREMENTAL,
+      });
+    } catch (se: unknown) {
+      const m = se instanceof Error ? se.message : "";
+      if (m === "missing_firecrawl" && rssHits.length) {
+        searchHits = [];
+      } else {
+        throw se;
+      }
+    }
+    const combined = mergeHitsPreferFirst(rssHits, searchHits);
+    const afterExclude = excludeSet.size ? combined.filter((h) => !excludeSet.has(h.url.trim())) : combined;
+    const skippedKnown = combined.length - afterExclude.length;
+    const maxAge = effectiveMaxPublishedAgeDays(topic);
+    const recencyFiltered = filterBrowseHitsByPublishedAge(afterExclude, maxAge);
+    const translated = await translateBrowseHitsToChinese(recencyFiltered);
     const hits = translated.map((h) => {
       const blob = `${h.summary}\n${h.excerpt}\n${h.description}`;
       return {
@@ -68,7 +112,7 @@ export async function POST(req: Request) {
       fetchedAt,
       since: since.toISOString(),
       bootstrap,
-      skippedKnown: rawHits.length - novelHits.length,
+      skippedKnown,
     });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : "fetch_failed";

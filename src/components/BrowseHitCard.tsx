@@ -108,9 +108,14 @@ export function BrowseHitCard({
         {demo ? (
           <h3 className="title browse-hit-demo-title">{hit.title}</h3>
         ) : (
-          <ArticleTitleLink url={hit.url}>
-            <h3 className="title">{hit.title}</h3>
-          </ArticleTitleLink>
+          <>
+            <ArticleTitleLink url={hit.url}>
+              <h3 className="title">{hit.title}</h3>
+            </ArticleTitleLink>
+            {hit.titleZh?.trim() ? (
+              <p className="article-card-title-zh-muted browse-hit-title-zh">{hit.titleZh.trim()}</p>
+            ) : null}
+          </>
         )}
         <div className="browse-hit-byline">
           <span className="browse-hit-byline-author">作者：{authorShown}</span>

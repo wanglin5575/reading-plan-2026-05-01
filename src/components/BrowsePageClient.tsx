@@ -17,8 +17,11 @@ import {
   type BrowseStoredHit,
   type BrowseTopicFeed,
 } from "@/lib/browse-storage";
+import { filterBrowseHitsByPublishedAge, effectiveMaxPublishedAgeDays } from "@/lib/browse-recency";
+import { BROWSE_DEFAULT_MAX_PUBLISHED_AGE_DAYS } from "@/lib/browse-defaults";
 import { BrowseHitCard } from "@/components/BrowseHitCard";
 import { createBrowseUiDemoHit, isBrowseUiDemoHit } from "@/lib/browse-demo-preview";
+import { WeeklyAccountEntry } from "@/components/WeeklyAccountEntry";
 
 function TopicTabButton({
   t,
@@ -75,7 +78,13 @@ function TopicTabButton({
   );
 }
 
-export default function BrowsePageClient() {
+export default function BrowsePageClient({
+  userEmail,
+  showAdmin,
+}: {
+  userEmail?: string | null;
+  showAdmin?: boolean;
+}) {
   const [topics, setTopics] = useState<BrowseTopic[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [hits, setHits] = useState<BrowseStoredHit[]>([]);
@@ -86,6 +95,8 @@ export default function BrowsePageClient() {
   const [newKw, setNewKw] = useState("");
   const [editTopic, setEditTopic] = useState<BrowseTopic | null>(null);
   const [editKw, setEditKw] = useState("");
+  const [editSeeds, setEditSeeds] = useState("");
+  const [editMaxAge, setEditMaxAge] = useState("");
   const [pullPx, setPullPx] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const [autoPulling, setAutoPulling] = useState(false);
@@ -98,7 +109,7 @@ export default function BrowsePageClient() {
   const [rdK2, setRdK2] = useState("");
   const [rdK3, setRdK3] = useState("");
   const [rdAction, setRdAction] = useState("");
-  const [sortBy, setSortBy] = useState<BrowseSortMode>("refreshed");
+  const [sortBy, setSortBy] = useState<BrowseSortMode>("published");
   const [sortMenuOpen, setSortMenuOpen] = useState(false);
   const sortDdRef = useRef<HTMLDivElement>(null);
   const activeIdRef = useRef<string | null>(null);
@@ -308,42 +319,31 @@ export default function BrowsePageClient() {
     [executeTopicNetworkRefresh],
   );
 
-  const batchSummariesRef = useRef(false);
-
-  /** 双击「随览」标题：对账号下全部文章依次调用刷新接口，重写摘要（重新抓取 + AI/规则摘要） */
-  const runBatchRefreshAllSummaries = useCallback(async () => {
-    if (batchSummariesRef.current || refreshingRef.current || loadingTopics) return;
-    batchSummariesRef.current = true;
+  /** 双击「随览」标题：重置当前主题（清空本地与服务端随览缓存，下次下拉按首次规则重新拉取） */
+  const resetActiveTopic = useCallback(async () => {
+    const cur = activeIdRef.current;
+    if (!cur || refreshingRef.current || loadingTopics) return;
+    setRefreshing(true);
     setMsg(null);
     try {
-      const ar = await fetch("/api/articles", { cache: "no-store" });
-      const ad = (await ar.json()) as { articles?: { id: string }[]; error?: string };
-      if (!ar.ok) throw new Error(ad.error || "加载文章列表失败");
-      const list = ad.articles ?? [];
-      if (list.length === 0) {
-        setMsg("暂无文章，无法批量重写摘要。");
-        return;
-      }
-      let ok = 0;
-      let fail = 0;
-      for (let i = 0; i < list.length; i++) {
-        const a = list[i]!;
-        setMsg(`正在重写摘要 ${i + 1}/${list.length}…`);
-        try {
-          const rr = await fetch(`/api/articles/${a.id}/refresh`, { method: "POST" });
-          if (rr.ok) ok += 1;
-          else fail += 1;
-        } catch {
-          fail += 1;
-        }
-      }
-      setMsg(`摘要已刷新：成功 ${ok} 篇${fail ? `，失败 ${fail} 篇` : ""}。离开本页再进入可看到最新卡片。`);
+      const store = loadBrowseStorage();
+      const next = { ...store, topics: { ...store.topics } };
+      delete next.topics[cur];
+      saveBrowseStorage(next);
+
+      const r = await fetch(`/api/browse/topics/${encodeURIComponent(cur)}/reset`, { method: "POST" });
+      const d = (await r.json().catch(() => ({}))) as { error?: string; ok?: boolean };
+      if (!r.ok) throw new Error(d.error || "重置失败");
+
+      setHits([]);
+      setMsg("已重置当前主题：缓存已清空，下拉刷新将按「首次」规则重新拉取（约近 3 个月窗）。");
+      void syncFeedWithServer(cur);
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : "批量刷新失败");
+      setMsg(e instanceof Error ? e.message : "重置失败");
     } finally {
-      batchSummariesRef.current = false;
+      setRefreshing(false);
     }
-  }, [loadingTopics]);
+  }, [loadingTopics, syncFeedWithServer]);
 
   const startEmptyRefreshWithPull = useCallback(
     (topicId: string) => {
@@ -475,10 +475,12 @@ export default function BrowsePageClient() {
   function openEditTopic(t: BrowseTopic) {
     setEditTopic(t);
     setEditKw(t.keywords.join(", "));
+    setEditSeeds((t.seedSources ?? []).join("\n"));
+    setEditMaxAge(t.maxPublishedAgeDays != null ? String(t.maxPublishedAgeDays) : "");
     setMsg(null);
   }
 
-  async function saveEditKeywords() {
+  async function saveEditTopic() {
     if (!editTopic) return;
     const keywords = editKw
       .split(/[,，]/)
@@ -488,11 +490,27 @@ export default function BrowsePageClient() {
       setMsg("至少保留一个关键词");
       return;
     }
+    const seedSources = editSeeds
+      .split("\n")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const ageTrim = editMaxAge.trim();
+    let maxPublishedAgeDays: number | null = null;
+    if (ageTrim === "") {
+      maxPublishedAgeDays = null;
+    } else {
+      const n = parseInt(ageTrim, 10);
+      if (!Number.isFinite(n) || n < 1 || n > 3650) {
+        setMsg("可见天数须为 1～3650 的整数，或留空表示使用默认（90 天）");
+        return;
+      }
+      maxPublishedAgeDays = n;
+    }
     try {
       const r = await fetch(`/api/browse/topics/${editTopic.id}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ keywords }),
+        body: JSON.stringify({ keywords, seedSources, maxPublishedAgeDays }),
       });
       const d = (await r.json()) as { error?: string };
       if (!r.ok) throw new Error(d.error || "保存失败");
@@ -623,7 +641,10 @@ export default function BrowsePageClient() {
 
   const active = topics.find((t) => t.id === activeId);
 
-  const sortedHits = useMemo(() => sortBrowseItemsForDisplay(hits, sortBy), [hits, sortBy]);
+  const sortedHits = useMemo(() => {
+    const s = sortBrowseItemsForDisplay(hits, sortBy);
+    return filterBrowseHitsByPublishedAge(s, effectiveMaxPublishedAgeDays(active ?? undefined));
+  }, [hits, sortBy, active]);
 
   /** 生产构建不包含开发示例（NODE_ENV 在客户端打包时固化） */
   const hitsForUi = useMemo(() => {
@@ -636,21 +657,22 @@ export default function BrowsePageClient() {
 
   return (
     <>
-      <header className="app-header browse-header-row">
+      <header className="app-header browse-header-row app-header-with-actions">
         <div className="app-header-titles">
           <h1
             className="browse-title-refresh"
-            title="双击：依次重新抓取并重写所有文章的摘要（含 AI，失败则回退规则摘要）；篇数多时请耐心等待"
+            title="双击重置当前主题：清空该主题的随览缓存（本地与服务端）；下次下拉刷新按首次规则重新拉取（约近 3 个月窗）"
             onDoubleClick={() => {
-              void runBatchRefreshAllSummaries();
+              void resetActiveTopic();
             }}
           >
             随览
           </h1>
           <span className="sub">
-            首次刷新约 6 个月窗、增量只补新链接；自首次收录起约保留 90 天。
+            默认按原文发布时间排序；首次刷新约近 3 个月窗、增量只补新链接；自首次收录起约保留 90 天。双击标题可重置当前主题缓存。
           </span>
         </div>
+        <WeeklyAccountEntry email={userEmail ?? null} showAdmin={showAdmin} />
       </header>
 
       <div
@@ -785,8 +807,31 @@ export default function BrowsePageClient() {
               onChange={(e) => setEditKw(e.target.value)}
               placeholder="Hamel, Shreya, …"
             />
+            <label className="muted-link" htmlFor="browse-edit-seeds">
+              种子站 / RSS（B · 每行一条 URL 或域名；用于 RSS 拉取与检索 site: 限定）
+            </label>
+            <textarea
+              id="browse-edit-seeds"
+              className="input browse-edit-seeds"
+              rows={5}
+              value={editSeeds}
+              onChange={(e) => setEditSeeds(e.target.value)}
+              placeholder={"https://hamel.dev/blog/\nhttps://www.youtube.com/"}
+              autoComplete="off"
+            />
+            <label className="muted-link" htmlFor="browse-edit-max-age">
+              仅展示原文发布时间在此天数内的条目（留空 = 默认 {BROWSE_DEFAULT_MAX_PUBLISHED_AGE_DAYS} 天；无发布时间的条目仍会显示）
+            </label>
+            <input
+              id="browse-edit-max-age"
+              className="input"
+              inputMode="numeric"
+              value={editMaxAge}
+              onChange={(e) => setEditMaxAge(e.target.value)}
+              placeholder={`默认 ${BROWSE_DEFAULT_MAX_PUBLISHED_AGE_DAYS}`}
+            />
             <div className="browse-form-actions">
-              <button className="btn" type="button" onClick={() => void saveEditKeywords()}>
+              <button className="btn" type="button" onClick={() => void saveEditTopic()}>
                 保存
               </button>
               <button className="btn danger" type="button" onClick={() => void deleteEditTopic()}>

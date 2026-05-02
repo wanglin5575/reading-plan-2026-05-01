@@ -1,6 +1,8 @@
 import type { Article, ReadingDepth } from "./types";
 import type { MediaKind } from "./media-kind";
-import { summarizeArticleZhWithAi } from "./ai-summary";
+import type { AiChatUsage } from "./ai-summary";
+import { enrichArticleWithAi } from "./ai-summary";
+import { normalizePublishedToIso } from "@/lib/browse-published";
 import { translateToChinese } from "./translate-zh";
 
 const THEME_RULES: { theme: string; words: string[] }[] = [
@@ -153,7 +155,13 @@ function isPrimarilyChinese(text: string): boolean {
 }
 
 /** 自动摘要上限（中文字符数，含标点） */
-export const SUMMARY_MAX_CHARS = 70;
+export const SUMMARY_MAX_CHARS = 150;
+
+function publishedIsoToYmd(iso: string | null | undefined): string | null {
+  if (!iso?.trim()) return null;
+  const n = normalizePublishedToIso(iso.trim());
+  return n ? n.slice(0, 10) : null;
+}
 
 export function makeSummary(body: string): string {
   const cleaned = body.replace(/\s+/g, " ").trim();
@@ -194,7 +202,13 @@ export async function buildArticleClassification(
   url: string,
   rawTitle: string,
   rawBody: string,
-  opts?: { mediaKind?: MediaKind; durationSeconds?: number | null },
+  opts?: {
+    mediaKind?: MediaKind;
+    durationSeconds?: number | null;
+    scrapeAuthor?: string;
+    publishedIsoHint?: string | null;
+    onAiUsage?: (usage: AiChatUsage | null) => void;
+  },
 ): Promise<
   Pick<
     Article,
@@ -211,6 +225,8 @@ export async function buildArticleClassification(
     | "rawExcerpt"
     | "mediaType"
     | "titleZh"
+    | "author"
+    | "publishedAt"
   >
 > {
   const title = (rawTitle || url).trim().slice(0, 200);
@@ -219,24 +235,49 @@ export async function buildArticleClassification(
   const charCount = countChars(body);
   const wordCount = countWords(body);
   const theme = classifyTheme(title, body, url);
+
+  const { enrichment, usage } = await enrichArticleWithAi({
+    title,
+    body,
+    url,
+    scrapeAuthorHint: opts?.scrapeAuthor,
+    publishedIsoHint: opts?.publishedIsoHint ?? null,
+  });
+  opts?.onAiUsage?.(usage);
+
   let summaryZh: string;
-  const aiSummary = await summarizeArticleZhWithAi({ title, body, url });
-  if (aiSummary) {
-    summaryZh = truncateZh(aiSummary, SUMMARY_MAX_CHARS);
+  if (enrichment?.summary?.trim()) {
+    summaryZh = truncateZh(enrichment.summary.trim(), SUMMARY_MAX_CHARS);
   } else {
     const summary = makeSummary(body);
     summaryZh = await translateToChinese(summary || "(暂无摘要)");
     summaryZh = truncateZh(summaryZh, SUMMARY_MAX_CHARS);
   }
+
+  const scrapeAuthor = (opts?.scrapeAuthor || "").trim();
+  let authorOut = scrapeAuthor || "未知作者";
+  if (enrichment?.author?.trim()) {
+    authorOut = enrichment.author.trim().slice(0, 120);
+  }
+
+  let publishedAt: string | null = enrichment?.publishedAt ?? null;
+  if (!publishedAt) {
+    publishedAt = publishedIsoToYmd(opts?.publishedIsoHint ?? null);
+  }
+
+  let est = estimateReadingMinutesCalibrated(title, body, summaryZh, lang, {
+    mediaKind: opts?.mediaKind,
+    durationSeconds: opts?.durationSeconds,
+  });
+  if (enrichment?.readingMinutes != null) {
+    est = enrichment.readingMinutes;
+  }
+
   let titleZh = "";
   if (!isPrimarilyChinese(title)) {
     const t = (await translateToChinese(title)).trim();
     if (t && t !== title) titleZh = t.slice(0, 400);
   }
-  const est = estimateReadingMinutesCalibrated(title, body, summaryZh, lang, {
-    mediaKind: opts?.mediaKind,
-    durationSeconds: opts?.durationSeconds,
-  });
 
   return {
     title,
@@ -252,5 +293,7 @@ export async function buildArticleClassification(
     knowledgeTags: extractKnowledgeTags(title, body),
     rawExcerpt: body.slice(0, 500),
     mediaType: opts?.mediaKind ?? "article",
+    author: authorOut,
+    publishedAt,
   };
 }

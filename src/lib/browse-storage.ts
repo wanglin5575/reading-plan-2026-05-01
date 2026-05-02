@@ -5,8 +5,8 @@ export const BROWSE_STORAGE_KEY = "reading-plan-browse-v2";
 /** 随览条目最长保留：按「首次收录」firstSeenAt 起算，默认 90 天（客户端与服务端同一规则） */
 export const BROWSE_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
 
-/** 主题从未成功刷新过时，首次拉取的起始时间窗（约 6 个月） */
-export const BROWSE_BOOTSTRAP_SINCE_MS = 180 * 24 * 60 * 60 * 1000;
+/** 主题从未成功刷新过时，首次拉取的起始时间窗（约 3 个月，联网优先近期文章） */
+export const BROWSE_BOOTSTRAP_SINCE_MS = 90 * 24 * 60 * 60 * 1000;
 
 /** 请求里排除已知 URL 的上限，避免 payload 过大 */
 export const BROWSE_EXCLUDE_URLS_MAX = 800;
@@ -179,6 +179,7 @@ export function mergeBrowseFeed(
         author: h.author ?? ex.author,
         estimatedMinutes: h.estimatedMinutes ?? ex.estimatedMinutes,
         mediaType: h.mediaType ?? ex.mediaType,
+        titleZh: h.titleZh ?? ex.titleZh,
         firstSeenAt: ex.firstSeenAt,
         lastRefreshedAt: fetchedAt,
       });

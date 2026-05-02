@@ -9,6 +9,11 @@ function isMePath(path: string) {
   return path === "/me" || path.startsWith("/me/");
 }
 
+/** 仅用于本地/设计预览：不拦登录蒙层，展示「已登录」视觉骨架（非真实会话） */
+function isLoginPreviewPath(path: string) {
+  return path === "/login-preview" || path.startsWith("/login-preview/");
+}
+
 export function AuthGateOverlay({
   authEnabled,
   initialSignedIn,
@@ -82,7 +87,10 @@ export function AuthGateOverlay({
   }, [authEnabled, pathname]);
 
   const showGate =
-    authEnabled && !isMePath(pathname) && (sessionChecked ? !signedIn : !initialSignedIn);
+    authEnabled &&
+    !isMePath(pathname) &&
+    !isLoginPreviewPath(pathname) &&
+    (sessionChecked ? !signedIn : !initialSignedIn);
 
   useEffect(() => {
     if (!showGate) return;

@@ -18,9 +18,17 @@ function PersonGlyph() {
   );
 }
 
-/** 「我的复盘」页右上角：已登录为账号菜单，未登录为进入 /me 登录页 */
-export function WeeklyAccountEntry({ email }: { email: string | null }) {
-  if (email) return <AccountAvatarMenu email={email} />;
+/** 各页右上角：已登录为账号菜单，未登录为进入 /me 登录页 */
+export function WeeklyAccountEntry({
+  email,
+  showAdmin,
+  menuTrigger = "dots",
+}: {
+  email: string | null;
+  showAdmin?: boolean;
+  menuTrigger?: "dots" | "avatar";
+}) {
+  if (email) return <AccountAvatarMenu email={email} showAdmin={showAdmin} menuTrigger={menuTrigger} />;
   return (
     <Link href="/me" className="account-avatar-btn account-avatar-btn--link" aria-label="登录或注册" prefetch>
       <PersonGlyph />

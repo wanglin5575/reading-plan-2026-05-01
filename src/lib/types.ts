@@ -9,6 +9,8 @@ export interface Article {
   /** 英文原标题的中文翻译，用于卡片在链接下展示；非英文稿为空字符串 */
   titleZh: string;
   author: string;
+  /** 原文首次发布日期 YYYY-MM-DD；无法解析时为 null */
+  publishedAt: string | null;
   domain: string;
   theme: string;
   /** 内容形态：文章 / 视频 / 音频 */
@@ -46,12 +48,22 @@ export interface BrowseTopic {
   keywords: string[];
   sortOrder: number;
   createdAt: string;
+  /**
+   * A：列表里不展示「原文发布时间」早于今天往前 N 天的条目；留空用全局默认（90 天）
+   */
+  maxPublishedAgeDays?: number | null;
+  /**
+   * B：种子站/RSS（每行一条 URL 或域名）。用于 RSS 拉取 + Firecrawl 检索 `site:` 限定（可编辑）
+   */
+  seedSources?: string[];
 }
 
 /** 随览：单条检索结果（Firecrawl 联网 + 摘要/正文节选） */
 export interface BrowseHit {
   url: string;
   title: string;
+  /** 英文为主标题时的中文译名（展示在原标题下灰色小字） */
+  titleZh?: string;
   description: string;
   summary: string;
   excerpt: string;

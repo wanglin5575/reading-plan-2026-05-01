@@ -12,11 +12,25 @@ export async function GET() {
 
 export async function POST(req: Request) {
   const uid = await getRouteHandlerUserId();
-  const body = (await req.json().catch(() => ({}))) as { name?: unknown; keywords?: unknown };
+  const body = (await req.json().catch(() => ({}))) as {
+    name?: unknown;
+    keywords?: unknown;
+    seedSources?: unknown;
+    maxPublishedAgeDays?: unknown;
+  };
   const name = typeof body.name === "string" ? body.name : "";
   const keywords = Array.isArray(body.keywords) ? body.keywords.map(String) : [];
+  const seedSources = Array.isArray(body.seedSources) ? body.seedSources.map(String) : undefined;
+  let maxPublishedAgeDays: number | null | undefined;
+  if (body.maxPublishedAgeDays === null) maxPublishedAgeDays = null;
+  else if (typeof body.maxPublishedAgeDays === "number" && Number.isFinite(body.maxPublishedAgeDays)) {
+    maxPublishedAgeDays = Math.round(body.maxPublishedAgeDays);
+  }
   try {
-    const topic = await insertBrowseTopic(uid, name, keywords);
+    const topic = await insertBrowseTopic(uid, name, keywords, {
+      seedSources,
+      maxPublishedAgeDays,
+    });
     return NextResponse.json({ topic });
   } catch (e: unknown) {
     const code = typeof e === "object" && e && "code" in e ? String((e as { code?: string }).code) : "";
@@ -29,6 +43,12 @@ export async function POST(req: Request) {
     }
     if (msg === "invalid_name" || msg === "invalid_keywords") {
       return NextResponse.json({ error: "请填写主题名称和至少一个关键词。" }, { status: 400 });
+    }
+    if (msg === "invalid_seed_sources") {
+      return NextResponse.json({ error: "种子来源过长或过多。" }, { status: 400 });
+    }
+    if (msg === "invalid_max_age") {
+      return NextResponse.json({ error: "可见天数须为 1～3650 之间的整数。" }, { status: 400 });
     }
     return NextResponse.json({ error: msg }, { status: 500 });
   }

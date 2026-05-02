@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
-import { insertArticle, listArticlesForUser } from "@/lib/db";
+import { insertArticle, listArticlesForUser, recordTokenUsage, upsertUserRegistry } from "@/lib/db";
 import { buildArticleClassification } from "@/lib/classify";
 import { scrapeUrl } from "@/lib/scrape";
 import { todayIso, shiftDays } from "@/lib/plan";
 import type { Article } from "@/lib/types";
-import { getRouteHandlerUserId } from "@/lib/auth/api";
+import { getRouteHandlerUser, getRouteHandlerUserId } from "@/lib/auth/api";
 import { isAuthEnabled } from "@/lib/auth";
 import { normalizeKeyPoints, validateReadDigest } from "@/lib/read-digest";
 
@@ -33,12 +33,20 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "invalid_json" }, { status: 400 });
   }
 
-  const ownerId = await getRouteHandlerUserId();
+  const session = await getRouteHandlerUser();
+  const ownerId = session?.id ?? null;
   if (isAuthEnabled() && !ownerId) {
     return NextResponse.json(
       { error: "unauthorized", message: "请先注册或登录后再添加文章（打开「我的」页）。" },
       { status: 401 },
     );
+  }
+  if (session) {
+    await upsertUserRegistry({
+      userId: session.id,
+      email: session.email,
+      registeredAtIso: session.createdAt,
+    });
   }
 
   const url = payload.url?.trim();
@@ -56,6 +64,19 @@ export async function POST(req: Request) {
   const classification = await buildArticleClassification(parsed.toString(), scraped.title, scraped.body, {
     mediaKind: scraped.mediaKind,
     durationSeconds: scraped.durationSeconds,
+    scrapeAuthor: scraped.author?.trim() || "",
+    publishedIsoHint: scraped.publishedIsoHint,
+    onAiUsage: (usage) => {
+      if (usage && usage.totalTokens > 0 && session) {
+        void recordTokenUsage({
+          userId: session.id,
+          source: "article_classify",
+          promptTokens: usage.promptTokens,
+          completionTokens: usage.completionTokens,
+          totalTokens: usage.totalTokens,
+        });
+      }
+    },
   });
   const markIntensive = Boolean(payload.featured);
   const quickDone = Boolean(payload.quickDone);
@@ -87,7 +108,6 @@ export async function POST(req: Request) {
     addedAt: new Date().toISOString(),
     dueDate,
     completedAt: quickDone ? new Date().toISOString() : null,
-    author: scraped.author?.trim() || "未知作者",
     featured: markIntensive,
     readOneLiner: digest?.readOneLiner ?? "",
     readKeyPoints: digest?.readKeyPoints ?? [],

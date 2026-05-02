@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { type Article, isIntensiveRead } from "@/lib/types";
 import { useSwipeCardFace } from "@/lib/useSwipeCardFace";
 import { MEDIA_KIND_LABEL } from "@/lib/media-kind";
+import { formatPublishedTimeZh } from "@/lib/browse-attribution";
 
 interface Props {
   article: Article;
@@ -387,6 +388,11 @@ export function ArticleCard({ article, showActions = true, collapseOriginalSumma
       ) : null}
       <div className="article-card-byline">
         <span className="article-card-byline-author muted-link">作者：{article.author || "未知作者"}</span>
+        {article.publishedAt ? (
+          <span className="article-card-byline-due muted-link" title="原文首次发布（由 AI 或页面元数据推断）">
+            发布 {formatPublishedTimeZh(article.publishedAt)}
+          </span>
+        ) : null}
         {article.status === "todo" && (
           <span className="article-card-byline-due muted-link" title="预期完成阅读日期">
             预期 {article.dueDate} 读完

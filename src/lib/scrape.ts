@@ -1,5 +1,6 @@
 import FirecrawlApp from "@mendable/firecrawl-js";
 import type { MediaKind } from "@/lib/media-kind";
+import { resolveBrowsePublishedTime } from "@/lib/browse-published";
 import { detectMediaKindFromSignals, extractDurationSecondsFromMetadataDeep, parseIso8601DurationSeconds } from "@/lib/media-kind";
 import { resolveArticleAuthor } from "@/lib/author-resolve";
 
@@ -11,6 +12,8 @@ export interface ScrapeResult {
   ogType?: string;
   mediaKind: MediaKind;
   durationSeconds: number | null;
+  /** 从 meta/HTML 解析的发布时间（ISO），供 AI 参考与规则降级 */
+  publishedIsoHint: string | null;
   rawMarkdown?: string;
   metadata?: Record<string, unknown>;
 }
@@ -63,6 +66,12 @@ async function scrapeWithFirecrawl(url: string, apiKey: string): Promise<ScrapeR
     bodySample: stripped,
     durationSeconds: durationSec,
   });
+  const jsonRaw = (data as { json?: unknown }).json;
+  const publishedIsoHint = resolveBrowsePublishedTime({
+    meta,
+    markdown,
+    json: jsonRaw,
+  });
   return {
     title,
     author,
@@ -71,6 +80,7 @@ async function scrapeWithFirecrawl(url: string, apiKey: string): Promise<ScrapeR
     ogType,
     mediaKind,
     durationSeconds: durationSec,
+    publishedIsoHint,
     rawMarkdown: markdown.slice(0, 50_000),
     metadata: meta,
   };
@@ -96,6 +106,7 @@ async function scrapeWithFallback(url: string): Promise<ScrapeResult> {
     bodySample: stripped,
     durationSeconds: durationSec,
   });
+  const publishedIsoHint = resolveBrowsePublishedTime({ rawHtml: html });
   return {
     title,
     author,
@@ -104,6 +115,7 @@ async function scrapeWithFallback(url: string): Promise<ScrapeResult> {
     ogType,
     mediaKind,
     durationSeconds: durationSec,
+    publishedIsoHint,
     rawMarkdown: undefined,
     metadata: undefined,
   };

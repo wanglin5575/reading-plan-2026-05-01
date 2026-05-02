@@ -2,13 +2,48 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { formatSupabaseAuthMessage } from "@/lib/auth";
 import { dispatchAuthChanged } from "@/lib/auth-events";
 import { createBrowserSupabaseClient } from "@/lib/supabase/client";
 import { PasswordInputWithToggle } from "@/components/PasswordInputWithToggle";
 
-export function AccountAvatarMenu({ email }: { email: string }) {
+function ThreeDotsIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" width={20} height={20} aria-hidden>
+      <circle cx="12" cy="5" r="2" fill="currentColor" />
+      <circle cx="12" cy="12" r="2" fill="currentColor" />
+      <circle cx="12" cy="19" r="2" fill="currentColor" />
+    </svg>
+  );
+}
+
+function PersonGlyph({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden>
+      <path
+        d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <circle cx="12" cy="7" r="4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+export function AccountAvatarMenu({
+  email,
+  showAdmin,
+  menuTrigger = "dots",
+}: {
+  email: string;
+  showAdmin?: boolean;
+  /** 「我的」复盘页用小人图标；其它页用竖三点 */
+  menuTrigger?: "dots" | "avatar";
+}) {
   const router = useRouter();
   const [mounted, setMounted] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -151,29 +186,29 @@ export function AccountAvatarMenu({ email }: { email: string }) {
       <div className="account-menu-wrap" ref={wrapRef}>
         <button
           type="button"
-          className="account-avatar-btn"
+          className={`account-avatar-btn${menuTrigger === "dots" ? " account-menu-kebab" : ""}`}
           aria-label="账号菜单"
           aria-expanded={menuOpen}
           aria-haspopup="true"
           disabled={busy}
           onClick={() => setMenuOpen((o) => !o)}
         >
-          <svg className="account-avatar-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden>
-            <path
-              d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-            <circle cx="12" cy="7" r="4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
+          {menuTrigger === "avatar" ? (
+            <PersonGlyph className="account-avatar-icon" />
+          ) : (
+            <ThreeDotsIcon className="account-avatar-icon" />
+          )}
         </button>
         {menuOpen && (
           <div className="account-menu-popover" role="menu">
             <p className="account-menu-email" role="presentation">
               {email}
             </p>
+            {showAdmin ? (
+              <Link href="/admin" className="account-menu-item account-menu-item--link" role="menuitem" onClick={closeMenu}>
+                管理后台
+              </Link>
+            ) : null}
             <button type="button" className="account-menu-item" role="menuitem" onClick={openPasswordModal}>
               修改密码
             </button>

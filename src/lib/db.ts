@@ -2,6 +2,7 @@ import { Pool } from "pg";
 import { randomUUID } from "node:crypto";
 import { isAuthEnabled } from "./auth";
 import type { Article, BrowseTopic } from "./types";
+import { DEFAULT_AI_EVALS_SEED_SOURCES } from "@/lib/browse-defaults";
 import type { MediaKind } from "./media-kind";
 import type { BrowseTopicFeed, BrowseStoredHit } from "./browse-storage";
 
@@ -38,6 +39,7 @@ function devFallbackArticles(): Article[] {
       readKeyPoints: [],
       readAction: "",
       rawExcerpt: excerpt,
+      publishedAt: null,
     },
     {
       id: "22222222-2222-4222-8222-222222222202",
@@ -64,6 +66,7 @@ function devFallbackArticles(): Article[] {
       readKeyPoints: ["演示观点一", "演示观点二", "演示观点三"],
       readAction: "在本周复盘里跟进一条行动项。",
       rawExcerpt: excerpt,
+      publishedAt: null,
     },
   ];
 }
@@ -124,8 +127,9 @@ async function ensureSchema(): Promise<void> {
           completed_at TIMESTAMPTZ,
           read_one_liner TEXT NOT NULL DEFAULT '',
           read_key_points JSONB NOT NULL DEFAULT '[]'::jsonb,
-          read_action TEXT NOT NULL DEFAULT '',
-          raw_excerpt TEXT NOT NULL
+      read_action TEXT NOT NULL DEFAULT '',
+      raw_excerpt TEXT NOT NULL,
+      published_date DATE
         );
         CREATE INDEX IF NOT EXISTS idx_articles_due_date ON articles(due_date);
         CREATE INDEX IF NOT EXISTS idx_articles_status ON articles(status);
@@ -155,6 +159,15 @@ async function ensureSchema(): Promise<void> {
         CREATE INDEX IF NOT EXISTS idx_browse_topics_user_id ON browse_topics(user_id);
       `);
       await p.query(`
+        ALTER TABLE browse_topics ADD COLUMN IF NOT EXISTS seed_sources JSONB NOT NULL DEFAULT '[]'::jsonb;
+        ALTER TABLE browse_topics ADD COLUMN IF NOT EXISTS max_published_age_days INTEGER;
+      `);
+      await p.query(
+        `UPDATE browse_topics SET seed_sources = $1::jsonb
+         WHERE name = 'AI Evals' AND jsonb_array_length(COALESCE(seed_sources, '[]'::jsonb)) = 0`,
+        [JSON.stringify(DEFAULT_AI_EVALS_SEED_SOURCES)],
+      );
+      await p.query(`
         CREATE TABLE IF NOT EXISTS browse_topic_feeds (
           user_id TEXT NOT NULL,
           topic_id TEXT NOT NULL,
@@ -168,7 +181,31 @@ async function ensureSchema(): Promise<void> {
       await p.query(`
         ALTER TABLE articles ADD COLUMN IF NOT EXISTS title_zh TEXT NOT NULL DEFAULT '';
       `);
+      await p.query(`ALTER TABLE articles ADD COLUMN IF NOT EXISTS published_date DATE;`);
       await p.query(`ALTER TABLE articles DROP COLUMN IF EXISTS custom_tags;`);
+      await p.query(`
+        CREATE TABLE IF NOT EXISTS app_user_registry (
+          user_id TEXT PRIMARY KEY,
+          email TEXT NOT NULL,
+          registered_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          first_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        CREATE INDEX IF NOT EXISTS idx_app_user_registry_reg ON app_user_registry (registered_at);
+      `);
+      await p.query(`
+        CREATE TABLE IF NOT EXISTS token_usage_log (
+          id TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL,
+          source TEXT NOT NULL,
+          prompt_tokens INTEGER NOT NULL DEFAULT 0,
+          completion_tokens INTEGER NOT NULL DEFAULT 0,
+          total_tokens INTEGER NOT NULL DEFAULT 0,
+          cost_usd NUMERIC(18, 8) NOT NULL DEFAULT 0,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        CREATE INDEX IF NOT EXISTS idx_token_usage_user ON token_usage_log(user_id);
+        CREATE INDEX IF NOT EXISTS idx_token_usage_created ON token_usage_log(created_at);
+      `);
       await seedDemoIfEmpty(p);
     })().catch((err) => {
       schemaReady = null;
@@ -195,11 +232,11 @@ async function seedDemoIfEmpty(p: Pool): Promise<void> {
     `INSERT INTO articles (
       id, url, title, title_zh, author, domain, theme, featured, summary, language, char_count, word_count,
       estimated_minutes, recommended_depth, knowledge_tags, status, added_at, due_date, completed_at,
-      read_one_liner, read_key_points, read_action, raw_excerpt, media_type, user_id
+      read_one_liner, read_key_points, read_action, raw_excerpt, media_type, published_date, user_id
     ) VALUES (
       $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
       $13, $14, $15::jsonb, $16, $17::timestamptz, $18::date, $19::timestamptz,
-      $20, $21::jsonb, $22, $23, $24, $25
+      $20, $21::jsonb, $22, $23, $24, $25::date, $26
     )`,
     [
       todoId,
@@ -227,6 +264,7 @@ async function seedDemoIfEmpty(p: Pool): Promise<void> {
       excerpt,
       "article",
       null,
+      null,
     ],
   );
 
@@ -234,11 +272,11 @@ async function seedDemoIfEmpty(p: Pool): Promise<void> {
     `INSERT INTO articles (
       id, url, title, title_zh, author, domain, theme, featured, summary, language, char_count, word_count,
       estimated_minutes, recommended_depth, knowledge_tags, status, added_at, due_date, completed_at,
-      read_one_liner, read_key_points, read_action, raw_excerpt, media_type, user_id
+      read_one_liner, read_key_points, read_action, raw_excerpt, media_type, published_date, user_id
     ) VALUES (
       $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
       $13, $14, $15::jsonb, $16, $17::timestamptz, $18::date, $19::timestamptz,
-      $20, $21::jsonb, $22, $23, $24, $25
+      $20, $21::jsonb, $22, $23, $24, $25::date, $26
     )`,
     [
       doneId,
@@ -266,8 +304,16 @@ async function seedDemoIfEmpty(p: Pool): Promise<void> {
       excerpt,
       "article",
       null,
+      null,
     ],
   );
+}
+
+function normalizePublishedDateRow(raw: unknown): string | null {
+  if (raw == null) return null;
+  if (raw instanceof Date) return raw.toISOString().slice(0, 10);
+  if (typeof raw === "string") return raw.length >= 10 ? raw.slice(0, 10) : null;
+  return null;
 }
 
 interface ArticleRow {
@@ -295,6 +341,7 @@ interface ArticleRow {
   raw_excerpt: string;
   media_type?: string | null;
   title_zh?: string | null;
+  published_date?: string | Date | null;
 }
 
 function normalizeMediaType(raw: string | null | undefined): MediaKind {
@@ -367,6 +414,7 @@ function rowToArticle(row: ArticleRow): Article {
     readKeyPoints,
     readAction: row.read_action ?? "",
     rawExcerpt: row.raw_excerpt,
+    publishedAt: normalizePublishedDateRow(row.published_date),
   };
 }
 
@@ -380,11 +428,11 @@ export async function insertArticle(article: Article, ownerUserId: string | null
     `INSERT INTO articles (
       id, url, title, title_zh, author, domain, theme, featured, summary, language, char_count, word_count,
       estimated_minutes, recommended_depth, knowledge_tags, status, added_at, due_date, completed_at,
-      read_one_liner, read_key_points, read_action, raw_excerpt, media_type, user_id
+      read_one_liner, read_key_points, read_action, raw_excerpt, media_type, published_date, user_id
     ) VALUES (
       $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
       $13, $14, $15::jsonb, $16, $17::timestamptz, $18::date, $19::timestamptz,
-      $20, $21::jsonb, $22, $23, $24, $25
+      $20, $21::jsonb, $22, $23, $24, $25::date, $26
     )`,
     [
       article.id,
@@ -411,6 +459,7 @@ export async function insertArticle(article: Article, ownerUserId: string | null
       article.readAction || "",
       article.rawExcerpt,
       article.mediaType || "article",
+      article.publishedAt ?? null,
       uid,
     ],
   );
@@ -443,8 +492,9 @@ export async function updateArticle(article: Article, ownerUserId: string | null
       read_key_points = $17::jsonb,
       read_action = $18,
       media_type = $19,
-      raw_excerpt = $20
-    WHERE id = $21 AND user_id = $22`,
+      raw_excerpt = $20,
+      published_date = $21::date
+    WHERE id = $22 AND user_id = $23`,
       [
         article.title,
         article.titleZh || "",
@@ -466,6 +516,7 @@ export async function updateArticle(article: Article, ownerUserId: string | null
         article.readAction || "",
         article.mediaType || "article",
         article.rawExcerpt,
+        article.publishedAt ?? null,
         article.id,
         ownerUserId,
       ],
@@ -493,8 +544,9 @@ export async function updateArticle(article: Article, ownerUserId: string | null
       read_key_points = $17::jsonb,
       read_action = $18,
       media_type = $19,
-      raw_excerpt = $20
-    WHERE id = $21`,
+      raw_excerpt = $20,
+      published_date = $21::date
+    WHERE id = $22`,
     [
       article.title,
       article.titleZh || "",
@@ -516,6 +568,7 @@ export async function updateArticle(article: Article, ownerUserId: string | null
       article.readAction || "",
       article.mediaType || "article",
       article.rawExcerpt,
+      article.publishedAt ?? null,
       article.id,
     ],
   );
@@ -606,6 +659,8 @@ const STATIC_DEFAULT_BROWSE_TOPIC: BrowseTopic = {
   keywords: ["Hamel", "Shreya", "Stella&Amy", "Anthropic"],
   sortOrder: 0,
   createdAt: new Date(0).toISOString(),
+  seedSources: [...DEFAULT_AI_EVALS_SEED_SOURCES],
+  maxPublishedAgeDays: null,
 };
 
 function browseOwnerKey(userId: string | null): string {
@@ -618,16 +673,27 @@ interface BrowseTopicRow {
   keywords: unknown;
   sort_order: number;
   created_at: Date | string;
+  seed_sources?: unknown;
+  max_published_age_days?: number | null;
 }
 
 function rowToBrowseTopic(row: BrowseTopicRow): BrowseTopic {
   const raw = safeJsonArray(row.keywords);
   const keywords: string[] = Array.isArray(raw) ? raw.map(String) : [];
+  const rawSeeds = safeJsonArray(row.seed_sources);
+  const seedSources: string[] = Array.isArray(rawSeeds) ? rawSeeds.map(String) : [];
   const createdAt = row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at);
+  let maxPublishedAgeDays: number | null = null;
+  if (row.max_published_age_days != null) {
+    const n = Number(row.max_published_age_days);
+    if (Number.isFinite(n)) maxPublishedAgeDays = Math.round(n);
+  }
   return {
     id: row.id,
     name: row.name,
     keywords,
+    seedSources,
+    maxPublishedAgeDays,
     sortOrder: row.sort_order,
     createdAt,
   };
@@ -640,13 +706,14 @@ async function seedBrowseTopicsIfEmpty(p: Pool, userId: string): Promise<void> {
   );
   if (parseInt(rows[0].c, 10) > 0) return;
   await p.query(
-    `INSERT INTO browse_topics (id, user_id, name, keywords, sort_order)
-     VALUES ($1, $2, $3, $4::jsonb, 0)`,
+    `INSERT INTO browse_topics (id, user_id, name, keywords, sort_order, seed_sources)
+     VALUES ($1, $2, $3, $4::jsonb, 0, $5::jsonb)`,
     [
       randomUUID(),
       userId,
       "AI Evals",
       JSON.stringify(["Hamel", "Shreya", "Stella&Amy", "Anthropic"]),
+      JSON.stringify(DEFAULT_AI_EVALS_SEED_SOURCES),
     ],
   );
 }
@@ -659,7 +726,7 @@ export async function listBrowseTopics(userId: string | null): Promise<BrowseTop
     await ensureSchema();
     await seedBrowseTopicsIfEmpty(p, owner);
     const { rows } = await p.query<BrowseTopicRow>(
-      "SELECT id, name, keywords, sort_order, created_at FROM browse_topics WHERE user_id = $1 ORDER BY sort_order ASC, created_at ASC",
+      "SELECT id, name, keywords, sort_order, created_at, seed_sources, max_published_age_days FROM browse_topics WHERE user_id = $1 ORDER BY sort_order ASC, created_at ASC",
       [owner],
     );
     return rows.map(rowToBrowseTopic);
@@ -676,7 +743,7 @@ export async function getBrowseTopic(id: string, userId: string | null): Promise
   try {
     await ensureSchema();
     const { rows } = await p.query<BrowseTopicRow>(
-      "SELECT id, name, keywords, sort_order, created_at FROM browse_topics WHERE id = $1 AND user_id = $2 LIMIT 1",
+      "SELECT id, name, keywords, sort_order, created_at, seed_sources, max_published_age_days FROM browse_topics WHERE id = $1 AND user_id = $2 LIMIT 1",
       [id, owner],
     );
     const row = rows[0];
@@ -691,6 +758,7 @@ export async function insertBrowseTopic(
   userId: string | null,
   name: string,
   keywords: string[],
+  opts?: { seedSources?: string[]; maxPublishedAgeDays?: number | null },
 ): Promise<BrowseTopic> {
   const p = getPoolOrNull();
   if (!p) throw new Error("db_not_configured");
@@ -699,6 +767,10 @@ export async function insertBrowseTopic(
   const trimmedName = name.trim();
   if (!trimmedName) throw new Error("invalid_name");
   if (!cleanKw.length) throw new Error("invalid_keywords");
+  const seeds = [...new Set((opts?.seedSources ?? []).map((s) => s.trim()).filter(Boolean))].slice(0, 40);
+  for (const s of seeds) {
+    if (s.length > 800) throw new Error("invalid_seed_sources");
+  }
   await ensureSchema();
   const id = randomUUID();
   const { rows: maxRows } = await p.query<{ m: string | null }>(
@@ -707,9 +779,13 @@ export async function insertBrowseTopic(
   );
   const m = maxRows[0]?.m;
   const nextOrder = m != null && m !== "" ? parseInt(m, 10) + 1 : 0;
+  let maxDays: number | null = opts?.maxPublishedAgeDays ?? null;
+  if (maxDays != null && (!Number.isFinite(maxDays) || maxDays < 1 || maxDays > 3650)) {
+    throw new Error("invalid_max_age");
+  }
   await p.query(
-    `INSERT INTO browse_topics (id, user_id, name, keywords, sort_order) VALUES ($1, $2, $3, $4::jsonb, $5)`,
-    [id, owner, trimmedName, JSON.stringify(cleanKw), nextOrder],
+    `INSERT INTO browse_topics (id, user_id, name, keywords, sort_order, seed_sources, max_published_age_days) VALUES ($1, $2, $3, $4::jsonb, $5, $6::jsonb, $7)`,
+    [id, owner, trimmedName, JSON.stringify(cleanKw), nextOrder, JSON.stringify(seeds), maxDays],
   );
   const row = await getBrowseTopic(id, userId);
   if (!row) throw new Error("insert_failed");
@@ -719,37 +795,40 @@ export async function insertBrowseTopic(
 export async function updateBrowseTopic(
   id: string,
   userId: string | null,
-  patch: { name?: string; keywords?: string[] },
+  patch: Partial<{ name: string; keywords: string[]; seedSources: string[]; maxPublishedAgeDays: number | null }>,
 ): Promise<void> {
   const p = getPoolOrNull();
   if (!p) throw new Error("db_not_configured");
   const owner = browseOwnerKey(userId);
   await ensureSchema();
-  if (patch.name !== undefined && patch.keywords !== undefined) {
-    const cleanKw = patch.keywords.map((k) => k.trim()).filter(Boolean);
-    if (!cleanKw.length) throw new Error("invalid_keywords");
-    await p.query(
-      "UPDATE browse_topics SET name = $1, keywords = $2::jsonb WHERE id = $3 AND user_id = $4",
-      [patch.name.trim(), JSON.stringify(cleanKw), id, owner],
-    );
-    return;
+  const cur = await getBrowseTopic(id, userId);
+  if (!cur) throw new Error("not_found");
+
+  const nextName = patch.name !== undefined ? patch.name.trim() : cur.name;
+  const nextKw =
+    patch.keywords !== undefined ? patch.keywords.map((k) => k.trim()).filter(Boolean) : cur.keywords;
+  if (!nextKw.length) throw new Error("invalid_keywords");
+
+  let nextSeeds = cur.seedSources ?? [];
+  if (patch.seedSources !== undefined) {
+    nextSeeds = [...new Set(patch.seedSources.map((s) => s.trim()).filter(Boolean))].slice(0, 40);
+    for (const s of nextSeeds) {
+      if (s.length > 800) throw new Error("invalid_seed_sources");
+    }
   }
-  if (patch.name !== undefined) {
-    await p.query("UPDATE browse_topics SET name = $1 WHERE id = $2 AND user_id = $3", [
-      patch.name.trim(),
-      id,
-      owner,
-    ]);
+
+  let nextMax = cur.maxPublishedAgeDays ?? null;
+  if (patch.maxPublishedAgeDays !== undefined) {
+    nextMax = patch.maxPublishedAgeDays;
+    if (nextMax != null && (!Number.isFinite(nextMax) || nextMax < 1 || nextMax > 3650)) {
+      throw new Error("invalid_max_age");
+    }
   }
-  if (patch.keywords !== undefined) {
-    const cleanKw = patch.keywords.map((k) => k.trim()).filter(Boolean);
-    if (!cleanKw.length) throw new Error("invalid_keywords");
-    await p.query("UPDATE browse_topics SET keywords = $1::jsonb WHERE id = $2 AND user_id = $3", [
-      JSON.stringify(cleanKw),
-      id,
-      owner,
-    ]);
-  }
+
+  await p.query(
+    `UPDATE browse_topics SET name = $1, keywords = $2::jsonb, seed_sources = $3::jsonb, max_published_age_days = $4 WHERE id = $5 AND user_id = $6`,
+    [nextName, JSON.stringify(nextKw), JSON.stringify(nextSeeds), nextMax, id, owner],
+  );
 }
 
 export async function deleteBrowseTopic(id: string, userId: string | null): Promise<void> {
@@ -808,4 +887,196 @@ export async function upsertBrowseTopicFeed(
        updated_at = NOW()`,
     [owner, topicId, feed.lastRefreshAt, JSON.stringify(feed.items)],
   );
+}
+
+/** 按千 token 估算成本（美元）；未配置时为 0 */
+export function estimateUsdForTokens(totalTokens: number): number {
+  const raw = process.env.AI_TOKEN_USD_PER_1K?.trim();
+  const rate = raw ? parseFloat(raw) : 0;
+  if (!Number.isFinite(rate) || rate <= 0) return 0;
+  return (Math.max(0, totalTokens) / 1000) * rate;
+}
+
+export async function upsertUserRegistry(params: {
+  userId: string;
+  email: string;
+  registeredAtIso?: string | null;
+}): Promise<void> {
+  const p = getPoolOrNull();
+  if (!p) return;
+  const email = params.email.trim() || "(no-email)";
+  let regIso = params.registeredAtIso?.trim() || null;
+  if (regIso) {
+    const t = Date.parse(regIso);
+    if (Number.isNaN(t)) regIso = null;
+  }
+  try {
+    await ensureSchema();
+    await p.query(
+      `INSERT INTO app_user_registry (user_id, email, registered_at, first_seen_at)
+       VALUES ($1, $2, COALESCE($3::timestamptz, NOW()), NOW())
+       ON CONFLICT (user_id) DO UPDATE SET
+         email = EXCLUDED.email`,
+      [params.userId, email, regIso],
+    );
+  } catch (e) {
+    console.error("[db] upsertUserRegistry failed:", e);
+  }
+}
+
+export async function recordTokenUsage(params: {
+  userId: string;
+  source: string;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+}): Promise<void> {
+  const p = getPoolOrNull();
+  if (!p) return;
+  try {
+    await ensureSchema();
+    const cost = estimateUsdForTokens(params.totalTokens);
+    await p.query(
+      `INSERT INTO token_usage_log (id, user_id, source, prompt_tokens, completion_tokens, total_tokens, cost_usd)
+       VALUES ($1, $2, $3, $4, $5, $6, $7::numeric)`,
+      [
+        randomUUID(),
+        params.userId,
+        params.source.slice(0, 64),
+        Math.max(0, Math.round(params.promptTokens)),
+        Math.max(0, Math.round(params.completionTokens)),
+        Math.max(0, Math.round(params.totalTokens)),
+        cost.toFixed(8),
+      ],
+    );
+  } catch (e) {
+    console.error("[db] recordTokenUsage failed:", e);
+  }
+}
+
+export async function clearBrowseTopicFeed(userId: string | null, topicId: string): Promise<void> {
+  const p = getPoolOrNull();
+  if (!p) throw new Error("db_not_configured");
+  const owner = browseOwnerKey(userId);
+  await ensureSchema();
+  await p.query("DELETE FROM browse_topic_feeds WHERE user_id = $1 AND topic_id = $2", [owner, topicId]);
+}
+
+export type RegistryUserRow = {
+  userId: string;
+  email: string;
+  registeredAt: string;
+};
+
+export async function listAllRegistryUsers(): Promise<RegistryUserRow[]> {
+  const p = getPoolOrNull();
+  if (!p) return [];
+  await ensureSchema();
+  const { rows } = await p.query<{ user_id: string; email: string; registered_at: Date | string }>(
+    "SELECT user_id, email, registered_at FROM app_user_registry ORDER BY registered_at ASC",
+  );
+  return rows.map((r) => ({
+    userId: r.user_id,
+    email: r.email,
+    registeredAt:
+      r.registered_at instanceof Date ? r.registered_at.toISOString() : String(r.registered_at),
+  }));
+}
+
+export type TokenSumRow = {
+  userId: string;
+  totalTokens: number;
+  costUsd: number;
+};
+
+export async function sumTokenUsageByUser(): Promise<TokenSumRow[]> {
+  const p = getPoolOrNull();
+  if (!p) return [];
+  await ensureSchema();
+  const { rows } = await p.query<{ user_id: string; t: string; c: string }>(
+    `SELECT user_id, SUM(total_tokens)::text AS t, SUM(cost_usd)::text AS c
+     FROM token_usage_log GROUP BY user_id`,
+  );
+  return rows.map((r) => ({
+    userId: r.user_id,
+    totalTokens: parseInt(r.t, 10) || 0,
+    costUsd: parseFloat(r.c) || 0,
+  }));
+}
+
+export async function sumTokenUsageGlobal(): Promise<{ totalTokens: number; costUsd: number }> {
+  const p = getPoolOrNull();
+  if (!p) return { totalTokens: 0, costUsd: 0 };
+  await ensureSchema();
+  const { rows } = await p.query<{ t: string | null; c: string | null }>(
+    "SELECT SUM(total_tokens)::text AS t, SUM(cost_usd)::text AS c FROM token_usage_log",
+  );
+  const row = rows[0];
+  return {
+    totalTokens: row?.t ? parseInt(row.t, 10) || 0 : 0,
+    costUsd: row?.c ? parseFloat(row.c) || 0 : 0,
+  };
+}
+
+export type DailyAdminPoint = {
+  day: string;
+  newUsers: number;
+  totalTokens: number;
+  costUsd: number;
+};
+
+export async function getAdminDailySeries(params: {
+  fromDay: string;
+  toDay: string;
+}): Promise<DailyAdminPoint[]> {
+  const p = getPoolOrNull();
+  if (!p) return [];
+  await ensureSchema();
+
+  const { rows: tokenRows } = await p.query<{ d: Date | string; t: string; c: string }>(
+    `SELECT (created_at AT TIME ZONE 'UTC')::date AS d,
+            SUM(total_tokens)::text AS t,
+            SUM(cost_usd)::text AS c
+     FROM token_usage_log
+     WHERE (created_at AT TIME ZONE 'UTC')::date BETWEEN $1::date AND $2::date
+     GROUP BY 1 ORDER BY 1`,
+    [params.fromDay, params.toDay],
+  );
+
+  const { rows: userRows } = await p.query<{ d: Date | string; n: string }>(
+    `SELECT (registered_at AT TIME ZONE 'UTC')::date AS d,
+            COUNT(*)::text AS n
+     FROM app_user_registry
+     WHERE (registered_at AT TIME ZONE 'UTC')::date BETWEEN $1::date AND $2::date
+     GROUP BY 1 ORDER BY 1`,
+    [params.fromDay, params.toDay],
+  );
+
+  function dayKey(d: Date | string): string {
+    if (d instanceof Date) return d.toISOString().slice(0, 10);
+    const s = String(d);
+    return s.length >= 10 ? s.slice(0, 10) : s;
+  }
+
+  const map = new Map<string, DailyAdminPoint>();
+  const start = new Date(`${params.fromDay}T00:00:00Z`);
+  const end = new Date(`${params.toDay}T00:00:00Z`);
+  for (let t = start.getTime(); t <= end.getTime(); t += 86400000) {
+    const day = new Date(t).toISOString().slice(0, 10);
+    map.set(day, { day, newUsers: 0, totalTokens: 0, costUsd: 0 });
+  }
+  for (const r of userRows) {
+    const day = dayKey(r.d);
+    const row = map.get(day);
+    if (row) row.newUsers = parseInt(r.n, 10) || 0;
+  }
+  for (const r of tokenRows) {
+    const day = dayKey(r.d);
+    const row = map.get(day);
+    if (row) {
+      row.totalTokens = parseInt(r.t, 10) || 0;
+      row.costUsd = parseFloat(r.c) || 0;
+    }
+  }
+  return [...map.values()].sort((a, b) => a.day.localeCompare(b.day));
 }

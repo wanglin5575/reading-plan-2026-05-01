@@ -2,7 +2,9 @@ import { listArticlesForUser } from "@/lib/db";
 import { ArticleCard } from "@/components/ArticleCard";
 import { AllFilters } from "./AllFilters";
 import type { Article } from "@/lib/types";
+import { isAdminEmail } from "@/lib/admin";
 import { getServerAuthUser } from "@/lib/auth/server";
+import { WeeklyAccountEntry } from "@/components/WeeklyAccountEntry";
 
 export const dynamic = "force-dynamic";
 
@@ -33,9 +35,12 @@ export default async function AllPage({ searchParams }: { searchParams: Promise<
 
   return (
     <>
-      <header className="app-header">
-        <h1>全部文章</h1>
-        <span className="sub">共 {articles.length} 篇 · 当前筛选 {filtered.length} 篇</span>
+      <header className="app-header app-header-with-actions">
+        <div className="app-header-titles">
+          <h1>全部文章</h1>
+          <span className="sub">共 {articles.length} 篇 · 当前筛选 {filtered.length} 篇</span>
+        </div>
+        <WeeklyAccountEntry email={user?.email ?? null} showAdmin={isAdminEmail(user?.email)} />
       </header>
 
       <AllFilters themes={themes} initial={params} />

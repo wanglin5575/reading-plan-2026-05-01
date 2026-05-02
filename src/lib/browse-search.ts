@@ -26,8 +26,8 @@ const BROWSE_SEARCH_LIMIT_FALLBACK = 6;
 /** 与「上次刷新」间隔过长时，cdr 窗最多向前覆盖的天数（增量刷新） */
 export const BROWSE_TBS_MAX_DAYS_INCREMENTAL = 21;
 
-/** 首次刷新（主题尚无成功抓取记录）时允许更长的 Google 时间窗，覆盖约 6 个月 */
-export const BROWSE_TBS_MAX_DAYS_BOOTSTRAP = 186;
+/** 首次刷新（主题尚无成功抓取记录）时 Google cdr 窗最多覆盖约 3 个月，偏向近期文章 */
+export const BROWSE_TBS_MAX_DAYS_BOOTSTRAP = 92;
 
 export { browseTopicToQuery };
 
@@ -138,12 +138,12 @@ export function browseTbsForWindow(since: Date, until: Date, maxSpanDays = BROWS
 }
 
 /**
- * Firecrawl v2 search：
- * 1）主搜：web + news（新闻结果常带日期）、带 markdown + rawHtml，整页解析利于 JSON-LD / meta 日期
- * 2）仍无结果：补搜不 scrape，但仍带 news 以尽量匹配 SERP 日期
+ * Firecrawl v2 search（A：优先 News 再补 Web，减轻「全是陈旧网页」）：
+ * 1）先搜 news → 再搜 web（按 URL 去重，保留 news 在前）
+ * 2）仍全无结果：fallback 为单次 web+news 合并（兼容索引稀疏的关键词）
  */
 export async function fetchBrowseHits(
-  topic: Pick<BrowseTopic, "name" | "keywords">,
+  topic: Pick<BrowseTopic, "name" | "keywords" | "seedSources">,
   options: { since: Date; until?: Date; tbsMaxSpanDays?: number },
 ): Promise<BrowseHit[]> {
   const apiKey = process.env.FIRECRAWL_API_KEY?.trim();
@@ -239,21 +239,54 @@ export async function fetchBrowseHits(
     return hits;
   };
 
-  const data = await app.search(query, {
+  const dataNews = await app.search(query, {
     limit: BROWSE_SEARCH_LIMIT_PRIMARY,
     tbs,
-    sources: ["web", "news"],
+    sources: ["news"],
     scrapeOptions,
   });
+  const newsHits = toHits(dataNews);
 
-  let hits = toHits(data);
+  const dataWeb = await app.search(query, {
+    limit: BROWSE_SEARCH_LIMIT_PRIMARY,
+    tbs,
+    sources: ["web"],
+    scrapeOptions,
+  });
+  const webHits = toHits(dataWeb);
+
+  const seen = new Set<string>();
+  const merged: BrowseHit[] = [];
+  for (const h of newsHits) {
+    const u = h.url.trim();
+    if (!u || seen.has(u)) continue;
+    seen.add(u);
+    merged.push(h);
+  }
+  for (const h of webHits) {
+    const u = h.url.trim();
+    if (!u || seen.has(u)) continue;
+    seen.add(u);
+    merged.push(h);
+  }
+
+  let hits = merged;
   if (!hits.length) {
-    const dataLite = await app.search(query, {
+    const dataFallback = await app.search(query, {
       limit: BROWSE_SEARCH_LIMIT_FALLBACK,
       tbs,
       sources: ["web", "news"],
+      scrapeOptions,
     });
-    hits = toHits(dataLite);
+    hits = toHits(dataFallback);
+    if (!hits.length) {
+      const dataLite = await app.search(query, {
+        limit: BROWSE_SEARCH_LIMIT_FALLBACK,
+        tbs,
+        sources: ["web", "news"],
+      });
+      hits = toHits(dataLite);
+    }
   }
 
   return hits;

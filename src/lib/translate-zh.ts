@@ -88,14 +88,22 @@ export async function translateToChinese(text: string): Promise<string> {
   return trimmed;
 }
 
-/** 随览卡片只展示一段摘要：合并字段译成中文后写回三处，避免英文总结 */
+/** 随览卡片：摘要合并译中文；英文为主的标题另译一行 titleZh */
 export async function translateBrowseHitsToChinese(hits: BrowseHit[]): Promise<BrowseHit[]> {
   return Promise.all(
     hits.map(async (h) => {
+      let next: BrowseHit = { ...h };
       const blob = (h.summary || h.excerpt || h.description).trim();
-      if (!blob) return h;
-      const zh = await translateToChinese(blob);
-      return { ...h, summary: zh, excerpt: zh, description: zh };
+      if (blob) {
+        const zh = await translateToChinese(blob);
+        next = { ...next, summary: zh, excerpt: zh, description: zh };
+      }
+      const title = h.title.trim();
+      if (title && !isPrimarilyChinese(title)) {
+        const t = (await translateToChinese(title)).trim();
+        if (t && t !== title) next = { ...next, titleZh: t.slice(0, 400) };
+      }
+      return next;
     }),
   );
 }

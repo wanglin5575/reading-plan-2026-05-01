@@ -557,9 +557,18 @@ a:active { opacity: 0.7; }
 .browse-modal {
   width: 100%;
   max-width: 400px;
-  max-height: min(90vh, 520px);
+  max-height: min(90vh, 640px);
   overflow: auto;
   margin: 0;
+}
+
+.browse-modal .browse-edit-seeds {
+  width: 100%;
+  box-sizing: border-box;
+  font-family: inherit;
+  resize: vertical;
+  min-height: 100px;
+  line-height: 1.45;
 }
 
 .browse-modal h2 {
@@ -824,6 +833,12 @@ a:active { opacity: 0.7; }
   white-space: nowrap;
 }
 
+.browse-hit-title-zh {
+  margin: 2px 0 4px;
+  font-size: var(--fs-small);
+  line-height: var(--lh-snug);
+}
+
 .browse-hit-byline {
   display: flex;
   align-items: flex-start;
@@ -957,6 +972,201 @@ a.account-avatar-btn.account-avatar-btn--link:active {
 .account-menu-item:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+a.account-menu-item--link {
+  text-decoration: none;
+  box-sizing: border-box;
+}
+
+a.account-menu-item--link:hover {
+  background: var(--bg);
+}
+
+.admin-dash {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 16px 14px calc(16px + var(--tabbar-fab) + env(safe-area-inset-bottom) + var(--tabbar-extra-height));
+}
+
+.admin-dash-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.admin-dash-head h1 {
+  margin: 0;
+  font-size: var(--fs-page-title);
+  font-weight: var(--fw-bold);
+}
+
+.admin-pricing-note {
+  font-size: var(--fs-micro);
+  line-height: var(--lh-snug);
+  margin: 0 0 14px;
+  word-break: break-word;
+}
+
+.admin-code-inline {
+  font-size: 0.9em;
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.admin-dash-back {
+  font-size: var(--fs-body);
+  color: var(--brand);
+  flex-shrink: 0;
+}
+
+.admin-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.admin-tabs button {
+  flex: 1;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  font: inherit;
+  font-size: var(--fs-body);
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.admin-tabs button.active {
+  border-color: var(--brand);
+  color: var(--brand);
+  background: var(--brand-soft);
+  font-weight: var(--fw-semibold);
+}
+
+.admin-kpi-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.admin-kpi-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 14px;
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.admin-kpi-label {
+  font-size: var(--fs-small);
+  color: var(--muted);
+}
+
+.admin-kpi-value {
+  font-size: var(--fs-kpi);
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.admin-kpi-sub {
+  font-size: var(--fs-small);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.admin-hint {
+  font-size: var(--fs-small);
+  margin: 0 0 12px;
+  line-height: var(--lh-snug);
+}
+
+.admin-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--card);
+}
+
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-small);
+}
+
+.admin-table th,
+.admin-table td {
+  padding: 10px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+
+.admin-table th {
+  color: var(--muted);
+  font-weight: var(--fw-semibold);
+  white-space: nowrap;
+}
+
+.admin-table tr:last-child td {
+  border-bottom: none;
+}
+
+.admin-daily-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.admin-range-select {
+  margin-left: 8px;
+  max-width: 120px;
+}
+
+.admin-chart-hint {
+  font-size: var(--fs-small);
+}
+
+.admin-chart-scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--card);
+  cursor: grab;
+  touch-action: pan-x;
+  -webkit-overflow-scrolling: touch;
+}
+
+.admin-chart-scroll:active {
+  cursor: grabbing;
+}
+
+.admin-chart-svg {
+  display: block;
+  color: var(--muted);
+}
+
+.admin-chart-legend {
+  font-size: var(--fs-micro);
+  opacity: 0.85;
+}
+
+.admin-chart-xlabel {
+  opacity: 0.75;
 }
 
 .me-account-card h2 {
