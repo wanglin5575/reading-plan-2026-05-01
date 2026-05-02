@@ -643,8 +643,8 @@ a:active { opacity: 0.7; }
 
 .browse-kw-actions {
   display: flex;
-  align-items: flex-start;
-  gap: 10px;
+  align-items: center;
+  gap: 3px;
   flex-shrink: 0;
 }
 
@@ -733,7 +733,6 @@ a:active { opacity: 0.7; }
 .browse-sort-dd {
   position: relative;
   flex-shrink: 0;
-  align-self: flex-start;
 }
 
 .browse-sort-dd-trigger {
