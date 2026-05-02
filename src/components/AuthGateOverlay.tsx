@@ -9,9 +9,12 @@ function isMePath(path: string) {
   return path === "/me" || path.startsWith("/me/");
 }
 
-/** 仅用于本地/设计预览：不拦登录蒙层，展示「已登录」视觉骨架（非真实会话） */
-function isLoginPreviewPath(path: string) {
-  return path === "/login-preview" || path.startsWith("/login-preview/");
+/** 仅用于本地/设计预览：不拦登录蒙层（非真实会话） */
+function isDesignPreviewPath(path: string) {
+  if (path === "/login-preview" || path.startsWith("/login-preview/")) return true;
+  if (path === "/browse-preview" || path.startsWith("/browse-preview/")) return true;
+  if (path === "/browse-rejected-preview" || path.startsWith("/browse-rejected-preview/")) return true;
+  return false;
 }
 
 export function AuthGateOverlay({
@@ -89,7 +92,7 @@ export function AuthGateOverlay({
   const showGate =
     authEnabled &&
     !isMePath(pathname) &&
-    !isLoginPreviewPath(pathname) &&
+    !isDesignPreviewPath(pathname) &&
     (sessionChecked ? !signedIn : !initialSignedIn);
 
   useEffect(() => {
