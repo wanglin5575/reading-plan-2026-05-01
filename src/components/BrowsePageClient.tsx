@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { BrowseAiRejectedItem, BrowseHit, BrowseTopic } from "@/lib/types";
 import {
@@ -112,6 +112,9 @@ export default function BrowsePageClient() {
   const [aiRejectedOpen, setAiRejectedOpen] = useState(false);
   const [aiRejectedList, setAiRejectedList] = useState<BrowseAiRejectedItem[]>([]);
   const [rejectedSeenNonce, setRejectedSeenNonce] = useState(0);
+  const [kwExpanded, setKwExpanded] = useState(false);
+  const [kwClampedOverflow, setKwClampedOverflow] = useState(false);
+  const kwChipsRef = useRef<HTMLSpanElement>(null);
   const sortDdRef = useRef<HTMLDivElement>(null);
   const activeIdRef = useRef<string | null>(null);
   const autoPullRafRef = useRef<number | null>(null);
@@ -134,6 +137,10 @@ export default function BrowsePageClient() {
     }
     const map = loadBrowseAiRejectedMap();
     setAiRejectedList(map[activeId] ?? []);
+  }, [activeId]);
+
+  useEffect(() => {
+    setKwExpanded(false);
   }, [activeId]);
 
   const rejectedHasUnread = useMemo(() => {
@@ -685,6 +692,24 @@ export default function BrowsePageClient() {
 
   const active = topics.find((t) => t.id === activeId);
 
+  const kwLineText = active?.keywords.join(" · ") ?? "";
+
+  useLayoutEffect(() => {
+    const el = kwChipsRef.current;
+    if (!el) return;
+    const measure = () => {
+      if (kwExpanded) {
+        setKwClampedOverflow(false);
+        return;
+      }
+      setKwClampedOverflow(el.scrollHeight > el.clientHeight + 1);
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [kwLineText, kwExpanded, activeId]);
+
   const sortedHits = useMemo(() => {
     const s = sortBrowseItemsForDisplay(hits, sortBy);
     return filterBrowseHitsByPublishedAge(s, effectiveMaxPublishedAgeDays(active ?? undefined));
@@ -769,9 +794,32 @@ export default function BrowsePageClient() {
 
       {active && (
         <div className="browse-kw-row">
-          <p className="muted-link browse-kw-line browse-kw-main">
-            关键词：<span className="browse-kw-chips">{active.keywords.join(" · ")}</span>
-          </p>
+          <div
+            className={`muted-link browse-kw-line browse-kw-main${kwExpanded ? " browse-kw-main--expanded" : ""}`}
+          >
+            <span className="browse-kw-fixed-label">关键词：</span>
+            <button
+              type="button"
+              className={`browse-kw-chips-btn${kwClampedOverflow || kwExpanded ? " browse-kw-chips-btn--interactive" : ""}`}
+              aria-expanded={kwClampedOverflow || kwExpanded ? kwExpanded : undefined}
+              aria-label={
+                kwClampedOverflow || kwExpanded
+                  ? kwExpanded
+                    ? "收起关键词全文"
+                    : "展开关键词全文"
+                  : undefined
+              }
+              tabIndex={kwClampedOverflow || kwExpanded ? 0 : -1}
+              onClick={() => {
+                if (!kwClampedOverflow && !kwExpanded) return;
+                setKwExpanded((v) => !v);
+              }}
+            >
+              <span ref={kwChipsRef} className="browse-kw-chips">
+                {kwLineText}
+              </span>
+            </button>
+          </div>
           {!loadingTopics ? (
             <div className="browse-kw-actions">
               <button
