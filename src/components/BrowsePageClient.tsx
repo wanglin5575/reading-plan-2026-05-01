@@ -5,14 +5,12 @@ import { createPortal } from "react-dom";
 import type { BrowseAiRejectedItem, BrowseHit, BrowseTopic } from "@/lib/types";
 import {
   loadBrowseStorage,
-  loadBrowseAiRejectedMap,
   loadRejectedSeenMap,
   mergeBrowseFeed,
   mergeBrowseTopicFeeds,
   BROWSE_REJECTED_LEGACY_AT,
   mergeBrowseAiRejectedForTopic,
   saveBrowseStorage,
-  saveBrowseAiRejectedMap,
   saveRejectedSeenMap,
   pruneBrowseItems,
   sortBrowseItemsForDisplay,
@@ -149,8 +147,8 @@ export default function BrowsePageClient() {
       setAiRejectedList([]);
       return;
     }
-    const map = loadBrowseAiRejectedMap();
-    setAiRejectedList(map[activeId] ?? []);
+    const store = loadBrowseStorage();
+    setAiRejectedList(store.topics[activeId]?.aiRejected ?? []);
   }, [activeId]);
 
   useEffect(() => {
@@ -252,14 +250,17 @@ export default function BrowsePageClient() {
   const syncFeedWithServer = useCallback(async (topicId: string) => {
     if (!topicId) return;
     const store = loadBrowseStorage();
-    let localFeed = store.topics[topicId] ?? { lastRefreshAt: null, items: [] };
+    let localFeed = store.topics[topicId] ?? { lastRefreshAt: null, items: [], aiRejected: [] };
     const pruned = pruneBrowseItems(localFeed.items);
     if (pruned.length !== localFeed.items.length) {
       localFeed = { ...localFeed, items: pruned };
       store.topics[topicId] = localFeed;
       saveBrowseStorage(store);
     }
-    if (activeIdRef.current === topicId) setHits(localFeed.items);
+    if (activeIdRef.current === topicId) {
+      setHits(localFeed.items);
+      setAiRejectedList(localFeed.aiRejected ?? []);
+    }
 
     try {
       const r = await fetch(`/api/browse/feed?topicId=${encodeURIComponent(topicId)}`, {
@@ -272,7 +273,10 @@ export default function BrowsePageClient() {
       const mergedH = mergeBrowseTopicFeeds(localFeed, d.feed);
       store.topics[topicId] = mergedH;
       saveBrowseStorage(store);
-      if (activeIdRef.current === topicId) setHits(mergedH.items);
+      if (activeIdRef.current === topicId) {
+        setHits(mergedH.items);
+        setAiRejectedList(mergedH.aiRejected ?? []);
+      }
     } catch {
       /* ignore */
     }
@@ -281,6 +285,7 @@ export default function BrowsePageClient() {
   useEffect(() => {
     if (!activeId) {
       setHits([]);
+      setAiRejectedList([]);
       return;
     }
     void syncFeedWithServer(activeId);
@@ -298,7 +303,7 @@ export default function BrowsePageClient() {
 
   const executeTopicNetworkRefresh = useCallback(async (topicId: string) => {
     const store = loadBrowseStorage();
-    const feed = store.topics[topicId] ?? { lastRefreshAt: null, items: [] };
+    const feed = store.topics[topicId] ?? { lastRefreshAt: null, items: [], aiRejected: [] };
     const isBootstrap = feed.lastRefreshAt == null;
     const sinceIso = isBootstrap
       ? new Date(Date.now() - BROWSE_BOOTSTRAP_SINCE_MS).toISOString()
@@ -329,19 +334,16 @@ export default function BrowsePageClient() {
     if (!r.ok) throw new Error(d.error || "检索失败");
 
     const fetchedAt = d.fetchedAt ?? new Date().toISOString();
-    const merged = mergeBrowseFeed(feed, d.hits ?? [], fetchedAt, sinceMs);
+    const mergedBase = mergeBrowseFeed(feed, d.hits ?? [], fetchedAt, sinceMs);
+    const rej = Array.isArray(d.aiRejected) ? d.aiRejected : [];
+    const mergedRej = mergeBrowseAiRejectedForTopic(feed.aiRejected ?? [], rej, fetchedAt);
+    const merged: BrowseTopicFeed = { ...mergedBase, aiRejected: mergedRej };
     store.topics[topicId] = merged;
     saveBrowseStorage(store);
     await pushTopicFeedToServer(topicId, merged);
 
-    const rej = Array.isArray(d.aiRejected) ? d.aiRejected : [];
-    if (typeof window !== "undefined") {
-      const rmap = loadBrowseAiRejectedMap();
-      const prev = rmap[topicId] ?? [];
-      const mergedRej = mergeBrowseAiRejectedForTopic(prev, rej, fetchedAt);
-      rmap[topicId] = mergedRej;
-      saveBrowseAiRejectedMap(rmap);
-      if (activeIdRef.current === topicId) setAiRejectedList(mergedRej);
+    if (typeof window !== "undefined" && activeIdRef.current === topicId) {
+      setAiRejectedList(mergedRej);
     }
 
     return {
@@ -389,9 +391,6 @@ export default function BrowsePageClient() {
       delete next.topics[cur];
       saveBrowseStorage(next);
 
-      const rj = loadBrowseAiRejectedMap();
-      delete rj[cur];
-      saveBrowseAiRejectedMap(rj);
       const seen = loadRejectedSeenMap();
       delete seen[cur];
       saveRejectedSeenMap(seen);
@@ -611,6 +610,7 @@ export default function BrowsePageClient() {
       const storeAfter = loadBrowseStorage();
       const nextHits = nextId ? (storeAfter.topics[nextId]?.items ?? []) : [];
       setHits(nextHits);
+      setAiRejectedList(nextId ? (storeAfter.topics[nextId]?.aiRejected ?? []) : []);
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "删除失败");
     }

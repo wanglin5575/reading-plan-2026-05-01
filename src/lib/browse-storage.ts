@@ -13,7 +13,7 @@ export const BROWSE_EXCLUDE_URLS_MAX = 800;
 
 export const BROWSE_SORT_LS_KEY = "reading-plan-browse-sort-v1";
 
-/** 各主题下本轮/近期被 AI 筛除的条目（仅本地） */
+/** 旧版独立存放筛除记录；首次读取 browse-v2 时会并入各主题 feed 并删除此键 */
 export const BROWSE_AI_REJECTED_LS_KEY = "reading-plan-browse-ai-rejected-v1";
 
 /** 各主题下用户上次已查看的筛除列表快照（JSON.stringify 比对用） */
@@ -30,11 +30,16 @@ export interface BrowseStoredHit extends BrowseHit {
 export interface BrowseTopicFeed {
   lastRefreshAt: string | null;
   items: BrowseStoredHit[];
+  /** AI 筛除记录（与 items 一起上云同步） */
+  aiRejected?: BrowseAiRejectedItem[];
 }
 
 export interface BrowseStorage {
   topics: Record<string, BrowseTopicFeed>;
 }
+
+/** 无 updatedAt 的旧数据在合并时补此值；展示时映射为「早期」 */
+export const BROWSE_REJECTED_LEGACY_AT = "1970-01-01T00:00:00.000Z";
 
 function migrateHit(x: BrowseStoredHit): BrowseStoredHit {
   if (x.lastRefreshedAt) return x;
@@ -44,22 +49,101 @@ function migrateHit(x: BrowseStoredHit): BrowseStoredHit {
 function migrateTopicFeed(feed: BrowseTopicFeed): BrowseTopicFeed {
   return {
     ...feed,
+    aiRejected: Array.isArray(feed.aiRejected) ? feed.aiRejected : [],
     items: feed.items.map((item) => migrateHit(item)),
   };
+}
+
+/**
+ * 合并两台设备上的筛除列表：同 URL 保留 updatedAt 较新的一条。
+ */
+export function mergeBrowseAiRejectedLists(
+  a: BrowseAiRejectedItem[],
+  b: BrowseAiRejectedItem[],
+): BrowseAiRejectedItem[] {
+  const map = new Map<string, BrowseAiRejectedItem>();
+  function put(x: BrowseAiRejectedItem) {
+    const u = x.url?.trim();
+    if (!u) return;
+    const prev = map.get(u);
+    const ta = x.updatedAt ?? BROWSE_REJECTED_LEGACY_AT;
+    if (!prev) {
+      map.set(u, { ...x, url: u, updatedAt: ta });
+      return;
+    }
+    const tb = prev.updatedAt ?? BROWSE_REJECTED_LEGACY_AT;
+    if (Date.parse(ta) >= Date.parse(tb)) {
+      map.set(u, { ...x, url: u, updatedAt: ta });
+    }
+  }
+  for (const x of a) put(x);
+  for (const x of b) put(x);
+  return Array.from(map.values()).sort(
+    (x, y) => Date.parse(y.updatedAt ?? "0") - Date.parse(x.updatedAt ?? "0"),
+  );
+}
+
+/** 将旧版独立 LS 的筛除记录并入 browse-v2 并删除旧键（仅浏览器端执行一次） */
+function integrateLegacyAiRejectedStore(s: BrowseStorage): boolean {
+  if (typeof window === "undefined") return false;
+  let raw: string | null = null;
+  try {
+    raw = localStorage.getItem(BROWSE_AI_REJECTED_LS_KEY);
+  } catch {
+    return false;
+  }
+  if (!raw) return false;
+  let legacy: Record<string, BrowseAiRejectedItem[]>;
+  try {
+    const p = JSON.parse(raw) as unknown;
+    if (!p || typeof p !== "object" || Array.isArray(p)) return false;
+    legacy = p as Record<string, BrowseAiRejectedItem[]>;
+  } catch {
+    return false;
+  }
+  let changed = false;
+  for (const [topicId, list] of Object.entries(legacy)) {
+    if (!Array.isArray(list) || !list.length) continue;
+    if (!s.topics[topicId]) continue;
+    const cur = s.topics[topicId].aiRejected ?? [];
+    s.topics[topicId] = {
+      ...s.topics[topicId],
+      aiRejected: mergeBrowseAiRejectedLists(cur, list),
+    };
+    changed = true;
+  }
+  if (changed) {
+    try {
+      localStorage.removeItem(BROWSE_AI_REJECTED_LS_KEY);
+    } catch {
+      /* ignore */
+    }
+  }
+  return changed;
 }
 
 export function loadBrowseStorage(): BrowseStorage {
   if (typeof window === "undefined") return { topics: {} };
   try {
     const raw = localStorage.getItem(BROWSE_STORAGE_KEY);
-    if (!raw) return { topics: {} };
+    if (!raw) {
+      const empty: BrowseStorage = { topics: {} };
+      if (integrateLegacyAiRejectedStore(empty)) {
+        /* no topics but legacy existed — nothing to merge */
+      }
+      return empty;
+    }
     const p = JSON.parse(raw) as BrowseStorage;
     if (!p.topics || typeof p.topics !== "object") return { topics: {} };
     const topics: Record<string, BrowseTopicFeed> = {};
     for (const [id, feed] of Object.entries(p.topics)) {
       topics[id] = migrateTopicFeed(feed);
     }
-    return { topics };
+    const result: BrowseStorage = { topics };
+    if (integrateLegacyAiRejectedStore(result)) {
+      saveBrowseStorage(result);
+    }
+    return result;
   } catch {
     return { topics: {} };
   }
@@ -68,9 +152,6 @@ export function loadBrowseStorage(): BrowseStorage {
 export function saveBrowseStorage(s: BrowseStorage) {
   localStorage.setItem(BROWSE_STORAGE_KEY, JSON.stringify(s));
 }
-
-/** 无 updatedAt 的旧数据在合并时补此值；展示时映射为「早期」 */
-export const BROWSE_REJECTED_LEGACY_AT = "1970-01-01T00:00:00.000Z";
 
 /**
  * 合并本次刷新返回的筛除列表：按 URL 去重，新数据覆盖同 URL；未再出现的旧记录保留。
@@ -148,6 +229,7 @@ export function pruneBrowseTopicFeed(feed: BrowseTopicFeed, now = Date.now()): B
   return {
     lastRefreshAt: feed.lastRefreshAt,
     items: pruneBrowseItems(feed.items, now),
+    aiRejected: feed.aiRejected ?? [],
   };
 }
 
@@ -186,7 +268,12 @@ export function mergeBrowseTopicFeeds(local: BrowseTopicFeed, remote: BrowseTopi
     Number.isNaN(lm) ? 0 : lm,
     Number.isNaN(rm) ? 0 : rm,
   );
-  return { lastRefreshAt: lastMs > 0 ? new Date(lastMs).toISOString() : null, items };
+  const aiRejected = mergeBrowseAiRejectedLists(local.aiRejected ?? [], remote.aiRejected ?? []);
+  return {
+    lastRefreshAt: lastMs > 0 ? new Date(lastMs).toISOString() : null,
+    items,
+    aiRejected,
+  };
 }
 
 /**
@@ -232,7 +319,7 @@ export function mergeBrowseFeed(
   }
 
   let items = pruneBrowseItems(sortBrowseItemsByRefreshed([...byUrl.values()]));
-  return { lastRefreshAt: fetchedAt, items };
+  return { lastRefreshAt: fetchedAt, items, aiRejected: prev.aiRejected ?? [] };
 }
 
 export function loadBrowseAiRejectedMap(): Record<string, BrowseAiRejectedItem[]> {

@@ -1,7 +1,7 @@
 import { Pool } from "pg";
 import { randomUUID } from "node:crypto";
 import { isAuthEnabled } from "./auth";
-import type { Article, BrowseTopic } from "./types";
+import type { Article, BrowseAiRejectedItem, BrowseTopic } from "./types";
 import { DEFAULT_AI_EVALS_SEED_SOURCES } from "@/lib/browse-defaults";
 import { estimateUsdForPromptCompletion } from "@/lib/token-pricing";
 import type { MediaKind } from "./media-kind";
@@ -178,6 +178,10 @@ async function ensureSchema(): Promise<void> {
           PRIMARY KEY (user_id, topic_id)
         );
         CREATE INDEX IF NOT EXISTS idx_browse_topic_feeds_updated ON browse_topic_feeds(updated_at);
+      `);
+      await p.query(`
+        ALTER TABLE browse_topic_feeds
+        ADD COLUMN IF NOT EXISTS ai_rejected JSONB NOT NULL DEFAULT '[]'::jsonb;
       `);
       await p.query(`
         ALTER TABLE articles ADD COLUMN IF NOT EXISTS title_zh TEXT NOT NULL DEFAULT '';
@@ -847,6 +851,7 @@ export async function deleteBrowseTopic(id: string, userId: string | null): Prom
 interface BrowseTopicFeedRow {
   last_refresh_at: Date | string | null;
   items: unknown;
+  ai_rejected?: unknown;
 }
 
 export async function getBrowseTopicFeed(userId: string | null, topicId: string): Promise<BrowseTopicFeed | null> {
@@ -856,17 +861,19 @@ export async function getBrowseTopicFeed(userId: string | null, topicId: string)
   try {
     await ensureSchema();
     const { rows } = await p.query<BrowseTopicFeedRow>(
-      "SELECT last_refresh_at, items FROM browse_topic_feeds WHERE user_id = $1 AND topic_id = $2 LIMIT 1",
+      "SELECT last_refresh_at, items, ai_rejected FROM browse_topic_feeds WHERE user_id = $1 AND topic_id = $2 LIMIT 1",
       [owner, topicId],
     );
     const row = rows[0];
     if (!row) return null;
     const raw = row.items;
     const items: BrowseStoredHit[] = Array.isArray(raw) ? (raw as BrowseStoredHit[]) : [];
+    const rejRaw = row.ai_rejected;
+    const aiRejected: BrowseAiRejectedItem[] = Array.isArray(rejRaw) ? (rejRaw as BrowseAiRejectedItem[]) : [];
     const lr = row.last_refresh_at;
     const lastRefreshAt =
       lr instanceof Date ? lr.toISOString() : lr != null && String(lr).length ? String(lr) : null;
-    return { lastRefreshAt, items };
+    return { lastRefreshAt, items, aiRejected: aiRejected ?? [] };
   } catch (e) {
     console.error("[db] getBrowseTopicFeed failed:", e);
     return null;
@@ -882,14 +889,16 @@ export async function upsertBrowseTopicFeed(
   if (!p) throw new Error("db_not_configured");
   const owner = browseOwnerKey(userId);
   await ensureSchema();
+  const aiRejected = feed.aiRejected ?? [];
   await p.query(
-    `INSERT INTO browse_topic_feeds (user_id, topic_id, last_refresh_at, items, updated_at)
-     VALUES ($1, $2, $3::timestamptz, $4::jsonb, NOW())
+    `INSERT INTO browse_topic_feeds (user_id, topic_id, last_refresh_at, items, ai_rejected, updated_at)
+     VALUES ($1, $2, $3::timestamptz, $4::jsonb, $5::jsonb, NOW())
      ON CONFLICT (user_id, topic_id) DO UPDATE SET
        last_refresh_at = EXCLUDED.last_refresh_at,
        items = EXCLUDED.items,
+       ai_rejected = EXCLUDED.ai_rejected,
        updated_at = NOW()`,
-    [owner, topicId, feed.lastRefreshAt, JSON.stringify(feed.items)],
+    [owner, topicId, feed.lastRefreshAt, JSON.stringify(feed.items), JSON.stringify(aiRejected)],
   );
 }
 

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getRouteHandlerUserId } from "@/lib/auth/api";
 import { pruneBrowseTopicFeed, type BrowseTopicFeed, type BrowseStoredHit } from "@/lib/browse-storage";
+import type { BrowseAiRejectedItem } from "@/lib/types";
 import {
   getBrowseTopic,
   getBrowseTopicFeed,
@@ -11,6 +12,7 @@ import {
 export const dynamic = "force-dynamic";
 
 const MAX_ITEMS = 2500;
+const MAX_AI_REJECTED = 2000;
 
 function parseFeedPayload(raw: unknown): BrowseTopicFeed | null {
   if (!raw || typeof raw !== "object") return null;
@@ -32,7 +34,17 @@ function parseFeedPayload(raw: unknown): BrowseTopicFeed | null {
     if (typeof u !== "string" || !u.trim()) continue;
     items.push(x as BrowseStoredHit);
   }
-  return { lastRefreshAt, items };
+  const aiRejected: BrowseAiRejectedItem[] = [];
+  const rejRaw = o.aiRejected;
+  if (Array.isArray(rejRaw)) {
+    for (const x of rejRaw.slice(0, MAX_AI_REJECTED)) {
+      if (!x || typeof x !== "object") continue;
+      const u = (x as { url?: unknown }).url;
+      if (typeof u !== "string" || !u.trim()) continue;
+      aiRejected.push(x as BrowseAiRejectedItem);
+    }
+  }
+  return { lastRefreshAt, items, aiRejected };
 }
 
 export async function GET(req: Request) {
@@ -48,7 +60,7 @@ export async function GET(req: Request) {
   if (!topic) return NextResponse.json({ error: "主题不存在" }, { status: 404 });
 
   const row = await getBrowseTopicFeed(uid, topicId);
-  const raw: BrowseTopicFeed = row ?? { lastRefreshAt: null, items: [] };
+  const raw: BrowseTopicFeed = row ?? { lastRefreshAt: null, items: [], aiRejected: [] };
   const feed = pruneBrowseTopicFeed(raw);
   if (row && feed.items.length !== raw.items.length) {
     try {
