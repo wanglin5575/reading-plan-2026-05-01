@@ -113,6 +113,7 @@ reading-plan-2026-05-01/
    - `DATABASE_URL`（Supabase Postgres）
    - `NEXT_PUBLIC_SUPABASE_URL`、`NEXT_PUBLIC_SUPABASE_ANON_KEY`（启用邮箱注册 / 登录与按用户隔离数据时必填）
    - `FIRECRAWL_API_KEY`（随览联网检索需要；其它抓取能力可选）
+   - 可选：`AI_SUMMARY_BASE_URL`、`AI_SUMMARY_API_KEY`、`AI_SUMMARY_MODEL`（或与之一致的 `WOLF_*` 别名）：服务端调用 OpenAI 兼容 `POST …/chat/completions` 生成约 70 字中文摘要；**不要**使用 `NEXT_PUBLIC_` 前缀，密钥仅在服务器环境变量中配置。未配置时自动回退为「截取前几句 + 翻译」。
 4. 重新部署后即可公网访问，数据持久化在 Supabase。
 
 **登录磨砂蒙层不出现**：须已配置 `NEXT_PUBLIC_SUPABASE_URL` 与 `NEXT_PUBLIC_SUPABASE_ANON_KEY`（需在 Vercel 对 **Production** 勾选并写入后再触发一次 **Redeploy**；`NEXT_PUBLIC_*` 在构建时打入包内，改变量后必须重新部署）。根布局已使用 `force-dynamic` + `connection()`，避免根布局被静态缓存成「未启用登录」的旧状态。

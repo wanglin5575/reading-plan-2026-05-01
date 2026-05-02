@@ -32,15 +32,35 @@ export function detectMediaKindFromSignals(
   url: string,
   ogType: string | undefined,
   title: string | undefined,
+  opts?: { bodySample?: string; durationSeconds?: number | null },
 ): MediaKind {
   const t = (ogType || "").toLowerCase();
   if (t.includes("video")) return "video";
   if (t.includes("music.song") || t.includes("audio") || t.includes("podcast")) return "audio";
   const fromUrl = detectMediaKindFromUrl(url);
   if (fromUrl !== "article") return fromUrl;
-  const hay = `${title || ""}`;
-  if (/播客|Podcast|\bEP\d+\b|小宇宙|喜马拉雅/.test(hay)) return "audio";
-  if (/\[视频\]|｜视频|VIDEO|Watch:/i.test(hay)) return "video";
+
+  const body = (opts?.bodySample || "").slice(0, 8000);
+  const hay = `${title || ""}\n${body}`;
+  if (/播客|Podcast|\bEP\d+\b|小宇宙|喜马拉雅|有声书/.test(hay)) return "audio";
+  if (/\[视频\]|｜视频|VIDEO|Watch:|纪录片|公开课|演讲实录/i.test(hay)) return "video";
+  // 正文里常见嵌入：即便 og:type 仍是 article，也标成视频
+  if (
+    /(youtube\.com\/embed|youtube-nocookie\.com\/embed|player\.bilibili\.com|bilibili\.com\/video|v\.qq\.com|youku\.com\/embed|video\.weixin\.qq\.com)/i.test(
+      hay,
+    )
+  ) {
+    return "video";
+  }
+
+  const d = opts?.durationSeconds;
+  if (d != null && d >= 30) {
+    if (/播客|音频|Podcast|小宇宙|喜马拉雅|SoundCloud|Spotify/i.test(hay)) return "audio";
+    // 明显是图文长文时保留「文章」，避免把带阅读时长/schema 的稿件误判成视频
+    if (/阅读|字|章节|pdf|下载文档|长篇|专栏|作者：|撰文/i.test(hay)) return "article";
+    return "video";
+  }
+
   return "article";
 }
 

@@ -67,6 +67,20 @@ export function AuthGateOverlay({
     };
   }, [authEnabled]);
 
+  /** 从 /auth/callback OAuth 重定向着陆后立刻再拉一次会话，避免首屏 RSC 与 Cookie 写入时序导致蒙层仍显示 */
+  useEffect(() => {
+    if (!authEnabled) return;
+    let client: ReturnType<typeof createBrowserSupabaseClient>;
+    try {
+      client = createBrowserSupabaseClient();
+    } catch {
+      return;
+    }
+    void client.auth.getSession().then(({ data: { session } }) => {
+      setSignedIn(Boolean(session?.user));
+    });
+  }, [authEnabled, pathname]);
+
   const showGate =
     authEnabled && !isMePath(pathname) && (sessionChecked ? !signedIn : !initialSignedIn);
 

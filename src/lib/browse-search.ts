@@ -31,10 +31,19 @@ export const BROWSE_TBS_MAX_DAYS_BOOTSTRAP = 186;
 
 export { browseTopicToQuery };
 
-function resolveHitMediaKind(url: string, title: string, meta: unknown | undefined): MediaKind {
+function resolveHitMediaKind(
+  url: string,
+  title: string,
+  meta: unknown | undefined,
+  bodySample: string,
+): MediaKind {
   const metaRec = meta && typeof meta === "object" ? (meta as Record<string, unknown>) : undefined;
+  const durationSec = metaRec ? extractDurationSecondsFromMetadataDeep(metaRec) : null;
   return metaRec
-    ? detectMediaKindFromSignals(url, metaOgType(metaRec), title)
+    ? detectMediaKindFromSignals(url, metaOgType(metaRec), title, {
+        bodySample,
+        durationSeconds: durationSec,
+      })
     : detectMediaKindFromUrl(url);
 }
 
@@ -61,7 +70,10 @@ function estimateBrowseReadMinutes(
   const metaRec = meta && typeof meta === "object" ? (meta as Record<string, unknown>) : undefined;
   const durationSec = metaRec ? extractDurationSecondsFromMetadataDeep(metaRec) : null;
   const kind = metaRec
-    ? detectMediaKindFromSignals(url, metaOgType(metaRec), title)
+    ? detectMediaKindFromSignals(url, metaOgType(metaRec), title, {
+        bodySample: `${description}\n${excerpt}\n${summary}`,
+        durationSeconds: durationSec,
+      })
     : detectMediaKindFromUrl(url);
   return estimateReadingMinutesCalibrated(title, excerpt || summary, summary || description, lang, {
     mediaKind: kind,
@@ -177,7 +189,7 @@ export async function fetchBrowseHits(
           description,
           summary: description,
           excerpt: description,
-          mediaType: resolveHitMediaKind(url, wTitle, undefined),
+          mediaType: resolveHitMediaKind(url, wTitle, undefined, `${description}\n${description}`),
           publishedTime,
           author: null,
           estimatedMinutes: est,
@@ -217,7 +229,7 @@ export async function fetchBrowseHits(
         description,
         summary,
         excerpt: excerpt || description,
-        mediaType: resolveHitMediaKind(url, title, meta),
+        mediaType: resolveHitMediaKind(url, title, meta, `${description}\n${excerpt || ""}`),
         publishedTime,
         author: authorRaw,
         estimatedMinutes: est,

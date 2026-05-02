@@ -59,7 +59,10 @@ async function scrapeWithFirecrawl(url: string, apiKey: string): Promise<ScrapeR
   const stripped = stripMarkdown(markdown);
   const author = resolveArticleAuthor(primaryAuthor, meta, "", title, stripped, url);
   const durationSec = extractDurationSecondsFromMetadataDeep(meta);
-  const mediaKind = detectMediaKindFromSignals(url, ogType, title);
+  const mediaKind = detectMediaKindFromSignals(url, ogType, title, {
+    bodySample: stripped,
+    durationSeconds: durationSec,
+  });
   return {
     title,
     author,
@@ -89,7 +92,10 @@ async function scrapeWithFallback(url: string): Promise<ScrapeResult> {
   const author = resolveArticleAuthor(primaryAuthor, undefined, html, title, stripped, url);
   const durationSec =
     extractDurationSecondsFromHtml(html) ?? extractDurationFromJsonLdSnippet(html);
-  const mediaKind = detectMediaKindFromSignals(url, ogType, title);
+  const mediaKind = detectMediaKindFromSignals(url, ogType, title, {
+    bodySample: stripped,
+    durationSeconds: durationSec,
+  });
   return {
     title,
     author,

@@ -1,5 +1,6 @@
 import type { Article, ReadingDepth } from "./types";
 import type { MediaKind } from "./media-kind";
+import { summarizeArticleZhWithAi } from "./ai-summary";
 import { translateToChinese } from "./translate-zh";
 
 const THEME_RULES: { theme: string; words: string[] }[] = [
@@ -218,9 +219,15 @@ export async function buildArticleClassification(
   const charCount = countChars(body);
   const wordCount = countWords(body);
   const theme = classifyTheme(title, body, url);
-  const summary = makeSummary(body);
-  let summaryZh = await translateToChinese(summary || "(暂无摘要)");
-  summaryZh = truncateZh(summaryZh, SUMMARY_MAX_CHARS);
+  let summaryZh: string;
+  const aiSummary = await summarizeArticleZhWithAi({ title, body, url });
+  if (aiSummary) {
+    summaryZh = truncateZh(aiSummary, SUMMARY_MAX_CHARS);
+  } else {
+    const summary = makeSummary(body);
+    summaryZh = await translateToChinese(summary || "(暂无摘要)");
+    summaryZh = truncateZh(summaryZh, SUMMARY_MAX_CHARS);
+  }
   let titleZh = "";
   if (!isPrimarilyChinese(title)) {
     const t = (await translateToChinese(title)).trim();

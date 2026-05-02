@@ -308,72 +308,42 @@ export default function BrowsePageClient() {
     [executeTopicNetworkRefresh],
   );
 
-  /** 双击「随览」：重拉主题列表，并对每个主题执行与下拉相同的联网增量拉取 */
-  const runForceRefreshAll = useCallback(async () => {
-    if (refreshingRef.current || loadingTopics) return;
-    setRefreshing(true);
+  const batchSummariesRef = useRef(false);
+
+  /** 双击「随览」标题：对账号下全部文章依次调用刷新接口，重写摘要（重新抓取 + AI/规则摘要） */
+  const runBatchRefreshAllSummaries = useCallback(async () => {
+    if (batchSummariesRef.current || refreshingRef.current || loadingTopics) return;
+    batchSummariesRef.current = true;
     setMsg(null);
     try {
-      const tr = await fetch("/api/browse/topics", { cache: "no-store" });
-      const td = (await tr.json()) as { topics?: BrowseTopic[]; error?: string };
-      if (!tr.ok) throw new Error(td.error || "加载主题失败");
-      const list = td.topics ?? [];
-      setTopics(list);
-
-      const prevActive = activeIdRef.current;
-      const nextActive = prevActive && list.some((t) => t.id === prevActive) ? prevActive : list[0]?.id ?? null;
-      activeIdRef.current = nextActive;
-      setActiveId(nextActive);
-
+      const ar = await fetch("/api/articles", { cache: "no-store" });
+      const ad = (await ar.json()) as { articles?: { id: string }[]; error?: string };
+      if (!ar.ok) throw new Error(ad.error || "加载文章列表失败");
+      const list = ad.articles ?? [];
       if (list.length === 0) {
-        setHits([]);
-        setMsg("暂无主题，可先添加追踪主题。");
+        setMsg("暂无文章，无法批量重写摘要。");
         return;
       }
-
-      const errors: string[] = [];
-      let anyNew = false;
-      let anySkippedOnly = false;
-      let allTopicsNoHitsNoSkip = true;
-
-      for (const t of list) {
+      let ok = 0;
+      let fail = 0;
+      for (let i = 0; i < list.length; i++) {
+        const a = list[i]!;
+        setMsg(`正在重写摘要 ${i + 1}/${list.length}…`);
         try {
-          const { hitCount, skippedKnown } = await executeTopicNetworkRefresh(t.id);
-          if (hitCount > 0) {
-            anyNew = true;
-            allTopicsNoHitsNoSkip = false;
-          } else if (skippedKnown > 0) {
-            anySkippedOnly = true;
-            allTopicsNoHitsNoSkip = false;
-          }
-        } catch (e) {
-          const m = e instanceof Error ? e.message : "检索失败";
-          errors.push(`「${t.name}」${m}`);
-          allTopicsNoHitsNoSkip = false;
+          const rr = await fetch(`/api/articles/${a.id}/refresh`, { method: "POST" });
+          if (rr.ok) ok += 1;
+          else fail += 1;
+        } catch {
+          fail += 1;
         }
       }
-
-      const store = loadBrowseStorage();
-      const cur = activeIdRef.current;
-      if (cur) setHits(store.topics[cur]?.items ?? []);
-
-      if (errors.length) {
-        setMsg(errors.slice(0, 3).join("；") + (errors.length > 3 ? ` 等共 ${errors.length} 个主题失败` : ""));
-      } else if (anyNew) {
-        setMsg(null);
-      } else if (anySkippedOnly) {
-        setMsg(list.length > 1 ? "全部主题均无新增链接；已跳过已有网址，未做重复翻译。" : "本次无新增链接；已跳过已有网址，未做重复翻译。");
-      } else if (allTopicsNoHitsNoSkip) {
-        setMsg("本次未发现新结果，可改日再试或调整关键词。");
-      } else {
-        setMsg(null);
-      }
+      setMsg(`摘要已刷新：成功 ${ok} 篇${fail ? `，失败 ${fail} 篇` : ""}。离开本页再进入可看到最新卡片。`);
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : "刷新失败");
+      setMsg(e instanceof Error ? e.message : "批量刷新失败");
     } finally {
-      setRefreshing(false);
+      batchSummariesRef.current = false;
     }
-  }, [executeTopicNetworkRefresh, loadingTopics]);
+  }, [loadingTopics]);
 
   const startEmptyRefreshWithPull = useCallback(
     (topicId: string) => {
@@ -670,9 +640,9 @@ export default function BrowsePageClient() {
         <div className="app-header-titles">
           <h1
             className="browse-title-refresh"
-            title="双击强制刷新：更新主题列表，并为每个主题拉取最新随览结果"
+            title="双击：依次重新抓取并重写所有文章的摘要（含 AI，失败则回退规则摘要）；篇数多时请耐心等待"
             onDoubleClick={() => {
-              void runForceRefreshAll();
+              void runBatchRefreshAllSummaries();
             }}
           >
             随览
