@@ -82,6 +82,8 @@ export type AiArticleEnrichment = {
   readingMinutes?: number | null;
   /** 仅随览 browseQualify 流程解析：是否值得打开阅读原文 */
   worthReading?: boolean | null;
+  /** 仅当 worth_reading 为 false 时：筛除理由（≤50 字） */
+  notWorthReason?: string | null;
 };
 
 /** OpenAI 兼容 API 的 usage 字段 */
@@ -144,7 +146,7 @@ export async function enrichArticleWithAi(params: {
   const maxInput =
     Math.min(parseInt(process.env.AI_SUMMARY_MAX_INPUT_CHARS?.trim() || "12000", 10) || 12000, 60000) ||
     12000;
-  const defaultOut = params.browseQualify ? 900 : 800;
+  const defaultOut = params.browseQualify ? 960 : 800;
   const maxTokens = Math.min(
     Math.max(
       parseInt(process.env.AI_SUMMARY_MAX_OUTPUT_TOKENS?.trim() || String(defaultOut), 10) || defaultOut,
@@ -189,6 +191,7 @@ ${bodyText || "(正文为空)"}`;
 - author：署名作者或机构，简短；无法判断则 null。可参考抓取线索但不要照抄域名或栏目名当作者。
 - reading_minutes：通读/听完正文所需的整数分钟数，范围 1～600；无法估计则填 null。
 - worth_reading：布尔值。true = 有独立观点、信息增量或完整叙事，值得打开阅读原文；false = 明显为站点首页、栏目聚合、仅列表无正文、失效占位、spam、纯广告导航。
+- not_worth_reason：仅当 worth_reading 为 false 时填写，简体中文一句话说明为何不推荐阅读，严格不超过50个字；worth_reading 为 true 时必须为 null。
 
 原则：published_at / author 不确定用 null；worth_reading 宁严勿滥。`
     : `你是阅读元数据助手。请根据标题与正文节选，输出且仅输出一个 JSON 对象（不要 Markdown、不要代码围栏），字段如下：
@@ -261,6 +264,10 @@ ${bodyText || "(正文为空)"}`;
   const readingMinutes =
     rm != null && rm >= 1 && rm <= 600 ? Math.round(rm) : null;
   const worthReading = params.browseQualify ? parseWorthReading(json.worth_reading) : null;
+  let notWorthReason: string | null = null;
+  if (params.browseQualify && worthReading === false) {
+    notWorthReason = strOrNull(json.not_worth_reason)?.replace(/\s+/g, " ").trim().slice(0, 50) || null;
+  }
 
   return {
     enrichment: {
@@ -269,6 +276,7 @@ ${bodyText || "(正文为空)"}`;
       author,
       readingMinutes,
       worthReading,
+      notWorthReason,
     },
     usage,
   };

@@ -641,6 +641,95 @@ a:active { opacity: 0.7; }
   font-size: var(--fs-small);
 }
 
+.browse-kw-actions {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.browse-ai-rejected-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.6875rem;
+  line-height: 1.35;
+  color: var(--muted);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.browse-ai-rejected-btn:hover {
+  opacity: 0.92;
+}
+
+.browse-ai-rejected-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1rem;
+  height: 1rem;
+  padding: 0 4px;
+  border-radius: 999px;
+  font-size: 0.5625rem;
+  font-weight: var(--fw-semibold);
+  line-height: 1;
+  color: var(--card);
+  background: color-mix(in srgb, var(--muted) 85%, var(--ink) 15%);
+}
+
+.browse-ai-rejected-empty {
+  margin: 0 0 12px;
+  font-size: var(--fs-small);
+  color: var(--muted);
+  line-height: var(--lh-snug);
+}
+
+.browse-ai-rejected-list {
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+  max-height: min(52vh, 420px);
+  overflow-y: auto;
+}
+
+.browse-ai-rejected-list li {
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.browse-ai-rejected-list li:last-child {
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.browse-ai-rejected-link {
+  display: block;
+  font-size: var(--fs-small);
+  font-weight: var(--fw-semibold);
+  color: var(--brand);
+  text-decoration: none;
+  word-break: break-word;
+}
+
+.browse-ai-rejected-link:hover {
+  text-decoration: underline;
+}
+
+.browse-ai-rejected-reason {
+  margin: 4px 0 0;
+  font-size: var(--fs-micro);
+  color: var(--muted);
+  line-height: var(--lh-snug);
+}
+
 .browse-sort-dd {
   position: relative;
   flex-shrink: 0;

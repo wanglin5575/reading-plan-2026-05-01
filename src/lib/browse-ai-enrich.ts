@@ -1,6 +1,6 @@
 import { enrichArticleWithAi } from "@/lib/ai-summary";
 import { normalizePublishedToIso } from "@/lib/browse-published";
-import type { BrowseHit } from "@/lib/types";
+import type { BrowseAiRejectedItem, BrowseHit } from "@/lib/types";
 
 function trimEnv(...keys: string[]): string | undefined {
   for (const k of keys) {
@@ -39,6 +39,12 @@ function shouldFilterLowValue(): boolean {
   return true;
 }
 
+export type EnrichBrowseHitsResult = {
+  hits: BrowseHit[];
+  /** 本次流程中被筛除的条目（仅当开启 worth 过滤且模型判定不值得读） */
+  rejected: BrowseAiRejectedItem[];
+};
+
 /**
  * 随览：在 Firecrawl 已有标题/正文节选/元数据提示后，用与「书库文章」相同的 WolfAI（OpenAI 兼容）接口
  * 生成简体中文摘要，并尽量判断发布时间、署名作者、阅读时长；可选筛掉「不值得读」的条目。
@@ -47,20 +53,22 @@ function shouldFilterLowValue(): boolean {
  * 不根据 worth_reading 筛掉条目：`BROWSE_AI_WORTH_FILTER=0`
  * 需配置：`WOLF_*` 或 `AI_SUMMARY_*`（与 `ai-summary.ts` 一致）
  */
-export async function enrichBrowseHitsWithAi(hits: BrowseHit[]): Promise<BrowseHit[]> {
+export async function enrichBrowseHitsWithAi(hits: BrowseHit[]): Promise<EnrichBrowseHitsResult> {
   const off = process.env.BROWSE_ENRICH_VIA_LLM?.trim().toLowerCase();
-  if (off === "0" || off === "false" || off === "no") return hits;
+  if (off === "0" || off === "false" || off === "no") return { hits, rejected: [] };
 
   const base = trimEnv("AI_SUMMARY_BASE_URL", "WOLF_BASE_URL");
   const key = trimEnv("AI_SUMMARY_API_KEY", "WOLF_API_KEY");
   const model = trimEnv("AI_SUMMARY_MODEL", "WOLF_MODEL");
-  if (!base || !key || !model) return hits;
+  if (!base || !key || !model) return { hits, rejected: [] };
 
   const maxInput =
     Math.min(parseInt(process.env.AI_SUMMARY_MAX_INPUT_CHARS?.trim() || "12000", 10) || 12000, 60000) || 12000;
   const filterWorth = shouldFilterLowValue();
 
   const out: BrowseHit[] = [];
+  const rejected: BrowseAiRejectedItem[] = [];
+
   for (const h of hits) {
     const bodyFromScrape = h.fullMarkdownForAi?.trim() ?? "";
     const fallbackBlob = [h.excerpt, h.summary, h.description].filter(Boolean).join("\n").trim();
@@ -80,10 +88,15 @@ export async function enrichBrowseHitsWithAi(hits: BrowseHit[]): Promise<BrowseH
       continue;
     }
 
-    if (
-      filterWorth &&
-      enrichment.worthReading === false
-    ) {
+    if (filterWorth && enrichment.worthReading === false) {
+      const reason =
+        enrichment.notWorthReason?.trim() ||
+        "模型判定为导航、聚合或低信息密度页面";
+      rejected.push({
+        url: h.url.trim(),
+        title: h.title.trim().slice(0, 400) || "无标题",
+        reason: reason.slice(0, 50),
+      });
       continue;
     }
 
@@ -108,5 +121,5 @@ export async function enrichBrowseHitsWithAi(hits: BrowseHit[]): Promise<BrowseH
       summarySource: "ai",
     });
   }
-  return out;
+  return { hits: out, rejected };
 }

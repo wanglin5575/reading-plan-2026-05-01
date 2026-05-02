@@ -2,12 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import type { BrowseHit, BrowseTopic } from "@/lib/types";
+import type { BrowseAiRejectedItem, BrowseHit, BrowseTopic } from "@/lib/types";
 import {
   loadBrowseStorage,
+  loadBrowseAiRejectedMap,
   mergeBrowseFeed,
   mergeBrowseTopicFeeds,
   saveBrowseStorage,
+  saveBrowseAiRejectedMap,
   pruneBrowseItems,
   sortBrowseItemsForDisplay,
   BROWSE_BOOTSTRAP_SINCE_MS,
@@ -104,6 +106,8 @@ export default function BrowsePageClient() {
   const [rdAction, setRdAction] = useState("");
   const [sortBy, setSortBy] = useState<BrowseSortMode>("published");
   const [sortMenuOpen, setSortMenuOpen] = useState(false);
+  const [aiRejectedOpen, setAiRejectedOpen] = useState(false);
+  const [aiRejectedList, setAiRejectedList] = useState<BrowseAiRejectedItem[]>([]);
   const sortDdRef = useRef<HTMLDivElement>(null);
   const activeIdRef = useRef<string | null>(null);
   const autoPullRafRef = useRef<number | null>(null);
@@ -117,6 +121,15 @@ export default function BrowsePageClient() {
       cancelAnimationFrame(autoPullRafRef.current);
       autoPullRafRef.current = null;
     }
+  }, [activeId]);
+
+  useEffect(() => {
+    if (!activeId || typeof window === "undefined") {
+      setAiRejectedList([]);
+      return;
+    }
+    const map = loadBrowseAiRejectedMap();
+    setAiRejectedList(map[activeId] ?? []);
   }, [activeId]);
 
   useEffect(() => {
@@ -267,6 +280,7 @@ export default function BrowsePageClient() {
     });
     const d = (await r.json()) as {
       hits?: BrowseHit[];
+      aiRejected?: BrowseAiRejectedItem[];
       fetchedAt?: string;
       error?: string;
       skippedKnown?: number;
@@ -278,6 +292,14 @@ export default function BrowsePageClient() {
     store.topics[topicId] = merged;
     saveBrowseStorage(store);
     await pushTopicFeedToServer(topicId, merged);
+
+    const rej = Array.isArray(d.aiRejected) ? d.aiRejected : [];
+    if (typeof window !== "undefined") {
+      const rmap = loadBrowseAiRejectedMap();
+      rmap[topicId] = rej;
+      saveBrowseAiRejectedMap(rmap);
+      if (activeIdRef.current === topicId) setAiRejectedList(rej);
+    }
 
     return {
       merged,
@@ -323,6 +345,11 @@ export default function BrowsePageClient() {
       const next = { ...store, topics: { ...store.topics } };
       delete next.topics[cur];
       saveBrowseStorage(next);
+
+      const rj = loadBrowseAiRejectedMap();
+      delete rj[cur];
+      saveBrowseAiRejectedMap(rj);
+      setAiRejectedList([]);
 
       const r = await fetch(`/api/browse/topics/${encodeURIComponent(cur)}/reset`, { method: "POST" });
       const d = (await r.json().catch(() => ({}))) as { error?: string; ok?: boolean };
@@ -722,52 +749,67 @@ export default function BrowsePageClient() {
             关键词：<span className="browse-kw-chips">{active.keywords.join(" · ")}</span>
           </p>
           {!loadingTopics ? (
-            <div className="browse-sort-dd" ref={sortDdRef}>
+            <div className="browse-kw-actions">
               <button
                 type="button"
-                className="browse-sort-dd-trigger"
-                aria-haspopup="listbox"
-                aria-expanded={sortMenuOpen}
-                aria-label="排序方式"
-                onClick={() => setSortMenuOpen((o) => !o)}
+                className="browse-ai-rejected-btn"
+                aria-haspopup="dialog"
+                onClick={() => setAiRejectedOpen(true)}
               >
-                <span className="browse-sort-dd-label">
-                  {sortBy === "refreshed" ? "按刷新时间" : "按发布时间"}
-                </span>
-                <span className={`browse-sort-dd-chevron${sortMenuOpen ? " browse-sort-dd-chevron--open" : ""}`} aria-hidden />
+                筛除记录
+                {aiRejectedList.length > 0 ? (
+                  <span className="browse-ai-rejected-badge" aria-hidden>
+                    {aiRejectedList.length}
+                  </span>
+                ) : null}
               </button>
-              {sortMenuOpen ? (
-                <ul className="browse-sort-dd-menu" role="listbox" aria-label="选择排序">
-                  <li role="none">
-                    <button
-                      type="button"
-                      role="option"
-                      aria-selected={sortBy === "refreshed"}
-                      className={`browse-sort-dd-item${sortBy === "refreshed" ? " browse-sort-dd-item--on" : ""}`}
-                      onClick={() => {
-                        setSortBy("refreshed");
-                        setSortMenuOpen(false);
-                      }}
-                    >
-                      按刷新时间
-                    </button>
-                  </li>
-                  <li role="none">
-                    <button
-                      type="button"
-                      role="option"
-                      aria-selected={sortBy === "published"}
-                      className={`browse-sort-dd-item${sortBy === "published" ? " browse-sort-dd-item--on" : ""}`}
-                      onClick={() => {
-                        setSortBy("published");
-                        setSortMenuOpen(false);
-                      }}
-                    >
-                      按发布时间
-                    </button>
-                  </li>
-                </ul>
-              ) : null}
+              <div className="browse-sort-dd" ref={sortDdRef}>
+                <button
+                  type="button"
+                  className="browse-sort-dd-trigger"
+                  aria-haspopup="listbox"
+                  aria-expanded={sortMenuOpen}
+                  aria-label="排序方式"
+                  onClick={() => setSortMenuOpen((o) => !o)}
+                >
+                  <span className="browse-sort-dd-label">
+                    {sortBy === "refreshed" ? "按刷新时间" : "按发布时间"}
+                  </span>
+                  <span className={`browse-sort-dd-chevron${sortMenuOpen ? " browse-sort-dd-chevron--open" : ""}`} aria-hidden />
+                </button>
+                {sortMenuOpen ? (
+                  <ul className="browse-sort-dd-menu" role="listbox" aria-label="选择排序">
+                    <li role="none">
+                      <button
+                        type="button"
+                        role="option"
+                        aria-selected={sortBy === "refreshed"}
+                        className={`browse-sort-dd-item${sortBy === "refreshed" ? " browse-sort-dd-item--on" : ""}`}
+                        onClick={() => {
+                          setSortBy("refreshed");
+                          setSortMenuOpen(false);
+                        }}
+                      >
+                        按刷新时间
+                      </button>
+                    </li>
+                    <li role="none">
+                      <button
+                        type="button"
+                        role="option"
+                        aria-selected={sortBy === "published"}
+                        className={`browse-sort-dd-item${sortBy === "published" ? " browse-sort-dd-item--on" : ""}`}
+                        onClick={() => {
+                          setSortBy("published");
+                          setSortMenuOpen(false);
+                        }}
+                      >
+                        按发布时间
+                      </button>
+                    </li>
+                  </ul>
+                ) : null}
+              </div>
             </div>
           ) : null}
         </div>
@@ -1003,6 +1045,67 @@ export default function BrowsePageClient() {
                     onClick={closeBrowseMarkDone}
                   >
                     取消
+                  </button>
+                </div>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
+      {mounted && aiRejectedOpen
+        ? createPortal(
+            <div
+              className="modal-backdrop"
+              role="presentation"
+              onClick={(e) => {
+                if (e.target === e.currentTarget) setAiRejectedOpen(false);
+              }}
+            >
+              <div
+                className="modal-sheet browse-ai-rejected-sheet"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="browse-ai-rejected-title"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="modal-sheet-header">
+                  <h2 id="browse-ai-rejected-title">AI 筛除条目</h2>
+                  <button
+                    type="button"
+                    className="modal-sheet-close"
+                    onClick={() => setAiRejectedOpen(false)}
+                    aria-label="关闭"
+                  >
+                    ×
+                  </button>
+                </div>
+                <p className="muted-link" style={{ margin: "0 0 12px", fontSize: "var(--fs-small)" }}>
+                  当前主题下被判定为不值得阅读。点击标题打开原文（无文章大意）。
+                </p>
+                {aiRejectedList.length === 0 ? (
+                  <p className="browse-ai-rejected-empty">
+                    暂无记录。下拉刷新后若有个别链接被筛除，会出现在此列表。
+                  </p>
+                ) : (
+                  <ul className="browse-ai-rejected-list">
+                    {aiRejectedList.map((x) => (
+                      <li key={x.url}>
+                        <a
+                          href={x.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="browse-ai-rejected-link"
+                        >
+                          {x.title}
+                        </a>
+                        <p className="browse-ai-rejected-reason">{x.reason}</p>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <div className="modal-sheet-footer">
+                  <button type="button" className="btn secondary" onClick={() => setAiRejectedOpen(false)}>
+                    关闭
                   </button>
                 </div>
               </div>

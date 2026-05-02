@@ -98,8 +98,8 @@ export async function POST(req: Request) {
     const skippedKnown = combined.length - afterExclude.length;
     const maxAge = effectiveMaxPublishedAgeDays(topic);
     const recencyFiltered = filterBrowseHitsByPublishedAge(afterExclude, maxAge);
-    const aiEnriched = await enrichBrowseHitsWithAi(recencyFiltered);
-    const translated = await translateBrowseHitsToChinese(aiEnriched);
+    const aiResult = await enrichBrowseHitsWithAi(recencyFiltered);
+    const translated = await translateBrowseHitsToChinese(aiResult.hits);
     const hits = translated.map((h) => {
       const cleaned = stripBrowseHitServerFields(h);
       const blob = `${cleaned.summary}\n${cleaned.excerpt}\n${cleaned.description}`;
@@ -116,6 +116,7 @@ export async function POST(req: Request) {
     return NextResponse.json({
       query,
       hits,
+      aiRejected: aiResult.rejected,
       fetchedAt,
       since: since.toISOString(),
       bootstrap,

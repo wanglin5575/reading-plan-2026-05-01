@@ -58,6 +58,14 @@ export interface BrowseTopic {
   seedSources?: string[];
 }
 
+/** 随览：被 AI 筛除（不值得读）的条目，供「筛除记录」查看 */
+export type BrowseAiRejectedItem = {
+  url: string;
+  title: string;
+  /** 不超过 50 字 */
+  reason: string;
+};
+
 /** 随览：单条检索结果（Firecrawl 联网 + 摘要/正文节选） */
 export interface BrowseHit {
   url: string;
