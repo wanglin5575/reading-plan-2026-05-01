@@ -165,10 +165,24 @@ a:active { opacity: 0.7; }
   margin: 0;
 }
 
+/** 待读/已读：灰字说明与「按主题」下拉同一行 */
+.read-header-meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+
+.read-header-meta-row .sub {
+  flex: 1;
+  min-width: 0;
+}
+
 .read-group-select {
   flex-shrink: 0;
-  margin-left: auto;
-  max-width: min(52%, 200px);
+  margin-left: 0;
+  max-width: min(48%, 200px);
   font: inherit;
   font-size: var(--fs-small);
   line-height: var(--lh-snug);
@@ -1111,6 +1125,26 @@ a.account-avatar-btn.account-avatar-btn--link:active {
   background: #e53935;
   box-shadow: 0 0 0 2px var(--card);
   pointer-events: none;
+}
+
+/** 复盘页：小人入口在标题左侧，菜单向左对齐按钮 */
+.weekly-title-inline .account-menu-popover {
+  left: 0;
+  right: auto;
+}
+
+.weekly-title-inline {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.weekly-title-inline h1 {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
 }
 
 .account-menu-popover {

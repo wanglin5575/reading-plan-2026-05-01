@@ -13,16 +13,18 @@ export default async function WeeklyPage() {
 
   return (
     <>
-      <header className="app-header app-header-with-actions">
+      <header className="app-header">
         <div className="app-header-titles">
-          <h1>我的复盘</h1>
+          <div className="weekly-title-inline">
+            <WeeklyAccountEntry
+              email={user?.email ?? null}
+              showAdmin={isAdminEmail(user?.email)}
+              menuTrigger="avatar"
+            />
+            <h1>我的复盘</h1>
+          </div>
           <span className="sub">按自然周或按日浏览历史，查看复盘建议</span>
         </div>
-        <WeeklyAccountEntry
-          email={user?.email ?? null}
-          showAdmin={isAdminEmail(user?.email)}
-          menuTrigger="avatar"
-        />
       </header>
 
       <WeeklyReviewClient articles={articles} initialWeekStart={startOfWeekIso()} initialDay={todayIso()} />

@@ -11,8 +11,9 @@ export function ReadPageClient({ items }: { items: Article[] }) {
   return (
     <>
       <header className="app-header app-header--tight">
-        <div className="read-header-title-row">
-          <h1>已读</h1>
+        <h1>已读</h1>
+        <div className="read-header-meta-row">
+          <span className="sub">共 {items.length} 篇</span>
           <select
             className="read-group-select"
             value={mode}
@@ -23,7 +24,6 @@ export function ReadPageClient({ items }: { items: Article[] }) {
             <option value="date">按完成时间</option>
           </select>
         </div>
-        <span className="sub">共 {items.length} 篇</span>
       </header>
 
       <section className="kpi-row read-page-kpi" aria-label="已读概览">
