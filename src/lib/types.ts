@@ -55,6 +55,8 @@ export interface BrowseHit {
   description: string;
   summary: string;
   excerpt: string;
+  /** 内容形态：文章 / 视频 / 音频 */
+  mediaType?: MediaKind;
   /** 页面元数据中的发布时间（ISO），用于排序与时间窗过滤 */
   publishedTime?: string | null;
   /** 页面元数据中的作者；缺省时卡片侧用摘要推断「主要表态」主体 */

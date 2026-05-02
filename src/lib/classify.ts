@@ -144,11 +144,28 @@ export function recommendDepth(charCount: number, theme: string): ReadingDepth {
   return "skim";
 }
 
+function isPrimarilyChinese(text: string): boolean {
+  const cjk = (text.match(/[\u4e00-\u9fff]/g) || []).length;
+  const latin = (text.match(/[a-zA-Z]/g) || []).length;
+  if (cjk === 0 && latin === 0) return true;
+  return cjk > latin * 2;
+}
+
+/** 自动摘要上限（中文字符数，含标点） */
+export const SUMMARY_MAX_CHARS = 70;
+
 export function makeSummary(body: string): string {
   const cleaned = body.replace(/\s+/g, " ").trim();
   const sentences = cleaned.split(/(?<=[。！？.!?])\s*/).filter((s) => s.length > 8);
   const top = sentences.slice(0, 3).join(" ");
   return top.length > 320 ? top.slice(0, 320) + "…" : top;
+}
+
+function truncateZh(text: string, maxChars: number): string {
+  const t = text.trim();
+  if (t.length <= maxChars) return t;
+  const slice = t.slice(0, maxChars);
+  return /[\u4e00-\u9fff]$/.test(slice) ? slice + "…" : slice.replace(/\s+\S*$/, "").trim() + "…";
 }
 
 export function extractKnowledgeTags(title: string, body: string): string[] {
@@ -202,9 +219,10 @@ export async function buildArticleClassification(
   const wordCount = countWords(body);
   const theme = classifyTheme(title, body, url);
   const summary = makeSummary(body);
-  const summaryZh = await translateToChinese(summary || "(暂无摘要)");
+  let summaryZh = await translateToChinese(summary || "(暂无摘要)");
+  summaryZh = truncateZh(summaryZh, SUMMARY_MAX_CHARS);
   let titleZh = "";
-  if (lang === "en") {
+  if (!isPrimarilyChinese(title)) {
     const t = (await translateToChinese(title)).trim();
     if (t && t !== title) titleZh = t.slice(0, 400);
   }

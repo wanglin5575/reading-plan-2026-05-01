@@ -1,3 +1,4 @@
+import type { MediaKind } from "@/lib/media-kind";
 import FirecrawlApp from "@mendable/firecrawl-js";
 import type { BrowseHit, BrowseTopic } from "@/lib/types";
 import type { Document, SearchData, SearchResultNews, SearchResultWeb, ScrapeOptions } from "@mendable/firecrawl-js";
@@ -29,6 +30,13 @@ export const BROWSE_TBS_MAX_DAYS_INCREMENTAL = 21;
 export const BROWSE_TBS_MAX_DAYS_BOOTSTRAP = 186;
 
 export { browseTopicToQuery };
+
+function resolveHitMediaKind(url: string, title: string, meta: unknown | undefined): MediaKind {
+  const metaRec = meta && typeof meta === "object" ? (meta as Record<string, unknown>) : undefined;
+  return metaRec
+    ? detectMediaKindFromSignals(url, metaOgType(metaRec), title)
+    : detectMediaKindFromUrl(url);
+}
 
 function metaOgType(meta: unknown): string | undefined {
   if (!meta || typeof meta !== "object") return undefined;
@@ -156,7 +164,8 @@ export async function fetchBrowseHits(
         if (!url || seen.has(url)) continue;
         seen.add(url);
         const description = (w.description || "").trim();
-        const est = estimateBrowseReadMinutes(url, (w.title || "无标题").trim(), description, description, description, undefined);
+        const wTitle = (w.title || "无标题").trim();
+        const est = estimateBrowseReadMinutes(url, wTitle, description, description, description, undefined);
         const publishedTime =
           resolveBrowsePublishedTime({
             serpDescription: description,
@@ -164,10 +173,11 @@ export async function fetchBrowseHits(
           }) ?? null;
         hits.push({
           url,
-          title: (w.title || "无标题").trim(),
+          title: wTitle,
           description,
           summary: description,
           excerpt: description,
+          mediaType: resolveHitMediaKind(url, wTitle, undefined),
           publishedTime,
           author: null,
           estimatedMinutes: est,
@@ -207,6 +217,7 @@ export async function fetchBrowseHits(
         description,
         summary,
         excerpt: excerpt || description,
+        mediaType: resolveHitMediaKind(url, title, meta),
         publishedTime,
         author: authorRaw,
         estimatedMinutes: est,

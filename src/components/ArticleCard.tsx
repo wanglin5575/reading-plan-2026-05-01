@@ -380,7 +380,7 @@ export function ArticleCard({ article, showActions = true, collapseOriginalSumma
       <ArticleTitleLink url={article.url}>
         <h3 className="title">{article.title}</h3>
       </ArticleTitleLink>
-      {article.language === "en" && article.titleZh ? (
+      {article.titleZh?.trim() ? (
         <div className="article-card-source">
           <p className="article-card-title-zh-muted">{article.titleZh}</p>
         </div>

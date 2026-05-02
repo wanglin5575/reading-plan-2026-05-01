@@ -4,6 +4,7 @@ import { ArticleTitleLink } from "@/components/ArticleCard";
 import { useSwipeCardFace } from "@/lib/useSwipeCardFace";
 import type { BrowseStoredHit } from "@/lib/browse-storage";
 import { formatPublishedTimeZh, resolveBrowseAuthorLine } from "@/lib/browse-attribution";
+import { MEDIA_KIND_LABEL } from "@/lib/media-kind";
 import { countChars, countWords, detectLanguage, estimateMinutes } from "@/lib/classify";
 
 /** 与待读列表同一套滑轨；右缘两枚圆钮：已读 + 待读（加入已读 / 加入待读） */
@@ -48,6 +49,7 @@ export function BrowseHitCard({
     hit.url,
   );
   const pubZh = formatPublishedTimeZh(hit.publishedTime ?? null);
+  const mediaLabel = MEDIA_KIND_LABEL[hit.mediaType ?? "article"];
 
   async function handleTodo() {
     swipe.resetOffset();
@@ -96,6 +98,7 @@ export function BrowseHitCard({
         <div className="article-card-top browse-hit-card-top">
           <div className="meta-row article-card-meta">
             <span className="tag theme">随览 · {topicName}</span>
+            <span className="tag media-kind">{mediaLabel}</span>
             <span className="tag skim">快速扫览</span>
           </div>
           <span className="browse-hit-read-mins" aria-label={`预估阅读约 ${readMins} 分钟`}>
