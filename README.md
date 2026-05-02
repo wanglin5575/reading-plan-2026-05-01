@@ -116,3 +116,5 @@ reading-plan-2026-05-01/
 4. 重新部署后即可公网访问，数据持久化在 Supabase。
 
 **登录磨砂蒙层不出现**：须已配置 `NEXT_PUBLIC_SUPABASE_URL` 与 `NEXT_PUBLIC_SUPABASE_ANON_KEY`（需在 Vercel 对 **Production** 勾选并写入后再触发一次 **Redeploy**；`NEXT_PUBLIC_*` 在构建时打入包内，改变量后必须重新部署）。根布局已使用 `force-dynamic` + `connection()`，避免根布局被静态缓存成「未启用登录」的旧状态。
+
+**电脑不显示蒙层、手机显示**：几乎都是**登录状态不一致**——电脑浏览器里往往还留着已登录的 Supabase Cookie，蒙层本就不该挡；手机未登录则会显示。可在电脑上用**无痕窗口**打开同一域名对比；或在「我的」里**退出登录**后刷新。若电脑手机用了**不同域名**（如 `www` 与裸域、或预览链与正式域），Cookie 不共享，也会出现一端有一端没有。

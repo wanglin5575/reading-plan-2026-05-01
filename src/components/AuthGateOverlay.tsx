@@ -17,31 +17,48 @@ export function AuthGateOverlay({
   initialSignedIn: boolean;
 }) {
   const pathname = usePathname() || "";
+  /** 客户端会话未拉取完前，是否与未登录仍由服务端 initialSignedIn 决定，避免两侧不一致时闪错 */
+  const [sessionChecked, setSessionChecked] = useState(false);
   const [signedIn, setSignedIn] = useState(initialSignedIn);
 
   useEffect(() => {
-    if (!authEnabled) return;
+    setSignedIn(initialSignedIn);
+  }, [initialSignedIn]);
+
+  useEffect(() => {
+    if (!authEnabled) {
+      setSessionChecked(true);
+      return;
+    }
+    setSessionChecked(false);
     let client: ReturnType<typeof createBrowserSupabaseClient>;
     try {
       client = createBrowserSupabaseClient();
     } catch {
+      setSessionChecked(true);
       return;
     }
 
-    const syncFromSession = () => {
-      void client.auth.getSession().then(({ data: { session } }) => {
+    void client.auth
+      .getSession()
+      .then(({ data: { session } }) => {
         setSignedIn(Boolean(session?.user));
+      })
+      .finally(() => {
+        setSessionChecked(true);
       });
-    };
 
-    syncFromSession();
     const {
       data: { subscription },
     } = client.auth.onAuthStateChange((_event, session) => {
       setSignedIn(Boolean(session?.user));
     });
 
-    const onCustom = () => syncFromSession();
+    const onCustom = () => {
+      void client.auth.getSession().then(({ data: { session } }) => {
+        setSignedIn(Boolean(session?.user));
+      });
+    };
     window.addEventListener("auth-changed", onCustom);
 
     return () => {
@@ -50,7 +67,8 @@ export function AuthGateOverlay({
     };
   }, [authEnabled]);
 
-  const showGate = authEnabled && !signedIn && !isMePath(pathname);
+  const showGate =
+    authEnabled && !isMePath(pathname) && (sessionChecked ? !signedIn : !initialSignedIn);
 
   useEffect(() => {
     if (!showGate) return;
