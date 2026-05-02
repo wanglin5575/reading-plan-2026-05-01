@@ -643,7 +643,7 @@ a:active { opacity: 0.7; }
 
 .browse-kw-actions {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: 3px;
   flex-shrink: 0;
 }
@@ -757,15 +757,16 @@ a:active { opacity: 0.7; }
 
 .browse-sort-dd-label {
   white-space: nowrap;
+  line-height: inherit;
 }
 
-/* 细 V 形下箭头，与参考图一致 */
+/* 细 V 形下箭头（外层 browse-kw-actions 用 baseline 对齐两组控件） */
 .browse-sort-dd-chevron {
   display: inline-block;
   width: 0.4em;
   height: 0.4em;
   flex-shrink: 0;
-  margin-top: 0.05em;
+  margin-top: 0;
   border-right: 1.25px solid currentColor;
   border-bottom: 1.25px solid currentColor;
   transform: rotate(45deg);
@@ -774,7 +775,6 @@ a:active { opacity: 0.7; }
 
 .browse-sort-dd-chevron--open {
   transform: rotate(225deg);
-  margin-top: 0.12em;
 }
 
 .browse-sort-dd-menu {
