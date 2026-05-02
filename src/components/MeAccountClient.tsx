@@ -1,13 +1,25 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useRouter } from "next/navigation";
 import { formatSupabaseAuthMessage } from "@/lib/auth";
 import { dispatchAuthChanged } from "@/lib/auth-events";
 import { createBrowserSupabaseClient } from "@/lib/supabase/client";
+import { PasswordInputWithToggle } from "@/components/PasswordInputWithToggle";
 
-export function MeAccountClient({ authEnabled }: { authEnabled: boolean }) {
+export function MeAccountClient({
+  authEnabled,
+  variant = "page",
+}: {
+  authEnabled: boolean;
+  variant?: "page" | "overlay";
+}) {
   const router = useRouter();
+  const fieldId = useId();
+  const loginEmailId = `${fieldId}-login-email`;
+  const loginPasswordId = `${fieldId}-login-password`;
+  const regEmailId = `${fieldId}-reg-email`;
+  const regPasswordId = `${fieldId}-reg-password`;
   const [mode, setMode] = useState<"login" | "register">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -138,9 +150,19 @@ export function MeAccountClient({ authEnabled }: { authEnabled: boolean }) {
   }
 
   return (
-    <div className="card me-account-card">
-      <h2>账号</h2>
-      <p className="muted-link me-intro">邮箱登录或注册；入口在底部「我的」页右上角小人图标。</p>
+    <div className={`card me-account-card${variant === "overlay" ? " me-account-card--overlay" : ""}`}>
+      {variant === "overlay" ? (
+        <h1 id="auth-gate-title" className="me-account-overlay-title">
+          登录阅读计划
+        </h1>
+      ) : (
+        <h2>账号</h2>
+      )}
+      <p className="muted-link me-intro">
+        {variant === "overlay"
+          ? "使用邮箱登录或注册，待读、已读、添加与随览数据将安全同步到你的账户。"
+          : "邮箱登录或注册；入口在底部「我的」页右上角小人图标。"}
+      </p>
 
       <div className="me-mode-switch">
         <button
@@ -167,11 +189,11 @@ export function MeAccountClient({ authEnabled }: { authEnabled: boolean }) {
 
       {mode === "login" ? (
         <form className="row" onSubmit={onLogin}>
-          <label className="muted-link" htmlFor="me-email">
+          <label className="muted-link" htmlFor={loginEmailId}>
             邮箱
           </label>
           <input
-            id="me-email"
+            id={loginEmailId}
             className="input"
             type="email"
             autoComplete="email"
@@ -179,18 +201,17 @@ export function MeAccountClient({ authEnabled }: { authEnabled: boolean }) {
             onChange={(e) => setEmail(e.target.value)}
             required
           />
-          <label className="muted-link" htmlFor="me-password">
+          <label className="muted-link" htmlFor={loginPasswordId}>
             密码
           </label>
-          <input
-            id="me-password"
-            className="input"
-            type="password"
+          <PasswordInputWithToggle
+            id={loginPasswordId}
             autoComplete="current-password"
             value={password}
-            onChange={(e) => setPassword(e.target.value)}
+            onChange={setPassword}
             required
             minLength={6}
+            disabled={busy}
           />
           <button className="btn" type="submit" disabled={busy}>
             {busy ? "登录中…" : "登录"}
@@ -209,11 +230,11 @@ export function MeAccountClient({ authEnabled }: { authEnabled: boolean }) {
         </form>
       ) : (
         <form className="row" onSubmit={onRegister}>
-          <label className="muted-link" htmlFor="me-reg-email">
+          <label className="muted-link" htmlFor={regEmailId}>
             邮箱
           </label>
           <input
-            id="me-reg-email"
+            id={regEmailId}
             className="input"
             type="email"
             autoComplete="email"
@@ -221,18 +242,17 @@ export function MeAccountClient({ authEnabled }: { authEnabled: boolean }) {
             onChange={(e) => setEmail(e.target.value)}
             required
           />
-          <label className="muted-link" htmlFor="me-reg-password">
+          <label className="muted-link" htmlFor={regPasswordId}>
             密码（至少 6 位）
           </label>
-          <input
-            id="me-reg-password"
-            className="input"
-            type="password"
+          <PasswordInputWithToggle
+            id={regPasswordId}
             autoComplete="new-password"
             value={password}
-            onChange={(e) => setPassword(e.target.value)}
+            onChange={setPassword}
             required
             minLength={6}
+            disabled={busy}
           />
           <button className="btn" type="submit" disabled={busy}>
             {busy ? "提交中…" : "注册"}

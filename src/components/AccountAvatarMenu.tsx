@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { formatSupabaseAuthMessage } from "@/lib/auth";
 import { dispatchAuthChanged } from "@/lib/auth-events";
 import { createBrowserSupabaseClient } from "@/lib/supabase/client";
+import { PasswordInputWithToggle } from "@/components/PasswordInputWithToggle";
 
 export function AccountAvatarMenu({ email }: { email: string }) {
   const router = useRouter();
@@ -110,27 +111,25 @@ export function AccountAvatarMenu({ email }: { email: string }) {
               <label className="muted-link" htmlFor="acct-pw1">
                 新密码
               </label>
-              <input
+              <PasswordInputWithToggle
                 id="acct-pw1"
-                className="input"
-                type="password"
                 autoComplete="new-password"
                 value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
+                onChange={setNewPassword}
                 minLength={6}
+                disabled={busy}
                 placeholder="至少 6 位"
               />
               <label className="muted-link" htmlFor="acct-pw2">
                 确认新密码
               </label>
-              <input
+              <PasswordInputWithToggle
                 id="acct-pw2"
-                className="input"
-                type="password"
                 autoComplete="new-password"
                 value={newPassword2}
-                onChange={(e) => setNewPassword2(e.target.value)}
+                onChange={setNewPassword2}
                 minLength={6}
+                disabled={busy}
               />
               {msg && <p className="me-msg">{msg}</p>}
             </div>

@@ -1,6 +1,9 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { Tabbar } from "@/components/Tabbar";
+import { AuthGateOverlay } from "@/components/AuthGateOverlay";
+import { isAuthEnabled } from "@/lib/auth";
+import { getServerAuthUser } from "@/lib/auth/server";
 
 export const metadata: Metadata = {
   title: "阅读计划",
@@ -13,12 +16,17 @@ export const viewport: Viewport = {
   themeColor: "#2e6cdf",
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const authEnabled = isAuthEnabled();
+  const user = authEnabled ? await getServerAuthUser() : null;
+  const initialSignedIn = Boolean(user);
+
   return (
     <html lang="zh-CN">
       <body>
         <div className="app">{children}</div>
         <Tabbar />
+        <AuthGateOverlay authEnabled={authEnabled} initialSignedIn={initialSignedIn} />
       </body>
     </html>
   );

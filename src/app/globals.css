@@ -32,11 +32,14 @@
   /* Bottom tab bar: FAB diameter → strip height = 7/9 (see public/tabbar-preview.html) */
   --tabbar-fab: 56px;
   --tabbar-strip: calc(var(--tabbar-fab) * 7 / 9);
+  /** 底栏占地：蒙层内底部留白、避免表单被 Tab 挡住（与 .app 底部留白同一量级） */
+  --auth-gate-tabbar-gap: calc(var(--tabbar-fab) + 16px + env(safe-area-inset-bottom));
 }
 
 @media (min-width: 430px) {
   :root {
     --tabbar-fab: 60px;
+    --auth-gate-tabbar-gap: calc(var(--tabbar-fab) + 16px + env(safe-area-inset-bottom));
   }
 }
 
@@ -1242,6 +1245,54 @@ a.account-avatar-btn.account-avatar-btn--link:active {
   display: block;
 }
 
+.input-password-wrap {
+  position: relative;
+  width: 100%;
+}
+
+.input.input--password-toggle {
+  padding-right: 44px;
+  box-sizing: border-box;
+}
+
+.input-password-toggle {
+  position: absolute;
+  right: 2px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 40px;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  border-radius: 8px;
+  padding: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.input-password-toggle:hover:not(:disabled) {
+  color: var(--ink);
+}
+
+.input-password-toggle:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.input-password-toggle:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 1px;
+}
+
+.input-password-toggle svg {
+  display: block;
+  flex-shrink: 0;
+}
+
 .btn {
   display: inline-flex;
   align-items: center;
@@ -2145,4 +2196,52 @@ a.account-avatar-btn.account-avatar-btn--link:active {
 .meta-tags-knowledge {
   font-size: var(--fs-micro);
   color: var(--muted);
+}
+
+/* 未登录：底栏压在蒙层上，可点；磨砂铺满含 Tab 背后红框区域 */
+body.auth-gate-active .tabbar {
+  z-index: 260;
+}
+
+.auth-gate-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 250;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  padding: 16px 14px calc(16px + var(--auth-gate-tabbar-gap));
+  background: color-mix(in srgb, var(--card) 18%, transparent);
+  backdrop-filter: blur(12px) saturate(1.06);
+  -webkit-backdrop-filter: blur(12px) saturate(1.06);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--border) 35%, transparent);
+}
+
+.auth-gate-center {
+  width: 100%;
+  max-width: 400px;
+  max-height: min(520px, calc(100dvh - 32px - var(--auth-gate-tabbar-gap)));
+  flex-shrink: 1;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.me-account-overlay-title {
+  margin: 0 0 12px;
+  padding: 0;
+  font-size: var(--fs-page-title);
+  font-weight: var(--fw-bold);
+  line-height: var(--lh-tight);
+  color: var(--ink);
+  letter-spacing: -0.02em;
+  text-align: center;
+}
+
+.me-account-card--overlay {
+  margin-bottom: 0;
 }

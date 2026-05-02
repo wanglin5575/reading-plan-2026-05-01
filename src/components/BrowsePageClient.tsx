@@ -238,64 +238,142 @@ export default function BrowsePageClient() {
     return () => document.removeEventListener("visibilitychange", onVis);
   }, [syncFeedWithServer]);
 
-  const runRefresh = useCallback(async (topicId: string) => {
-    if (!topicId || refreshingRef.current) return;
+  const executeTopicNetworkRefresh = useCallback(async (topicId: string) => {
+    const store = loadBrowseStorage();
+    const feed = store.topics[topicId] ?? { lastRefreshAt: null, items: [] };
+    const isBootstrap = feed.lastRefreshAt == null;
+    const sinceIso = isBootstrap
+      ? new Date(Date.now() - BROWSE_BOOTSTRAP_SINCE_MS).toISOString()
+      : (feed.lastRefreshAt ?? new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString());
+    const sinceMs = Date.parse(sinceIso);
+
+    const excludeUrls = isBootstrap
+      ? []
+      : feed.items.map((x) => x.url).slice(0, BROWSE_EXCLUDE_URLS_MAX);
+
+    const r = await fetch("/api/browse/fetch", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        topicId,
+        since: sinceIso,
+        bootstrap: isBootstrap,
+        excludeUrls,
+      }),
+    });
+    const d = (await r.json()) as {
+      hits?: BrowseHit[];
+      fetchedAt?: string;
+      error?: string;
+      skippedKnown?: number;
+    };
+    if (!r.ok) throw new Error(d.error || "检索失败");
+
+    const fetchedAt = d.fetchedAt ?? new Date().toISOString();
+    const merged = mergeBrowseFeed(feed, d.hits ?? [], fetchedAt, sinceMs);
+    store.topics[topicId] = merged;
+    saveBrowseStorage(store);
+    await pushTopicFeedToServer(topicId, merged);
+
+    return {
+      merged,
+      hitCount: d.hits?.length ?? 0,
+      skippedKnown: d.skippedKnown ?? 0,
+    };
+  }, [pushTopicFeedToServer]);
+
+  const runRefresh = useCallback(
+    async (topicId: string) => {
+      if (!topicId || refreshingRef.current) return;
+      setRefreshing(true);
+      setMsg(null);
+      try {
+        const { merged, hitCount, skippedKnown } = await executeTopicNetworkRefresh(topicId);
+        if (activeIdRef.current === topicId) {
+          setHits(merged.items);
+        }
+        if (hitCount > 0) {
+          setMsg(null);
+        } else if (skippedKnown > 0) {
+          setMsg("本次无新增链接；已跳过已有网址，未做重复翻译。");
+        } else {
+          setMsg("本次未发现新结果，可改日再试或调整关键词。");
+        }
+      } catch (e) {
+        setMsg(e instanceof Error ? e.message : "检索失败");
+      } finally {
+        setRefreshing(false);
+      }
+    },
+    [executeTopicNetworkRefresh],
+  );
+
+  /** 双击「随览」：重拉主题列表，并对每个主题执行与下拉相同的联网增量拉取 */
+  const runForceRefreshAll = useCallback(async () => {
+    if (refreshingRef.current || loadingTopics) return;
     setRefreshing(true);
     setMsg(null);
     try {
-      const store = loadBrowseStorage();
-      const feed = store.topics[topicId] ?? { lastRefreshAt: null, items: [] };
-      const isBootstrap = feed.lastRefreshAt == null;
-      const sinceIso = isBootstrap
-        ? new Date(Date.now() - BROWSE_BOOTSTRAP_SINCE_MS).toISOString()
-        : (feed.lastRefreshAt ?? new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString());
-      const sinceMs = Date.parse(sinceIso);
+      const tr = await fetch("/api/browse/topics", { cache: "no-store" });
+      const td = (await tr.json()) as { topics?: BrowseTopic[]; error?: string };
+      if (!tr.ok) throw new Error(td.error || "加载主题失败");
+      const list = td.topics ?? [];
+      setTopics(list);
 
-      const excludeUrls = isBootstrap
-        ? []
-        : feed.items.map((x) => x.url).slice(0, BROWSE_EXCLUDE_URLS_MAX);
+      const prevActive = activeIdRef.current;
+      const nextActive = prevActive && list.some((t) => t.id === prevActive) ? prevActive : list[0]?.id ?? null;
+      activeIdRef.current = nextActive;
+      setActiveId(nextActive);
 
-      const r = await fetch("/api/browse/fetch", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          topicId,
-          since: sinceIso,
-          bootstrap: isBootstrap,
-          excludeUrls,
-        }),
-      });
-      const d = (await r.json()) as {
-        hits?: BrowseHit[];
-        fetchedAt?: string;
-        error?: string;
-        skippedKnown?: number;
-      };
-      if (!r.ok) throw new Error(d.error || "检索失败");
-
-      const fetchedAt = d.fetchedAt ?? new Date().toISOString();
-      const merged = mergeBrowseFeed(feed, d.hits ?? [], fetchedAt, sinceMs);
-      store.topics[topicId] = merged;
-      saveBrowseStorage(store);
-      await pushTopicFeedToServer(topicId, merged);
-
-      if (activeIdRef.current === topicId) {
-        setHits(merged.items);
+      if (list.length === 0) {
+        setHits([]);
+        setMsg("暂无主题，可先添加追踪主题。");
+        return;
       }
 
-      if ((d.hits?.length ?? 0) > 0) {
+      const errors: string[] = [];
+      let anyNew = false;
+      let anySkippedOnly = false;
+      let allTopicsNoHitsNoSkip = true;
+
+      for (const t of list) {
+        try {
+          const { hitCount, skippedKnown } = await executeTopicNetworkRefresh(t.id);
+          if (hitCount > 0) {
+            anyNew = true;
+            allTopicsNoHitsNoSkip = false;
+          } else if (skippedKnown > 0) {
+            anySkippedOnly = true;
+            allTopicsNoHitsNoSkip = false;
+          }
+        } catch (e) {
+          const m = e instanceof Error ? e.message : "检索失败";
+          errors.push(`「${t.name}」${m}`);
+          allTopicsNoHitsNoSkip = false;
+        }
+      }
+
+      const store = loadBrowseStorage();
+      const cur = activeIdRef.current;
+      if (cur) setHits(store.topics[cur]?.items ?? []);
+
+      if (errors.length) {
+        setMsg(errors.slice(0, 3).join("；") + (errors.length > 3 ? ` 等共 ${errors.length} 个主题失败` : ""));
+      } else if (anyNew) {
         setMsg(null);
-      } else if ((d.skippedKnown ?? 0) > 0) {
-        setMsg("本次无新增链接；已跳过已有网址，未做重复翻译。");
-      } else {
+      } else if (anySkippedOnly) {
+        setMsg(list.length > 1 ? "全部主题均无新增链接；已跳过已有网址，未做重复翻译。" : "本次无新增链接；已跳过已有网址，未做重复翻译。");
+      } else if (allTopicsNoHitsNoSkip) {
         setMsg("本次未发现新结果，可改日再试或调整关键词。");
+      } else {
+        setMsg(null);
       }
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : "检索失败");
+      setMsg(e instanceof Error ? e.message : "刷新失败");
     } finally {
       setRefreshing(false);
     }
-  }, [pushTopicFeedToServer]);
+  }, [executeTopicNetworkRefresh, loadingTopics]);
 
   const startEmptyRefreshWithPull = useCallback(
     (topicId: string) => {
@@ -592,10 +670,9 @@ export default function BrowsePageClient() {
         <div className="app-header-titles">
           <h1
             className="browse-title-refresh"
-            title="双击刷新当前主题列表（与下拉刷新相同）"
+            title="双击强制刷新：更新主题列表，并为每个主题拉取最新随览结果"
             onDoubleClick={() => {
-              if (loadingTopics || !activeId || refreshingRef.current) return;
-              void runRefresh(activeId);
+              void runForceRefreshAll();
             }}
           >
             随览
