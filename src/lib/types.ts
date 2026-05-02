@@ -76,6 +76,10 @@ export interface BrowseHit {
   /** 基于摘要+节选估算的阅读分钟数 */
   estimatedMinutes?: number;
   /**
+   * 摘要是否由 WolfAI 结构化生成（随览卡片展示灰色「AI生成」标签）。
+   */
+  summarySource?: "ai";
+  /**
    * 仅服务端：Firecrawl 检索命中全文 markdown 的节选（供 WolfAI 摘要），响应 JSON 前会剥离。
    */
   fullMarkdownForAi?: string;

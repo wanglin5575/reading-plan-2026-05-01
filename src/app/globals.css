@@ -839,6 +839,19 @@ a:active { opacity: 0.7; }
   line-height: var(--lh-snug);
 }
 
+.browse-hit-summary-block {
+  margin-top: 4px;
+}
+
+.browse-hit-ai-badge {
+  display: inline-block;
+  margin-bottom: 4px;
+  font-size: var(--fs-micro);
+  font-weight: var(--fw-medium);
+  letter-spacing: 0.02em;
+  color: var(--muted);
+}
+
 .browse-hit-byline {
   display: flex;
   align-items: flex-start;

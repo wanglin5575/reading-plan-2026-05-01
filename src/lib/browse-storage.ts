@@ -180,6 +180,7 @@ export function mergeBrowseFeed(
         estimatedMinutes: h.estimatedMinutes ?? ex.estimatedMinutes,
         mediaType: h.mediaType ?? ex.mediaType,
         titleZh: h.titleZh ?? ex.titleZh,
+        summarySource: h.summarySource ?? ex.summarySource,
         firstSeenAt: ex.firstSeenAt,
         lastRefreshedAt: fetchedAt,
       });
