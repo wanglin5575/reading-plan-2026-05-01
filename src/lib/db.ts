@@ -183,6 +183,9 @@ async function ensureSchema(): Promise<void> {
         ALTER TABLE articles ADD COLUMN IF NOT EXISTS title_zh TEXT NOT NULL DEFAULT '';
       `);
       await p.query(`ALTER TABLE articles ADD COLUMN IF NOT EXISTS published_date DATE;`);
+      await p.query(
+        `ALTER TABLE articles ADD COLUMN IF NOT EXISTS media_type TEXT NOT NULL DEFAULT 'article';`,
+      );
       await p.query(`ALTER TABLE articles DROP COLUMN IF EXISTS custom_tags;`);
       await p.query(`
         CREATE TABLE IF NOT EXISTS app_user_registry (
