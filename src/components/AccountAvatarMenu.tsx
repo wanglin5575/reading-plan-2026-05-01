@@ -8,6 +8,7 @@ import { formatSupabaseAuthMessage } from "@/lib/auth";
 import { dispatchAuthChanged } from "@/lib/auth-events";
 import { createBrowserSupabaseClient } from "@/lib/supabase/client";
 import { PasswordInputWithToggle } from "@/components/PasswordInputWithToggle";
+import { LS_ADMIN_REGISTRY_ACK_AT } from "@/lib/admin-registry-badge";
 
 function ThreeDotsIcon({ className }: { className?: string }) {
   return (
@@ -52,9 +53,51 @@ export function AccountAvatarMenu({
   const [msg, setMsg] = useState<string | null>(null);
   const [newPassword, setNewPassword] = useState("");
   const [newPassword2, setNewPassword2] = useState("");
+  const [showRegistryDot, setShowRegistryDot] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => setMounted(true), []);
+
+  useEffect(() => {
+    if (!showAdmin || typeof window === "undefined") return;
+
+    const refresh = () => {
+      void (async () => {
+        try {
+          let ack = localStorage.getItem(LS_ADMIN_REGISTRY_ACK_AT);
+          if (!ack) {
+            const r = await fetch("/api/admin/registry-badge", { cache: "no-store" });
+            const d = (await r.json()) as { serverNow?: string; newCount?: number };
+            if (d.serverNow) localStorage.setItem(LS_ADMIN_REGISTRY_ACK_AT, d.serverNow);
+            setShowRegistryDot(false);
+            return;
+          }
+          const r = await fetch(`/api/admin/registry-badge?since=${encodeURIComponent(ack)}`, {
+            cache: "no-store",
+          });
+          const d = (await r.json()) as { newCount?: number };
+          setShowRegistryDot((d.newCount ?? 0) > 0);
+        } catch {
+          setShowRegistryDot(false);
+        }
+      })();
+    };
+
+    refresh();
+    const onVis = () => {
+      if (document.visibilityState === "visible") refresh();
+    };
+    const onAck = () => {
+      const t = localStorage.getItem(LS_ADMIN_REGISTRY_ACK_AT);
+      if (t) setShowRegistryDot(false);
+    };
+    document.addEventListener("visibilitychange", onVis);
+    window.addEventListener("admin-registry-ack", onAck);
+    return () => {
+      document.removeEventListener("visibilitychange", onVis);
+      window.removeEventListener("admin-registry-ack", onAck);
+    };
+  }, [showAdmin]);
 
   const closeMenu = useCallback(() => setMenuOpen(false), []);
 
@@ -187,7 +230,7 @@ export function AccountAvatarMenu({
         <button
           type="button"
           className={`account-avatar-btn${menuTrigger === "dots" ? " account-menu-kebab" : ""}`}
-          aria-label="账号菜单"
+          aria-label={showRegistryDot ? "账号菜单（有新人注册）" : "账号菜单"}
           aria-expanded={menuOpen}
           aria-haspopup="true"
           disabled={busy}
@@ -198,6 +241,7 @@ export function AccountAvatarMenu({
           ) : (
             <ThreeDotsIcon className="account-avatar-icon" />
           )}
+          {showRegistryDot ? <span className="account-avatar-registry-dot" aria-hidden /> : null}
         </button>
         {menuOpen && (
           <div className="account-menu-popover" role="menu">

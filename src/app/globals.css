@@ -839,16 +839,9 @@ a:active { opacity: 0.7; }
   line-height: var(--lh-snug);
 }
 
-.browse-hit-summary-block {
-  margin-top: 4px;
-}
-
-.browse-hit-ai-badge {
-  display: inline-block;
-  margin-bottom: 4px;
-  font-size: var(--fs-micro);
+.browse-hit-ai-inline {
+  font-size: inherit;
   font-weight: var(--fw-medium);
-  letter-spacing: 0.02em;
   color: var(--muted);
 }
 
@@ -908,6 +901,7 @@ a.account-avatar-btn.account-avatar-btn--link:active {
 }
 
 .account-avatar-btn {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -934,6 +928,18 @@ a.account-avatar-btn.account-avatar-btn--link:active {
 .account-avatar-icon {
   width: 22px;
   height: 22px;
+}
+
+.account-avatar-registry-dot {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #e53935;
+  box-shadow: 0 0 0 2px var(--card);
+  pointer-events: none;
 }
 
 .account-menu-popover {

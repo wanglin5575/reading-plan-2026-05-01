@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import type { AdminMemberRow, AdminOverviewPayload } from "@/lib/admin-overview";
+import { LS_ADMIN_REGISTRY_ACK_AT } from "@/lib/admin-registry-badge";
 
 type DailyPoint = {
   day: string;
@@ -31,6 +32,13 @@ export default function AdminDashboardClient() {
   const [pricingNoteOpen, setPricingNoteOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ active: boolean; startX: number; scrollLeft: number } | null>(null);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem(LS_ADMIN_REGISTRY_ACK_AT, new Date().toISOString());
+      window.dispatchEvent(new Event("admin-registry-ack"));
+    }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;

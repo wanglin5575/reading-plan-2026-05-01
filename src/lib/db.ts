@@ -979,6 +979,20 @@ export async function listAllRegistryUsers(): Promise<RegistryUserRow[]> {
   }));
 }
 
+/** 管理端红点：registered_at 晚于该时间的登记用户数 */
+export async function countRegistryUsersRegisteredAfter(sinceIso: string): Promise<number> {
+  const p = getPoolOrNull();
+  if (!p) return 0;
+  await ensureSchema();
+  const t = Date.parse(sinceIso.trim());
+  if (Number.isNaN(t)) return 0;
+  const { rows } = await p.query<{ c: string }>(
+    `SELECT COUNT(*)::text AS c FROM app_user_registry WHERE registered_at > $1::timestamptz`,
+    [new Date(t).toISOString()],
+  );
+  return parseInt(rows[0]?.c ?? "0", 10) || 0;
+}
+
 export type BrowseTopicsSummary = {
   /** 随览主题名称，「；」分隔 */
   topicTitles: string;

@@ -122,14 +122,18 @@ export function BrowseHitCard({
           <span className="browse-hit-byline-pub">{pubZh ? `原文：${pubZh}` : "原文时间未提供"}</span>
         </div>
         {showSummary ? (
-          <div className="browse-hit-summary-block">
+          <p className="summary">
             {hit.summarySource === "ai" ? (
-              <span className="browse-hit-ai-badge" title="由 WolfAI 根据正文生成的摘要">
-                AI生成
-              </span>
-            ) : null}
-            <p className="summary">{summaryText}</p>
-          </div>
+              <>
+                <span className="browse-hit-ai-inline" title="由 WolfAI 根据正文生成的摘要">
+                  AI生成：
+                </span>
+                {summaryText}
+              </>
+            ) : (
+              summaryText
+            )}
+          </p>
         ) : null}
         {hit.url ? (
           <div className="browse-hit-source-url" title={hit.url}>
