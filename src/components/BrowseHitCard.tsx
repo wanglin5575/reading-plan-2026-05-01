@@ -117,6 +117,7 @@ export function BrowseHitCard({
         ) : (
           <>
             <ArticleTitleLink
+              previewCacheNamespaceId={hit.url}
               url={hit.url}
               previewTitle={hit.title}
               previewSourceText={buildBrowseHitPreviewSource(hit)}

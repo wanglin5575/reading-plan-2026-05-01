@@ -9,6 +9,7 @@ import { MEDIA_KIND_LABEL } from "@/lib/media-kind";
 import { formatPublishedTimeZh } from "@/lib/browse-attribution";
 import { ArticleReadPreviewModal } from "@/components/ArticleReadPreviewModal";
 import { fallbackReadModalBody } from "@/lib/read-modal-fallback";
+import { getReadPreviewUiCache, setReadPreviewUiCache } from "@/lib/read-preview-ui-cache";
 
 interface Props {
   article: Article;
@@ -56,11 +57,14 @@ function ArticleSummaryFooter({ summary }: { summary: string }) {
 
 /** 点击先打开 AI 摘要大弹窗；弹窗内可「查看原文」；长按（约 0.55s）复制链接 */
 export function ArticleTitleLink({
+  previewCacheNamespaceId,
   url,
   children,
   previewTitle,
   previewSourceText,
 }: {
+  /** 书库用 article.id；随览等无 id 时用稳定 url */
+  previewCacheNamespaceId: string;
   url: string;
   children: ReactNode;
   previewTitle: string;
@@ -80,6 +84,17 @@ export function ArticleTitleLink({
   useEffect(() => {
     if (!previewOpen) return;
     let cancelled = false;
+
+    const cached = getReadPreviewUiCache(previewCacheNamespaceId, previewTitle, url, previewSourceText);
+    if (cached) {
+      setBody(cached.text);
+      setShowFallback(cached.showFallback);
+      setLoading(false);
+      return () => {
+        cancelled = true;
+      };
+    }
+
     setLoading(true);
     setBody("");
     setShowFallback(false);
@@ -96,17 +111,31 @@ export function ArticleTitleLink({
         const d = (await r.json().catch(() => ({}))) as { text?: string; fallback?: boolean };
         if (cancelled) return;
         if (!r.ok) {
-          setBody(fallbackReadModalBody(previewSourceText));
+          const fb = fallbackReadModalBody(previewSourceText);
+          setBody(fb);
           setShowFallback(true);
+          setReadPreviewUiCache(
+            previewCacheNamespaceId,
+            previewTitle,
+            url,
+            previewSourceText,
+            fb,
+            true,
+          );
           return;
         }
-        setBody(typeof d.text === "string" ? d.text : "");
-        setShowFallback(Boolean(d.fallback));
+        const t = typeof d.text === "string" ? d.text : "";
+        const fall = Boolean(d.fallback);
+        setBody(t);
+        setShowFallback(fall);
+        setReadPreviewUiCache(previewCacheNamespaceId, previewTitle, url, previewSourceText, t, fall);
       })
       .catch(() => {
         if (cancelled) return;
-        setBody(fallbackReadModalBody(previewSourceText));
+        const fb = fallbackReadModalBody(previewSourceText);
+        setBody(fb);
         setShowFallback(true);
+        setReadPreviewUiCache(previewCacheNamespaceId, previewTitle, url, previewSourceText, fb, true);
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -114,7 +143,7 @@ export function ArticleTitleLink({
     return () => {
       cancelled = true;
     };
-  }, [previewOpen, previewTitle, url, previewSourceText]);
+  }, [previewOpen, previewCacheNamespaceId, previewTitle, url, previewSourceText]);
 
   const clearTimer = () => {
     if (timerRef.current) {
@@ -464,6 +493,7 @@ export function ArticleCard({ article, showActions = true, collapseOriginalSumma
     <>
       {cardTop}
       <ArticleTitleLink
+        previewCacheNamespaceId={article.id}
         url={article.url}
         previewTitle={article.title}
         previewSourceText={buildArticlePreviewSource(article)}
