@@ -967,15 +967,18 @@ a.account-avatar-btn.account-avatar-btn--link:active {
   margin-bottom: 0;
 }
 
-.me-mode-switch {
-  display: flex;
-  gap: 8px;
-  margin: 12px 0;
+.me-login-form {
+  margin-bottom: 0;
 }
 
-.me-mode-btn {
-  flex: 1;
-  padding: 10px 12px;
+.me-google-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  margin-top: 12px;
+  padding: 10px 14px;
   border-radius: 10px;
   border: 1px solid var(--border);
   background: var(--bg);
@@ -986,10 +989,91 @@ a.account-avatar-btn.account-avatar-btn--link:active {
   -webkit-tap-highlight-color: transparent;
 }
 
-.me-mode-btn.active {
-  background: var(--brand-soft);
+.me-google-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.me-google-btn-icon {
+  flex-shrink: 0;
+}
+
+.me-register-open-btn {
+  width: 100%;
+  margin-top: 14px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px dashed var(--border);
+  background: transparent;
   color: var(--brand);
-  border-color: var(--brand);
+  font: inherit;
+  font-weight: var(--fw-semibold);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.me-register-open-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.me-register-dialog {
+  border: none;
+  border-radius: 14px;
+  padding: 0;
+  width: calc(100vw - 32px);
+  max-width: 400px;
+  background: var(--card);
+  color: var(--fg);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.35);
+}
+
+.me-register-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.me-register-dialog-inner {
+  padding: 16px 16px 18px;
+}
+
+.me-register-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.me-register-title {
+  margin: 0;
+  font-size: var(--fs-title);
+  font-weight: var(--fw-bold);
+}
+
+.me-register-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--border) 35%, transparent);
+  color: var(--fg);
+  font-size: 1.35rem;
+  line-height: 1;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.me-register-close:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.me-msg--in-dialog {
+  margin-top: 10px;
 }
 
 .me-logged-email span {
@@ -1008,12 +1092,6 @@ a.account-avatar-btn.account-avatar-btn--link:active {
 .me-code {
   font-size: var(--fs-small);
   word-break: break-all;
-}
-
-.me-otp-input {
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0.2em;
-  max-width: 12rem;
 }
 
 .me-msg {
