@@ -4,6 +4,14 @@ import type { AiChatUsage } from "./ai-summary";
 import { enrichArticleWithAi } from "./ai-summary";
 import { normalizePublishedToIso } from "@/lib/browse-published";
 import { translateToChinese } from "./translate-zh";
+import {
+  countChars,
+  countWords,
+  detectLanguage,
+  estimateMinutes,
+} from "./classify-basics";
+
+export { countChars, countWords, detectLanguage, estimateMinutes } from "./classify-basics";
 
 const THEME_RULES: { theme: string; words: string[] }[] = [
   {
@@ -66,28 +74,6 @@ const STOP_WORDS = new Set([
   "什么", "怎么", "这样", "这个", "那个", "比较", "一个", "一些", "可能",
 ]);
 
-export function detectLanguage(text: string): "zh" | "en" | "mixed" {
-  const cjk = (text.match(/[\u4e00-\u9fff]/g) || []).length;
-  const latin = (text.match(/[a-zA-Z]/g) || []).length;
-  if (cjk === 0 && latin === 0) return "mixed";
-  if (cjk > latin * 2) return "zh";
-  if (latin > cjk * 2) return "en";
-  return "mixed";
-}
-
-export function countChars(text: string): number {
-  return text.replace(/\s+/g, "").length;
-}
-
-export function countWords(text: string): number {
-  const words = text
-    .toLowerCase()
-    .replace(/[^\w\u4e00-\u9fff\s]/g, " ")
-    .split(/\s+/)
-    .filter(Boolean);
-  return words.length;
-}
-
 export function classifyTheme(title: string, body: string, urlString: string): string {
   const hay = `${title} ${body.slice(0, 2000)} ${urlString}`.toLowerCase();
   let best: { theme: string; score: number } = { theme: "通用", score: 0 };
@@ -99,12 +85,6 @@ export function classifyTheme(title: string, body: string, urlString: string): s
     if (score > best.score) best = { theme: rule.theme, score };
   }
   return best.score > 0 ? best.theme : "通用";
-}
-
-export function estimateMinutes(charCount: number, wordCount: number, language: "zh" | "en" | "mixed"): number {
-  if (language === "zh") return Math.max(1, Math.round(charCount / 350));
-  if (language === "en") return Math.max(1, Math.round(wordCount / 220));
-  return Math.max(1, Math.round((charCount / 350 + wordCount / 220) / 2));
 }
 
 /** 综合正文、标题与摘要长度，以及音视频时长，估算消费分钟数 */
@@ -208,6 +188,8 @@ export async function buildArticleClassification(
     scrapeAuthor?: string;
     publishedIsoHint?: string | null;
     onAiUsage?: (usage: AiChatUsage | null) => void;
+    /** 书库：与文章归属用户一致，用于云端复用 AI 结果 */
+    cacheUserId?: string | null;
   },
 ): Promise<
   Pick<
@@ -242,6 +224,7 @@ export async function buildArticleClassification(
     url,
     scrapeAuthorHint: opts?.scrapeAuthor,
     publishedIsoHint: opts?.publishedIsoHint ?? null,
+    cacheUserId: opts?.cacheUserId ?? null,
   });
   opts?.onAiUsage?.(usage);
 
@@ -250,7 +233,9 @@ export async function buildArticleClassification(
     summaryZh = truncateZh(enrichment.summary.trim(), SUMMARY_MAX_CHARS);
   } else {
     const summary = makeSummary(body);
-    summaryZh = await translateToChinese(summary || "(暂无摘要)");
+    summaryZh = await translateToChinese(summary || "(暂无摘要)", {
+      cacheUserId: opts?.cacheUserId,
+    });
     summaryZh = truncateZh(summaryZh, SUMMARY_MAX_CHARS);
   }
 
@@ -275,7 +260,7 @@ export async function buildArticleClassification(
 
   let titleZh = "";
   if (!isPrimarilyChinese(title)) {
-    const t = (await translateToChinese(title)).trim();
+    const t = (await translateToChinese(title, { cacheUserId: opts?.cacheUserId })).trim();
     if (t && t !== title) titleZh = t.slice(0, 400);
   }
 

@@ -6,6 +6,12 @@
  */
 
 import { normalizePublishedToIso } from "@/lib/browse-published";
+import { enrichArticleInputHash } from "@/lib/ai-cache-hash";
+import {
+  getAiGenerationCache,
+  isDatabaseConfigured,
+  upsertAiGenerationCache,
+} from "@/lib/db";
 
 function trimEnv(...keys: string[]): string | undefined {
   for (const k of keys) {
@@ -62,6 +68,36 @@ function parsePublicationYmd(s: string | null | undefined): string | null {
   if (!s?.trim()) return null;
   const iso = normalizePublishedToIso(s.trim());
   return iso ? iso.slice(0, 10) : null;
+}
+
+function parseCachedEnrichment(
+  row: Record<string, unknown>,
+  browseQualify: boolean,
+): AiArticleEnrichment | null {
+  const raw = row.enrichment;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const j = raw as Record<string, unknown>;
+  const summary = strOrNull(j.summary);
+  const publishedAt = parsePublicationYmd(strOrNull(j.publishedAt));
+  const author = strOrNull(j.author)?.slice(0, 120) ?? null;
+  const rm = numOrNull(j.readingMinutes);
+  const readingMinutes =
+    rm != null && rm >= 1 && rm <= 600 ? Math.round(rm) : null;
+  const worthReading = browseQualify ? parseWorthReading(j.worthReading) : null;
+  let notWorthReason: string | null = null;
+  if (browseQualify && worthReading === false) {
+    notWorthReason = strOrNull(j.notWorthReason)?.replace(/\s+/g, " ").trim().slice(0, 50) || null;
+  }
+  const hasSummary = Boolean(summary?.trim());
+  if (!hasSummary && !(browseQualify && worthReading === false)) return null;
+  return {
+    summary: summary ?? null,
+    publishedAt,
+    author,
+    readingMinutes,
+    worthReading,
+    notWorthReason,
+  };
 }
 
 function parseWorthReading(v: unknown): boolean | null {
@@ -137,6 +173,8 @@ export async function enrichArticleWithAi(params: {
    * 书库文章分类请勿开启。
    */
   browseQualify?: boolean;
+  /** 用于云端缓存分桶；缺省为匿名桶 */
+  cacheUserId?: string | null;
 }): Promise<AiEnrichArticleResult> {
   const base = trimEnv("AI_SUMMARY_BASE_URL", "WOLF_BASE_URL");
   const key = trimEnv("AI_SUMMARY_API_KEY", "WOLF_API_KEY");
@@ -157,6 +195,25 @@ export async function enrichArticleWithAi(params: {
 
   const bodyText = params.body.replace(/\s+/g, " ").trim().slice(0, maxInput);
   const hintAuthor = params.scrapeAuthorHint?.trim() || "";
+  const publishedIsoHint = params.publishedIsoHint?.trim() ?? "";
+  const kind = params.browseQualify ? "enrich_article_browse_v1" : "enrich_article_book_v1";
+  const inputHash = enrichArticleInputHash({
+    title: params.title.slice(0, 400),
+    url: params.url,
+    bodyText,
+    browseQualify: Boolean(params.browseQualify),
+    scrapeAuthorHint: hintAuthor,
+    publishedIsoHint,
+  });
+
+  if (isDatabaseConfigured()) {
+    const cached = await getAiGenerationCache(params.cacheUserId ?? null, kind, inputHash);
+    if (cached) {
+      const enrichment = parseCachedEnrichment(cached, Boolean(params.browseQualify));
+      if (enrichment) return { enrichment, usage: null };
+    }
+  }
+
   const hintPub = params.publishedIsoHint?.trim()
     ? `页面元数据 / Firecrawl 推测的发布时间（ISO，常与正文不一致，仅作线索）：${params.publishedIsoHint!.trim()}`
     : "页面元数据未提供可靠发布时间。";
@@ -269,15 +326,33 @@ ${bodyText || "(正文为空)"}`;
     notWorthReason = strOrNull(json.not_worth_reason)?.replace(/\s+/g, " ").trim().slice(0, 50) || null;
   }
 
+  const enrichment: AiArticleEnrichment = {
+    summary: summary ?? null,
+    publishedAt,
+    author,
+    readingMinutes,
+    worthReading,
+    notWorthReason,
+  };
+
+  if (isDatabaseConfigured()) {
+    void upsertAiGenerationCache(
+      params.cacheUserId ?? null,
+      kind,
+      inputHash,
+      { enrichment },
+      usage
+        ? {
+            promptTokens: usage.promptTokens,
+            completionTokens: usage.completionTokens,
+            totalTokens: usage.totalTokens,
+          }
+        : undefined,
+    );
+  }
+
   return {
-    enrichment: {
-      summary: summary ?? null,
-      publishedAt,
-      author,
-      readingMinutes,
-      worthReading,
-      notWorthReason,
-    },
+    enrichment,
     usage,
   };
 }

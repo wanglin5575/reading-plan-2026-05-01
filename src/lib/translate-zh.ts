@@ -1,4 +1,10 @@
 import type { BrowseHit } from "./types";
+import { translateLlmInputHash } from "@/lib/ai-cache-hash";
+import {
+  getAiGenerationCache,
+  isDatabaseConfigured,
+  upsertAiGenerationCache,
+} from "@/lib/db";
 
 /**
  * 翻译优先级：
@@ -25,7 +31,10 @@ function chatCompletionsUrl(baseRaw: string): string {
 }
 
 /** 与 enrichArticleWithAi 同源配置：WolfAI / 自建 OpenAI 兼容网关 */
-async function translateWithOpenAiCompatibleGateway(text: string): Promise<string | null> {
+async function translateWithOpenAiCompatibleGateway(
+  text: string,
+  cacheUserId?: string | null,
+): Promise<string | null> {
   const off = process.env.AI_TRANSLATE_VIA_LLM?.trim().toLowerCase();
   if (off === "0" || off === "false" || off === "no") return null;
 
@@ -52,6 +61,14 @@ async function translateWithOpenAiCompatibleGateway(text: string): Promise<strin
 
   const q = text.replace(/\s+/g, " ").trim().slice(0, 8000);
   if (!q) return null;
+
+  const kind = "translate_llm_v1";
+  const inputHash = translateLlmInputHash(q);
+  if (isDatabaseConfigured()) {
+    const row = await getAiGenerationCache(cacheUserId ?? null, kind, inputHash);
+    const hit = typeof row?.text === "string" ? row.text.trim() : "";
+    if (hit) return hit;
+  }
 
   const bodyPayload = {
     model,
@@ -89,7 +106,11 @@ async function translateWithOpenAiCompatibleGateway(text: string): Promise<strin
   const raw = d.choices?.[0]?.message?.content?.trim();
   if (!raw) return null;
   const cleaned = raw.replace(/^[`"'「『\s]+|[`"'」』\s]+$/g, "").trim();
-  return cleaned.length ? cleaned : null;
+  if (!cleaned.length) return null;
+  if (isDatabaseConfigured()) {
+    void upsertAiGenerationCache(cacheUserId ?? null, kind, inputHash, { text: cleaned });
+  }
+  return cleaned;
 }
 
 function isPrimarilyChinese(text: string): boolean {
@@ -162,12 +183,15 @@ async function translateWithGoogleGtx(text: string): Promise<string | null> {
   }
 }
 
-export async function translateToChinese(text: string): Promise<string> {
+export async function translateToChinese(
+  text: string,
+  opts?: { cacheUserId?: string | null },
+): Promise<string> {
   const trimmed = text.trim();
   if (!trimmed) return trimmed;
   if (isPrimarilyChinese(trimmed)) return trimmed;
 
-  const llm = await translateWithOpenAiCompatibleGateway(trimmed);
+  const llm = await translateWithOpenAiCompatibleGateway(trimmed, opts?.cacheUserId);
   if (llm) return llm;
 
   const my = await translateWithMyMemory(trimmed);
@@ -180,18 +204,21 @@ export async function translateToChinese(text: string): Promise<string> {
 }
 
 /** 随览卡片：摘要合并译中文；英文为主的标题另译一行 titleZh */
-export async function translateBrowseHitsToChinese(hits: BrowseHit[]): Promise<BrowseHit[]> {
+export async function translateBrowseHitsToChinese(
+  hits: BrowseHit[],
+  cacheUserId?: string | null,
+): Promise<BrowseHit[]> {
   return Promise.all(
     hits.map(async (h) => {
       let next: BrowseHit = { ...h };
       const blob = (h.summary || h.excerpt || h.description).trim();
       if (blob) {
-        const zh = await translateToChinese(blob);
+        const zh = await translateToChinese(blob, { cacheUserId });
         next = { ...next, summary: zh, excerpt: zh, description: zh };
       }
       const title = h.title.trim();
       if (title && !isPrimarilyChinese(title)) {
-        const t = (await translateToChinese(title)).trim();
+        const t = (await translateToChinese(title, { cacheUserId })).trim();
         if (t && t !== title) next = { ...next, titleZh: t.slice(0, 400) };
       }
       return next;

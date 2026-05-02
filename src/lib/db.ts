@@ -214,6 +214,21 @@ async function ensureSchema(): Promise<void> {
         CREATE INDEX IF NOT EXISTS idx_token_usage_user ON token_usage_log(user_id);
         CREATE INDEX IF NOT EXISTS idx_token_usage_created ON token_usage_log(created_at);
       `);
+      await p.query(`
+        CREATE TABLE IF NOT EXISTS ai_generation_cache (
+          user_id TEXT NOT NULL,
+          kind TEXT NOT NULL,
+          input_hash TEXT NOT NULL,
+          result_json JSONB NOT NULL,
+          prompt_tokens INTEGER NOT NULL DEFAULT 0,
+          completion_tokens INTEGER NOT NULL DEFAULT 0,
+          total_tokens INTEGER NOT NULL DEFAULT 0,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          PRIMARY KEY (user_id, kind, input_hash)
+        );
+        CREATE INDEX IF NOT EXISTS idx_ai_gen_cache_updated ON ai_generation_cache (updated_at);
+      `);
       await seedDemoIfEmpty(p);
     })().catch((err) => {
       schemaReady = null;
@@ -671,8 +686,80 @@ const STATIC_DEFAULT_BROWSE_TOPIC: BrowseTopic = {
   maxPublishedAgeDays: null,
 };
 
-function browseOwnerKey(userId: string | null): string {
+/** 与随览等多租户逻辑一致：未登录使用 anon 桶 */
+export function aiCacheOwnerKey(userId: string | null): string {
   return userId ?? "anon";
+}
+
+function browseOwnerKey(userId: string | null): string {
+  return aiCacheOwnerKey(userId);
+}
+
+const AI_CACHE_KIND_MAX = 80;
+const AI_CACHE_HASH_MAX = 128;
+
+export async function getAiGenerationCache(
+  userId: string | null,
+  kind: string,
+  inputHash: string,
+): Promise<Record<string, unknown> | null> {
+  try {
+    const p = getPoolOrNull();
+    if (!p) return null;
+    await ensureSchema();
+    const { rows } = await p.query<{ result_json: unknown }>(
+      `SELECT result_json FROM ai_generation_cache
+       WHERE user_id = $1 AND kind = $2 AND input_hash = $3 LIMIT 1`,
+      [
+        aiCacheOwnerKey(userId),
+        kind.slice(0, AI_CACHE_KIND_MAX),
+        inputHash.slice(0, AI_CACHE_HASH_MAX),
+      ],
+    );
+    const r = rows[0]?.result_json;
+    if (!r || typeof r !== "object" || Array.isArray(r)) return null;
+    return r as Record<string, unknown>;
+  } catch (e) {
+    console.error("[db] getAiGenerationCache failed:", e);
+    return null;
+  }
+}
+
+export async function upsertAiGenerationCache(
+  userId: string | null,
+  kind: string,
+  inputHash: string,
+  resultJson: Record<string, unknown>,
+  usage?: { promptTokens: number; completionTokens: number; totalTokens: number },
+): Promise<void> {
+  try {
+    const p = getPoolOrNull();
+    if (!p) return;
+    await ensureSchema();
+    await p.query(
+      `INSERT INTO ai_generation_cache (
+         user_id, kind, input_hash, result_json,
+         prompt_tokens, completion_tokens, total_tokens, updated_at
+       ) VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, NOW())
+       ON CONFLICT (user_id, kind, input_hash) DO UPDATE SET
+         result_json = EXCLUDED.result_json,
+         prompt_tokens = EXCLUDED.prompt_tokens,
+         completion_tokens = EXCLUDED.completion_tokens,
+         total_tokens = EXCLUDED.total_tokens,
+         updated_at = NOW()`,
+      [
+        aiCacheOwnerKey(userId),
+        kind.slice(0, AI_CACHE_KIND_MAX),
+        inputHash.slice(0, AI_CACHE_HASH_MAX),
+        JSON.stringify(resultJson),
+        usage?.promptTokens ?? 0,
+        usage?.completionTokens ?? 0,
+        usage?.totalTokens ?? 0,
+      ],
+    );
+  } catch (e) {
+    console.error("[db] upsertAiGenerationCache failed:", e);
+  }
 }
 
 interface BrowseTopicRow {

@@ -1,8 +1,14 @@
 import { NextResponse } from "next/server";
 import { generateReadModalSummary } from "@/lib/ai-read-modal-summary";
+import { readModalInputHash } from "@/lib/ai-cache-hash";
 import { fallbackReadModalBody } from "@/lib/read-modal-fallback";
 import { getRouteHandlerUser } from "@/lib/auth/api";
-import { recordTokenUsage } from "@/lib/db";
+import {
+  getAiGenerationCache,
+  isDatabaseConfigured,
+  recordTokenUsage,
+  upsertAiGenerationCache,
+} from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
@@ -40,9 +46,38 @@ export async function POST(req: Request) {
   }
 
   const session = await getRouteHandlerUser();
+  const readModalHash = readModalInputHash(title, url, sourceText);
+  if (isDatabaseConfigured()) {
+    const row = await getAiGenerationCache(session?.id ?? null, "read_modal_v1", readModalHash);
+    const hit = typeof row?.text === "string" ? row.text.trim() : "";
+    if (hit) {
+      return NextResponse.json({
+        text: hit,
+        fallback: false,
+        ai: true,
+        cached: true,
+      });
+    }
+  }
+
   const ai = await generateReadModalSummary({ title, url, sourceText });
 
   if (ai?.text) {
+    if (isDatabaseConfigured()) {
+      void upsertAiGenerationCache(
+        session?.id ?? null,
+        "read_modal_v1",
+        readModalHash,
+        { text: ai.text },
+        ai.usage && ai.usage.totalTokens > 0
+          ? {
+              promptTokens: ai.usage.promptTokens,
+              completionTokens: ai.usage.completionTokens,
+              totalTokens: ai.usage.totalTokens,
+            }
+          : undefined,
+      );
+    }
     if (ai.usage && ai.usage.totalTokens > 0 && session) {
       void recordTokenUsage({
         userId: session.id,
@@ -56,6 +91,7 @@ export async function POST(req: Request) {
       text: ai.text,
       fallback: false,
       ai: true,
+      cached: false,
     });
   }
 

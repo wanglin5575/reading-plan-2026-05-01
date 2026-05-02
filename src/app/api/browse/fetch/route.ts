@@ -98,8 +98,8 @@ export async function POST(req: Request) {
     const skippedKnown = combined.length - afterExclude.length;
     const maxAge = effectiveMaxPublishedAgeDays(topic);
     const recencyFiltered = filterBrowseHitsByPublishedAge(afterExclude, maxAge);
-    const aiResult = await enrichBrowseHitsWithAi(recencyFiltered);
-    const translated = await translateBrowseHitsToChinese(aiResult.hits);
+    const aiResult = await enrichBrowseHitsWithAi(recencyFiltered, uid ?? null);
+    const translated = await translateBrowseHitsToChinese(aiResult.hits, uid ?? null);
     const hits = translated.map((h) => {
       const cleaned = stripBrowseHitServerFields(h);
       const blob = `${cleaned.summary}\n${cleaned.excerpt}\n${cleaned.description}`;

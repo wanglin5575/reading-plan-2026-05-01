@@ -54,7 +54,10 @@ export type EnrichBrowseHitsResult = {
  * 不根据 worth_reading 筛掉条目：`BROWSE_AI_WORTH_FILTER=0`
  * 需配置：`WOLF_*` 或 `AI_SUMMARY_*`（与 `ai-summary.ts` 一致）
  */
-export async function enrichBrowseHitsWithAi(hits: BrowseHit[]): Promise<EnrichBrowseHitsResult> {
+export async function enrichBrowseHitsWithAi(
+  hits: BrowseHit[],
+  cacheUserId?: string | null,
+): Promise<EnrichBrowseHitsResult> {
   const off = process.env.BROWSE_ENRICH_VIA_LLM?.trim().toLowerCase();
   if (off === "0" || off === "false" || off === "no") return { hits, rejected: [] };
 
@@ -82,6 +85,7 @@ export async function enrichBrowseHitsWithAi(hits: BrowseHit[]): Promise<EnrichB
       scrapeAuthorHint: h.author ?? undefined,
       publishedIsoHint: h.publishedTime ?? undefined,
       browseQualify: true,
+      cacheUserId: cacheUserId ?? null,
     });
 
     if (!enrichment?.summary?.trim()) {

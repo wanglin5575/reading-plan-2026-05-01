@@ -5,7 +5,7 @@ import { useSwipeCardFace } from "@/lib/useSwipeCardFace";
 import type { BrowseStoredHit } from "@/lib/browse-storage";
 import { formatPublishedTimeZh, resolveBrowseAuthorLine } from "@/lib/browse-attribution";
 import { MEDIA_KIND_LABEL } from "@/lib/media-kind";
-import { countChars, countWords, detectLanguage, estimateMinutes } from "@/lib/classify";
+import { countChars, countWords, detectLanguage, estimateMinutes } from "@/lib/classify-basics";
 
 /** 与待读列表同一套滑轨；右缘两枚圆钮：已读 + 待读（加入已读 / 加入待读） */
 const BROWSE_SWIPE_REVEAL_PX = 144;

@@ -66,6 +66,7 @@ export async function POST(req: Request) {
     durationSeconds: scraped.durationSeconds,
     scrapeAuthor: scraped.author?.trim() || "",
     publishedIsoHint: scraped.publishedIsoHint,
+    cacheUserId: ownerId,
     onAiUsage: (usage) => {
       if (usage && usage.totalTokens > 0 && session) {
         void recordTokenUsage({
