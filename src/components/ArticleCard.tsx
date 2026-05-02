@@ -10,6 +10,7 @@ import { formatPublishedTimeZh } from "@/lib/browse-attribution";
 import { ArticleReadPreviewModal } from "@/components/ArticleReadPreviewModal";
 import { fallbackReadModalBody } from "@/lib/read-modal-fallback";
 import { getReadPreviewUiCache, setReadPreviewUiCache } from "@/lib/read-preview-ui-cache";
+import { readPreviewSourceFromApiPayload, type ReadPreviewSource } from "@/lib/read-preview-source";
 
 interface Props {
   article: Article;
@@ -76,13 +77,29 @@ export function ArticleTitleLink({
   const [mounted, setMounted] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [loadPhase, setLoadPhase] = useState<"query" | "generating">("query");
   const [body, setBody] = useState("");
   const [showFallback, setShowFallback] = useState(false);
+  const [previewSource, setPreviewSource] = useState<ReadPreviewSource | null>(null);
 
   useEffect(() => setMounted(true), []);
 
   useEffect(() => {
-    if (!previewOpen) return;
+    if (!loading) {
+      setLoadPhase("query");
+      return;
+    }
+    setLoadPhase("query");
+    const t = window.setTimeout(() => setLoadPhase("generating"), 450);
+    return () => window.clearTimeout(t);
+  }, [loading]);
+
+  useEffect(() => {
+    if (!previewOpen) {
+      setPreviewSource(null);
+      setLoading(false);
+      return;
+    }
     let cancelled = false;
 
     const cached = getReadPreviewUiCache(previewCacheNamespaceId, previewTitle, url, previewSourceText);
@@ -90,11 +107,13 @@ export function ArticleTitleLink({
       setBody(cached.text);
       setShowFallback(cached.showFallback);
       setLoading(false);
+      setPreviewSource("client_cache");
       return () => {
         cancelled = true;
       };
     }
 
+    setPreviewSource(null);
     setLoading(true);
     setBody("");
     setShowFallback(false);
@@ -108,12 +127,19 @@ export function ArticleTitleLink({
       }),
     })
       .then(async (r) => {
-        const d = (await r.json().catch(() => ({}))) as { text?: string; fallback?: boolean };
+        const d = (await r.json().catch(() => ({}))) as {
+          text?: string;
+          fallback?: boolean;
+          source?: unknown;
+          cached?: boolean;
+          ai?: boolean;
+        };
         if (cancelled) return;
         if (!r.ok) {
           const fb = fallbackReadModalBody(previewSourceText);
           setBody(fb);
           setShowFallback(true);
+          setPreviewSource("fallback");
           setReadPreviewUiCache(
             previewCacheNamespaceId,
             previewTitle,
@@ -121,21 +147,25 @@ export function ArticleTitleLink({
             previewSourceText,
             fb,
             true,
+            "fallback",
           );
           return;
         }
         const t = typeof d.text === "string" ? d.text : "";
         const fall = Boolean(d.fallback);
+        const apiSource = readPreviewSourceFromApiPayload(d);
         setBody(t);
         setShowFallback(fall);
-        setReadPreviewUiCache(previewCacheNamespaceId, previewTitle, url, previewSourceText, t, fall);
+        setPreviewSource(apiSource);
+        setReadPreviewUiCache(previewCacheNamespaceId, previewTitle, url, previewSourceText, t, fall, apiSource);
       })
       .catch(() => {
         if (cancelled) return;
         const fb = fallbackReadModalBody(previewSourceText);
         setBody(fb);
         setShowFallback(true);
-        setReadPreviewUiCache(previewCacheNamespaceId, previewTitle, url, previewSourceText, fb, true);
+        setPreviewSource("fallback");
+        setReadPreviewUiCache(previewCacheNamespaceId, previewTitle, url, previewSourceText, fb, true, "fallback");
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -211,6 +241,8 @@ export function ArticleTitleLink({
           title={previewTitle}
           url={url}
           loading={loading}
+          loadPhase={loadPhase}
+          previewSource={previewSource}
           bodyText={body}
           showFallbackNote={showFallback}
         />

@@ -3,12 +3,16 @@
  * 与 /api/read-preview 的入参（title、url、sourceText）语义对齐。
  */
 
+import type { ReadPreviewApiSource } from "@/lib/read-preview-source";
+
 const MAX_ENTRIES = 120;
 
 type Entry = {
   fp: string;
   text: string;
   showFallback: boolean;
+  /** 上次请求写入的服务端来源；本页二次打开时 UI 仍显示为 client_cache */
+  apiSource?: ReadPreviewApiSource;
 };
 
 const store = new Map<string, Entry>();
@@ -43,10 +47,11 @@ export function setReadPreviewUiCache(
   sourceText: string,
   text: string,
   showFallback: boolean,
+  apiSource?: ReadPreviewApiSource,
 ): void {
   const fp = readPreviewInputFingerprint(title, url, sourceText);
   const key = `${namespaceId}::${fp}`;
-  store.set(key, { fp, text, showFallback });
+  store.set(key, { fp, text, showFallback, apiSource });
   while (store.size > MAX_ENTRIES) {
     const first = store.keys().next().value;
     if (first) store.delete(first);

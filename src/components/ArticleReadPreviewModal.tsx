@@ -2,6 +2,11 @@
 
 import { useEffect } from "react";
 import { createPortal } from "react-dom";
+import {
+  type ReadPreviewSource,
+  readPreviewReadinessNote,
+  readPreviewSourceHeadline,
+} from "@/lib/read-preview-source";
 
 export function ArticleReadPreviewModal({
   open,
@@ -9,6 +14,8 @@ export function ArticleReadPreviewModal({
   title,
   url,
   loading,
+  loadPhase,
+  previewSource,
   bodyText,
   showFallbackNote,
 }: {
@@ -17,6 +24,9 @@ export function ArticleReadPreviewModal({
   title: string;
   url: string;
   loading: boolean;
+  /** 请求发出后先「查询」，超时后视为等待模型输出 */
+  loadPhase: "query" | "generating";
+  previewSource: ReadPreviewSource | null;
   bodyText: string;
   showFallbackNote: boolean;
 }) {
@@ -39,6 +49,10 @@ export function ArticleReadPreviewModal({
   }, [open, onClose]);
 
   if (!open) return null;
+
+  const loadingLine =
+    loadPhase === "query" ? "查询AI生成结论" : "AI 正在生成摘要…";
+  const readiness = previewSource ? readPreviewReadinessNote(previewSource) : null;
 
   return createPortal(
     <div
@@ -68,19 +82,26 @@ export function ArticleReadPreviewModal({
           <a href={url} target="_blank" rel="noreferrer" className="article-read-preview-origin-link">
             查看原文
           </a>
-          <span className="article-read-preview-meta-sep" aria-hidden>
-            ·
-          </span>
-          <span>本文由AI总结</span>
+          {!loading && previewSource ? (
+            <>
+              <span className="article-read-preview-meta-sep" aria-hidden>
+                ·
+              </span>
+              <span>{readPreviewSourceHeadline(previewSource)}</span>
+            </>
+          ) : null}
         </div>
 
         <div className="article-read-preview-body">
           {loading ? (
-            <p className="article-read-preview-loading muted-link">正在生成摘要…</p>
+            <p className="article-read-preview-loading muted-link">{loadingLine}</p>
           ) : (
             <>
               {showFallbackNote ? (
                 <p className="article-read-preview-fallback-note muted-link">当前展示为节选摘要（AI 暂不可用或未配置）。</p>
+              ) : null}
+              {!showFallbackNote && readiness ? (
+                <p className="article-read-preview-readiness-note muted-link">{readiness}</p>
               ) : null}
               <div className="article-read-preview-prose">{bodyText}</div>
             </>

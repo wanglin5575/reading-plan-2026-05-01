@@ -42,6 +42,7 @@ export async function POST(req: Request) {
       text: fb,
       fallback: true,
       ai: false,
+      source: "fallback" as const,
     });
   }
 
@@ -55,7 +56,7 @@ export async function POST(req: Request) {
         text: hit,
         fallback: false,
         ai: true,
-        cached: true,
+        source: "server_cache" as const,
       });
     }
   }
@@ -91,7 +92,7 @@ export async function POST(req: Request) {
       text: ai.text,
       fallback: false,
       ai: true,
-      cached: false,
+      source: "llm" as const,
     });
   }
 
@@ -100,5 +101,6 @@ export async function POST(req: Request) {
     text: fb,
     fallback: true,
     ai: false,
+    source: "fallback" as const,
   });
 }

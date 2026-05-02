@@ -2470,6 +2470,11 @@ a.account-menu-item--link:hover {
   font-size: var(--fs-micro);
 }
 
+.article-read-preview-readiness-note {
+  margin: 0 0 10px;
+  font-size: var(--fs-micro);
+}
+
 .article-read-preview-prose {
   margin: 0;
   font-size: var(--fs-body);
