@@ -6,6 +6,7 @@ import { filterBrowseHitsByPublishedAge, effectiveMaxPublishedAgeDays } from "@/
 import { fetchBrowseRssHits } from "@/lib/browse-rss";
 import type { BrowseHit } from "@/lib/types";
 import { getBrowseTopic } from "@/lib/db";
+import { enrichBrowseHitsWithAi, stripBrowseHitServerFields } from "@/lib/browse-ai-enrich";
 import { translateBrowseHitsToChinese } from "@/lib/translate-zh";
 import { countChars, countWords, detectLanguage, estimateMinutes } from "@/lib/classify";
 import { BROWSE_EXCLUDE_URLS_MAX } from "@/lib/browse-storage";
@@ -97,12 +98,18 @@ export async function POST(req: Request) {
     const skippedKnown = combined.length - afterExclude.length;
     const maxAge = effectiveMaxPublishedAgeDays(topic);
     const recencyFiltered = filterBrowseHitsByPublishedAge(afterExclude, maxAge);
-    const translated = await translateBrowseHitsToChinese(recencyFiltered);
+    const aiEnriched = await enrichBrowseHitsWithAi(recencyFiltered);
+    const translated = await translateBrowseHitsToChinese(aiEnriched);
     const hits = translated.map((h) => {
-      const blob = `${h.summary}\n${h.excerpt}\n${h.description}`;
+      const cleaned = stripBrowseHitServerFields(h);
+      const blob = `${cleaned.summary}\n${cleaned.excerpt}\n${cleaned.description}`;
+      const estFromContent = estimateMinutes(countChars(blob), countWords(blob), detectLanguage(blob));
       return {
-        ...h,
-        estimatedMinutes: estimateMinutes(countChars(blob), countWords(blob), detectLanguage(blob)),
+        ...cleaned,
+        estimatedMinutes:
+          typeof cleaned.estimatedMinutes === "number" && cleaned.estimatedMinutes > 0
+            ? cleaned.estimatedMinutes
+            : estFromContent,
       };
     });
     const fetchedAt = until.toISOString();

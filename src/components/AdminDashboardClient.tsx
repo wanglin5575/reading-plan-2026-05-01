@@ -194,6 +194,32 @@ export default function AdminDashboardClient() {
                   ? "Supabase Auth（已配置 SUPABASE_SERVICE_ROLE_KEY）。"
                   : "应用内登记（用户登录后首次调用接口时写入）；配置服务密钥后可拉取完整 Auth 用户。"}
               </p>
+              {overview.members.length === 0 ? (
+                <div className="admin-list-empty muted-link">
+                  <p className="admin-list-empty-title">当前表格没有数据，通常是以下几类情况：</p>
+                  <ul className="admin-list-empty-ul">
+                    <li>
+                      <strong>数据库未连上或未配置</strong>（接口检测：<code className="admin-code-inline">databaseConfigured</code>
+                      ={overview.meta.databaseConfigured === false ? " false" : overview.meta.databaseConfigured === true ? " true" : " 未知"}
+                      ）：请在线上环境配置 <code className="admin-code-inline">DATABASE_URL</code>（或 Postgres 同类变量），否则{" "}
+                      <code className="admin-code-inline">app_user_registry</code>、用量表无法读写。
+                    </li>
+                    <li>
+                      <strong>没有枚举到 Supabase 注册用户</strong>：未配置{" "}
+                      <code className="admin-code-inline">SUPABASE_SERVICE_ROLE_KEY</code> 时无法列出 Auth 全量用户（当前{" "}
+                      <code className="admin-code-inline">supabaseAuthCount</code>={overview.meta.supabaseAuthCount}）。请在 Vercel
+                      添加<strong>服务端专用</strong>的 Service Role Key（勿泄露到前端）。
+                    </li>
+                    <li>
+                      <strong>登记库尚无记录</strong>：<code className="admin-code-inline">app_user_registry</code> 在用户<strong>
+                        登录后首次
+                      </strong>
+                      调用「添加文章 / 刷新文章 / 随览拉取」等需登录接口时写入（当前{" "}
+                      <code className="admin-code-inline">registryCount</code>={overview.meta.registryCount}）。可让用户在本站任意操作一次触发写入。
+                    </li>
+                  </ul>
+                </div>
+              ) : null}
               <div className="admin-table-wrap">
                 <table className="admin-table">
                   <thead>

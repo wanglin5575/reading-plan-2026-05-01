@@ -1065,6 +1065,31 @@ a.account-menu-item--link:hover {
   vertical-align: top;
 }
 
+.admin-list-empty {
+  font-size: var(--fs-small);
+  line-height: var(--lh-snug);
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+}
+
+.admin-list-empty-title {
+  margin: 0 0 6px;
+  color: var(--ink);
+  font-size: var(--fs-body);
+}
+
+.admin-list-empty-ul {
+  margin: 0;
+  padding-left: 1.1em;
+}
+
+.admin-list-empty-ul li {
+  margin: 0.35em 0;
+}
+
 .admin-code-inline {
   font-size: 0.9em;
   padding: 1px 4px;

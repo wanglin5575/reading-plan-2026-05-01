@@ -223,17 +223,19 @@ export async function fetchBrowseHits(
         }) ?? null;
       const authorRaw = pickAuthorFromMetadata(meta);
       const est = estimateBrowseReadMinutes(url, title, summary, excerpt || description, description, meta);
-      hits.push({
-        url,
-        title,
-        description,
-        summary,
-        excerpt: excerpt || description,
-        mediaType: resolveHitMediaKind(url, title, meta, `${description}\n${excerpt || ""}`),
-        publishedTime,
-        author: authorRaw,
-        estimatedMinutes: est,
-      });
+        hits.push({
+          url,
+          title,
+          description,
+          summary,
+          excerpt: excerpt || description,
+          mediaType: resolveHitMediaKind(url, title, meta, `${description}\n${excerpt || ""}`),
+          publishedTime,
+          author: authorRaw,
+          estimatedMinutes: est,
+          /** 供 WolfAI：与 ai-summary 输入上限对齐 */
+          fullMarkdownForAi: md.replace(/\s+/g, " ").trim().slice(0, 12000),
+        });
     }
 
     return hits;

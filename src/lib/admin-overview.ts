@@ -36,6 +36,15 @@ export type AdminOverviewPayload = {
   members: AdminMemberRow[];
   authSource: "supabase_admin" | "registry_only";
   pricing: AdminPricingSnapshot;
+  /** 帮助排查「列表为何为空」 */
+  meta: {
+    supabaseAuthCount: number;
+    registryCount: number;
+    /** 由 API 路由补充：是否配置了可列举 Auth 用户的服务端密钥 */
+    serviceRoleConfigured?: boolean;
+    /** 由 API 路由补充：是否检测到数据库连接串 */
+    databaseConfigured?: boolean;
+  };
 };
 
 function browseOf(map: Map<string, BrowseTopicsSummary>, userId: string): BrowseTopicsSummary {
@@ -143,5 +152,9 @@ export async function buildAdminOverview(params: {
     members: rows,
     authSource: source,
     pricing: getAdminPricingSnapshot(),
+    meta: {
+      supabaseAuthCount: params.authUsers.length,
+      registryCount: registry.length,
+    },
   };
 }

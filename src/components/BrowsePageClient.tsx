@@ -21,7 +21,6 @@ import { filterBrowseHitsByPublishedAge, effectiveMaxPublishedAgeDays } from "@/
 import { BROWSE_DEFAULT_MAX_PUBLISHED_AGE_DAYS } from "@/lib/browse-defaults";
 import { BrowseHitCard } from "@/components/BrowseHitCard";
 import { createBrowseUiDemoHit, isBrowseUiDemoHit } from "@/lib/browse-demo-preview";
-import { WeeklyAccountEntry } from "@/components/WeeklyAccountEntry";
 
 function TopicTabButton({
   t,
@@ -78,13 +77,7 @@ function TopicTabButton({
   );
 }
 
-export default function BrowsePageClient({
-  userEmail,
-  showAdmin,
-}: {
-  userEmail?: string | null;
-  showAdmin?: boolean;
-}) {
+export default function BrowsePageClient() {
   const [topics, setTopics] = useState<BrowseTopic[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [hits, setHits] = useState<BrowseStoredHit[]>([]);
@@ -657,7 +650,7 @@ export default function BrowsePageClient({
 
   return (
     <>
-      <header className="app-header browse-header-row app-header-with-actions">
+      <header className="app-header browse-header-row">
         <div className="app-header-titles">
           <h1
             className="browse-title-refresh"
@@ -672,7 +665,6 @@ export default function BrowsePageClient({
             默认按原文发布时间排序；首次刷新约近 3 个月窗、增量只补新链接；自首次收录起约保留 90 天。双击标题可重置当前主题缓存。
           </span>
         </div>
-        <WeeklyAccountEntry email={userEmail ?? null} showAdmin={showAdmin} />
       </header>
 
       <div
