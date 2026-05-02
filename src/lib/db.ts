@@ -2,6 +2,7 @@ import { Pool } from "pg";
 import { randomUUID } from "node:crypto";
 import { isAuthEnabled } from "./auth";
 import type { Article, BrowseTopic } from "./types";
+import type { MediaKind } from "./media-kind";
 import type { BrowseTopicFeed, BrowseStoredHit } from "./browse-storage";
 
 /**
@@ -19,8 +20,9 @@ function devFallbackArticles(): Article[] {
       author: "本地演示",
       domain: "example.com",
       theme: "效率 / 工具",
-      customTags: ["演示"],
       featured: false,
+      mediaType: "article",
+      titleZh: "",
       summary: "用于本地开发演示：在待读列表中可见，向左滑动卡片可露出「已读」按钮。",
       language: "zh",
       charCount: 120,
@@ -44,8 +46,9 @@ function devFallbackArticles(): Article[] {
       author: "本地演示",
       domain: "example.com",
       theme: "产品 / 设计",
-      customTags: ["复盘"],
       featured: true,
+      mediaType: "article",
+      titleZh: "",
       summary: "已读列表示例：包含完整读后输出，可从「更多」里编辑信息或删除。",
       language: "zh",
       charCount: 150,
@@ -107,7 +110,6 @@ async function ensureSchema(): Promise<void> {
           author TEXT NOT NULL DEFAULT '未知作者',
           domain TEXT NOT NULL,
           theme TEXT NOT NULL,
-          custom_tags JSONB NOT NULL DEFAULT '[]'::jsonb,
           featured BOOLEAN NOT NULL DEFAULT FALSE,
           summary TEXT NOT NULL,
           language TEXT NOT NULL,
@@ -135,7 +137,6 @@ async function ensureSchema(): Promise<void> {
       `);
       await p.query(`
         ALTER TABLE articles ADD COLUMN IF NOT EXISTS author TEXT NOT NULL DEFAULT '未知作者';
-        ALTER TABLE articles ADD COLUMN IF NOT EXISTS custom_tags JSONB NOT NULL DEFAULT '[]'::jsonb;
         ALTER TABLE articles ADD COLUMN IF NOT EXISTS featured BOOLEAN NOT NULL DEFAULT FALSE;
         ALTER TABLE articles ADD COLUMN IF NOT EXISTS read_one_liner TEXT NOT NULL DEFAULT '';
         ALTER TABLE articles ADD COLUMN IF NOT EXISTS read_key_points JSONB NOT NULL DEFAULT '[]'::jsonb;
@@ -164,6 +165,10 @@ async function ensureSchema(): Promise<void> {
         );
         CREATE INDEX IF NOT EXISTS idx_browse_topic_feeds_updated ON browse_topic_feeds(updated_at);
       `);
+      await p.query(`
+        ALTER TABLE articles ADD COLUMN IF NOT EXISTS title_zh TEXT NOT NULL DEFAULT '';
+      `);
+      await p.query(`ALTER TABLE articles DROP COLUMN IF EXISTS custom_tags;`);
       await seedDemoIfEmpty(p);
     })().catch((err) => {
       schemaReady = null;
@@ -188,22 +193,22 @@ async function seedDemoIfEmpty(p: Pool): Promise<void> {
 
   await p.query(
     `INSERT INTO articles (
-      id, url, title, author, domain, theme, custom_tags, featured, summary, language, char_count, word_count,
+      id, url, title, title_zh, author, domain, theme, featured, summary, language, char_count, word_count,
       estimated_minutes, recommended_depth, knowledge_tags, status, added_at, due_date, completed_at,
-      read_one_liner, read_key_points, read_action, raw_excerpt, user_id
+      read_one_liner, read_key_points, read_action, raw_excerpt, media_type, user_id
     ) VALUES (
-      $1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12,
+      $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
       $13, $14, $15::jsonb, $16, $17::timestamptz, $18::date, $19::timestamptz,
-      $20, $21::jsonb, $22, $23, $24
+      $20, $21::jsonb, $22, $23, $24, $25
     )`,
     [
       todoId,
       "https://example.com/demo-todo",
       "示例 · 待读（可左滑露出已读）",
+      "",
       "本地演示",
       "example.com",
       "效率 / 工具",
-      JSON.stringify(["演示"]),
       false,
       "用于本地开发演示：在待读列表中可见，向左滑动卡片可露出「已读」按钮。",
       "zh",
@@ -220,28 +225,29 @@ async function seedDemoIfEmpty(p: Pool): Promise<void> {
       JSON.stringify([]),
       "",
       excerpt,
+      "article",
       null,
     ],
   );
 
   await p.query(
     `INSERT INTO articles (
-      id, url, title, author, domain, theme, custom_tags, featured, summary, language, char_count, word_count,
+      id, url, title, title_zh, author, domain, theme, featured, summary, language, char_count, word_count,
       estimated_minutes, recommended_depth, knowledge_tags, status, added_at, due_date, completed_at,
-      read_one_liner, read_key_points, read_action, raw_excerpt, user_id
+      read_one_liner, read_key_points, read_action, raw_excerpt, media_type, user_id
     ) VALUES (
-      $1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12,
+      $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
       $13, $14, $15::jsonb, $16, $17::timestamptz, $18::date, $19::timestamptz,
-      $20, $21::jsonb, $22, $23, $24
+      $20, $21::jsonb, $22, $23, $24, $25
     )`,
     [
       doneId,
       "https://example.com/demo-done",
       "示例 · 已读（含读后笔记）",
+      "",
       "本地演示",
       "example.com",
       "产品 / 设计",
-      JSON.stringify(["复盘"]),
       true,
       "已读列表示例：包含完整读后输出，可从「更多」里编辑信息或删除。",
       "zh",
@@ -258,6 +264,7 @@ async function seedDemoIfEmpty(p: Pool): Promise<void> {
       JSON.stringify(["演示观点一", "演示观点二", "演示观点三"]),
       "在本周复盘里跟进一条行动项。",
       excerpt,
+      "article",
       null,
     ],
   );
@@ -270,7 +277,6 @@ interface ArticleRow {
   author: string;
   domain: string;
   theme: string;
-  custom_tags: string[] | string;
   featured: boolean;
   summary: string;
   language: string;
@@ -287,6 +293,13 @@ interface ArticleRow {
   read_key_points?: string[] | string | null;
   read_action?: string | null;
   raw_excerpt: string;
+  media_type?: string | null;
+  title_zh?: string | null;
+}
+
+function normalizeMediaType(raw: string | null | undefined): MediaKind {
+  if (raw === "video" || raw === "audio" || raw === "article") return raw;
+  return "article";
 }
 
 /** JSONB / 历史脏数据容错：保证解析结果为数组或回退 [] */
@@ -318,9 +331,7 @@ function normalizeDueDateIso(raw: unknown): string {
 
 function rowToArticle(row: ArticleRow): Article {
   const rawKt = safeJsonArray(row.knowledge_tags);
-  const rawCt = safeJsonArray(row.custom_tags);
   const knowledgeTags: string[] = Array.isArray(rawKt) ? rawKt.map(String) : [];
-  const customTags: string[] = Array.isArray(rawCt) ? rawCt.map(String) : [];
   const readKeyPointsRaw =
     row.read_key_points === undefined || row.read_key_points === null
       ? []
@@ -335,11 +346,12 @@ function rowToArticle(row: ArticleRow): Article {
     id: row.id,
     url: row.url,
     title: row.title,
+    titleZh: row.title_zh?.trim() || "",
     author: row.author || "未知作者",
     domain: row.domain,
     theme: row.theme,
-    customTags,
     featured: Boolean(row.featured),
+    mediaType: normalizeMediaType(row.media_type),
     summary: row.summary,
     language: row.language as Article["language"],
     charCount: row.char_count,
@@ -366,22 +378,22 @@ export async function insertArticle(article: Article, ownerUserId: string | null
   if (isAuthEnabled() && !uid) throw new Error("auth_required");
   await p.query(
     `INSERT INTO articles (
-      id, url, title, author, domain, theme, custom_tags, featured, summary, language, char_count, word_count,
+      id, url, title, title_zh, author, domain, theme, featured, summary, language, char_count, word_count,
       estimated_minutes, recommended_depth, knowledge_tags, status, added_at, due_date, completed_at,
-      read_one_liner, read_key_points, read_action, raw_excerpt, user_id
+      read_one_liner, read_key_points, read_action, raw_excerpt, media_type, user_id
     ) VALUES (
-      $1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12,
+      $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
       $13, $14, $15::jsonb, $16, $17::timestamptz, $18::date, $19::timestamptz,
-      $20, $21::jsonb, $22, $23, $24
+      $20, $21::jsonb, $22, $23, $24, $25
     )`,
     [
       article.id,
       article.url,
       article.title,
+      article.titleZh || "",
       article.author || "未知作者",
       article.domain,
       article.theme,
-      JSON.stringify(article.customTags || []),
       article.featured,
       article.summary,
       article.language,
@@ -398,6 +410,7 @@ export async function insertArticle(article: Article, ownerUserId: string | null
       JSON.stringify(article.readKeyPoints || []),
       article.readAction || "",
       article.rawExcerpt,
+      article.mediaType || "article",
       uid,
     ],
   );
@@ -412,9 +425,9 @@ export async function updateArticle(article: Article, ownerUserId: string | null
     await p.query(
       `UPDATE articles SET
       title = $1,
-      author = $2,
-      theme = $3,
-      custom_tags = $4::jsonb,
+      title_zh = $2,
+      author = $3,
+      theme = $4,
       featured = $5,
       summary = $6,
       language = $7,
@@ -429,13 +442,14 @@ export async function updateArticle(article: Article, ownerUserId: string | null
       read_one_liner = $16,
       read_key_points = $17::jsonb,
       read_action = $18,
-      raw_excerpt = $19
-    WHERE id = $20 AND user_id = $21`,
+      media_type = $19,
+      raw_excerpt = $20
+    WHERE id = $21 AND user_id = $22`,
       [
         article.title,
+        article.titleZh || "",
         article.author || "未知作者",
         article.theme,
-        JSON.stringify(article.customTags || []),
         article.featured,
         article.summary,
         article.language,
@@ -450,6 +464,7 @@ export async function updateArticle(article: Article, ownerUserId: string | null
         article.readOneLiner || "",
         JSON.stringify(article.readKeyPoints || []),
         article.readAction || "",
+        article.mediaType || "article",
         article.rawExcerpt,
         article.id,
         ownerUserId,
@@ -460,9 +475,9 @@ export async function updateArticle(article: Article, ownerUserId: string | null
   await p.query(
     `UPDATE articles SET
       title = $1,
-      author = $2,
-      theme = $3,
-      custom_tags = $4::jsonb,
+      title_zh = $2,
+      author = $3,
+      theme = $4,
       featured = $5,
       summary = $6,
       language = $7,
@@ -477,13 +492,14 @@ export async function updateArticle(article: Article, ownerUserId: string | null
       read_one_liner = $16,
       read_key_points = $17::jsonb,
       read_action = $18,
-      raw_excerpt = $19
-    WHERE id = $20`,
+      media_type = $19,
+      raw_excerpt = $20
+    WHERE id = $21`,
     [
       article.title,
+      article.titleZh || "",
       article.author || "未知作者",
       article.theme,
-      JSON.stringify(article.customTags || []),
       article.featured,
       article.summary,
       article.language,
@@ -498,6 +514,7 @@ export async function updateArticle(article: Article, ownerUserId: string | null
       article.readOneLiner || "",
       JSON.stringify(article.readKeyPoints || []),
       article.readAction || "",
+      article.mediaType || "article",
       article.rawExcerpt,
       article.id,
     ],

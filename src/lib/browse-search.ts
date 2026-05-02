@@ -8,7 +8,15 @@ import {
   normalizePublishedToIso,
   resolveBrowsePublishedTime,
 } from "@/lib/browse-published";
-import { countChars, countWords, detectLanguage, estimateMinutes } from "@/lib/classify";
+import {
+  detectLanguage,
+  estimateReadingMinutesCalibrated,
+} from "@/lib/classify";
+import {
+  detectMediaKindFromSignals,
+  detectMediaKindFromUrl,
+  extractDurationSecondsFromMetadataDeep,
+} from "@/lib/media-kind";
 
 /** 主搜：条数少一些省抓取配额 */
 const BROWSE_SEARCH_LIMIT_PRIMARY = 10;
@@ -22,9 +30,35 @@ export const BROWSE_TBS_MAX_DAYS_BOOTSTRAP = 186;
 
 export { browseTopicToQuery };
 
-function estimateBrowseReadMinutes(summary: string, excerpt: string, description: string): number {
-  const body = `${summary}\n${excerpt}\n${description}`;
-  return estimateMinutes(countChars(body), countWords(body), detectLanguage(body));
+function metaOgType(meta: unknown): string | undefined {
+  if (!meta || typeof meta !== "object") return undefined;
+  const m = meta as Record<string, unknown>;
+  for (const k of ["og:type", "ogType"]) {
+    const v = m[k];
+    if (typeof v === "string" && v.trim()) return v.trim();
+  }
+  return undefined;
+}
+
+function estimateBrowseReadMinutes(
+  url: string,
+  title: string,
+  summary: string,
+  excerpt: string,
+  description: string,
+  meta: unknown | undefined,
+): number {
+  const body = `${title}\n${summary}\n${excerpt}\n${description}`;
+  const lang = detectLanguage(body);
+  const metaRec = meta && typeof meta === "object" ? (meta as Record<string, unknown>) : undefined;
+  const durationSec = metaRec ? extractDurationSecondsFromMetadataDeep(metaRec) : null;
+  const kind = metaRec
+    ? detectMediaKindFromSignals(url, metaOgType(metaRec), title)
+    : detectMediaKindFromUrl(url);
+  return estimateReadingMinutesCalibrated(title, excerpt || summary, summary || description, lang, {
+    mediaKind: kind,
+    durationSeconds: durationSec,
+  });
 }
 
 function isFullDocument(item: SearchResultWeb | Document): item is Document {
@@ -122,7 +156,7 @@ export async function fetchBrowseHits(
         if (!url || seen.has(url)) continue;
         seen.add(url);
         const description = (w.description || "").trim();
-        const est = estimateBrowseReadMinutes(description, description, description);
+        const est = estimateBrowseReadMinutes(url, (w.title || "无标题").trim(), description, description, description, undefined);
         const publishedTime =
           resolveBrowsePublishedTime({
             serpDescription: description,
@@ -166,7 +200,7 @@ export async function fetchBrowseHits(
           newsDate: newsMap.get(normalizeBrowseUrlKey(url)) ?? null,
         }) ?? null;
       const authorRaw = pickAuthorFromMetadata(meta);
-      const est = estimateBrowseReadMinutes(summary, excerpt || description, description);
+      const est = estimateBrowseReadMinutes(url, title, summary, excerpt || description, description, meta);
       hits.push({
         url,
         title,

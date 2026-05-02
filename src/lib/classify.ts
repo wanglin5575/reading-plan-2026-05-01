@@ -1,4 +1,5 @@
 import type { Article, ReadingDepth } from "./types";
+import type { MediaKind } from "./media-kind";
 import { translateToChinese } from "./translate-zh";
 
 const THEME_RULES: { theme: string; words: string[] }[] = [
@@ -103,6 +104,39 @@ export function estimateMinutes(charCount: number, wordCount: number, language: 
   return Math.max(1, Math.round((charCount / 350 + wordCount / 220) / 2));
 }
 
+/** 综合正文、标题与摘要长度，以及音视频时长，估算消费分钟数 */
+export function estimateReadingMinutesCalibrated(
+  title: string,
+  body: string,
+  summaryForSizing: string,
+  language: "zh" | "en" | "mixed",
+  opts?: { mediaKind?: MediaKind; durationSeconds?: number | null },
+): number {
+  if (opts?.durationSeconds != null && opts.durationSeconds >= 30) {
+    return Math.max(1, Math.round(opts.durationSeconds / 60));
+  }
+
+  const titlePart = title.trim();
+  const sumPart = summaryForSizing.trim();
+  const bodyPart = body.trim();
+  const combined = `${titlePart}\n\n${sumPart}\n\n${bodyPart}`;
+  const charCount = countChars(combined);
+  const wordCount = countWords(combined);
+  let base = estimateMinutes(charCount, wordCount, language);
+
+  const kind = opts?.mediaKind ?? "article";
+  if (kind === "video") {
+    base = Math.max(base, Math.round((charCount || 400) / 500) + 5);
+    return Math.max(4, Math.min(base, 180));
+  }
+  if (kind === "audio") {
+    base = Math.max(base, Math.round((charCount || 600) / 400) + 8);
+    return Math.max(5, Math.min(base, 240));
+  }
+
+  return Math.max(2, Math.min(base, 600));
+}
+
 export function recommendDepth(charCount: number, theme: string): ReadingDepth {
   const isPrimary = ["AI / 大模型", "产品", "数据", "工程 / 技术"].includes(theme);
   if (charCount > 3500 && isPrimary) return "deep";
@@ -142,21 +176,24 @@ export async function buildArticleClassification(
   url: string,
   rawTitle: string,
   rawBody: string,
+  opts?: { mediaKind?: MediaKind; durationSeconds?: number | null },
 ): Promise<
   Pick<
-  Article,
-  | "title"
-  | "domain"
-  | "theme"
-  | "summary"
-  | "language"
-  | "charCount"
-  | "wordCount"
-  | "estimatedMinutes"
-  | "recommendedDepth"
-  | "knowledgeTags"
-  | "rawExcerpt"
->
+    Article,
+    | "title"
+    | "domain"
+    | "theme"
+    | "summary"
+    | "language"
+    | "charCount"
+    | "wordCount"
+    | "estimatedMinutes"
+    | "recommendedDepth"
+    | "knowledgeTags"
+    | "rawExcerpt"
+    | "mediaType"
+    | "titleZh"
+  >
 > {
   const title = (rawTitle || url).trim().slice(0, 200);
   const body = rawBody || "";
@@ -166,18 +203,29 @@ export async function buildArticleClassification(
   const theme = classifyTheme(title, body, url);
   const summary = makeSummary(body);
   const summaryZh = await translateToChinese(summary || "(暂无摘要)");
+  let titleZh = "";
+  if (lang === "en") {
+    const t = (await translateToChinese(title)).trim();
+    if (t && t !== title) titleZh = t.slice(0, 400);
+  }
+  const est = estimateReadingMinutesCalibrated(title, body, summaryZh, lang, {
+    mediaKind: opts?.mediaKind,
+    durationSeconds: opts?.durationSeconds,
+  });
 
   return {
     title,
+    titleZh,
     domain: getDomain(url),
     theme,
     summary: summaryZh || "(暂无摘要)",
     language: lang,
     charCount,
     wordCount,
-    estimatedMinutes: estimateMinutes(charCount, wordCount, lang),
-    recommendedDepth: recommendDepth(charCount, theme),
+    estimatedMinutes: est,
+    recommendedDepth: recommendDepth(Math.max(charCount, countChars(title) * 2), theme),
     knowledgeTags: extractKnowledgeTags(title, body),
     rawExcerpt: body.slice(0, 500),
+    mediaType: opts?.mediaKind ?? "article",
   };
 }

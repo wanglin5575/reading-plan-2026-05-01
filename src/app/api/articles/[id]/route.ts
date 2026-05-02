@@ -7,6 +7,11 @@ import { normalizeKeyPoints, validateReadDigest } from "@/lib/read-digest";
 
 export const dynamic = "force-dynamic";
 
+function parseMediaPatch(v: unknown): "article" | "video" | "audio" | undefined {
+  if (v === "article" || v === "video" || v === "audio") return v;
+  return undefined;
+}
+
 function applyDigest(article: Article, one: string, points: string[], action: string) {
   article.readOneLiner = one.trim();
   article.readKeyPoints = points;
@@ -27,11 +32,13 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     dueDate?: string;
     theme?: string;
     author?: string;
-    customTags?: string[];
     featured?: boolean;
     readOneLiner?: string;
     readKeyPoints?: string[];
     readAction?: string;
+    summary?: string;
+    mediaType?: unknown;
+    estimatedMinutes?: unknown;
   };
   try {
     body = await req.json();
@@ -80,10 +87,20 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   if (body.dueDate) article.dueDate = body.dueDate;
   if (body.theme) article.theme = body.theme;
   if (typeof body.author === "string") article.author = body.author.trim() || "未知作者";
-  if (Array.isArray(body.customTags)) article.customTags = body.customTags.slice(0, 12);
   if (typeof body.featured === "boolean") {
     article.featured = body.featured;
     article.recommendedDepth = body.featured ? "deep" : "skim";
+  }
+
+  if (typeof body.summary === "string") {
+    const s = body.summary.trim();
+    if (s) article.summary = s;
+  }
+  const mt = parseMediaPatch(body.mediaType);
+  if (mt) article.mediaType = mt;
+  if (typeof body.estimatedMinutes === "number" && Number.isFinite(body.estimatedMinutes)) {
+    const m = Math.round(body.estimatedMinutes);
+    if (m >= 1 && m <= 24 * 60) article.estimatedMinutes = m;
   }
 
   try {

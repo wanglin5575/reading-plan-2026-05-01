@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { type Article, isIntensiveRead } from "@/lib/types";
 import { useSwipeCardFace } from "@/lib/useSwipeCardFace";
+import { MEDIA_KIND_LABEL } from "@/lib/media-kind";
 
 interface Props {
   article: Article;
@@ -14,6 +15,15 @@ interface Props {
 }
 
 type DigestMode = "markDone" | "edit";
+
+function formatReadCompletedDateYmd(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso.slice(0, 10);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
 
 function joinKeyPointsProse(points: unknown[] | undefined): string {
   const parts = (Array.isArray(points) ? points : [])
@@ -26,20 +36,18 @@ function joinKeyPointsProse(points: unknown[] | undefined): string {
 function ArticleSummaryFooter({ summary }: { summary: string }) {
   const [expanded, setExpanded] = useState(false);
   return (
-    <div className="article-summary-footer">
-      <p className={`article-summary-footer-text ${expanded ? "is-expanded" : "is-collapsed"}`}>{summary}</p>
-      <button
-        type="button"
-        className="article-summary-footer-toggle"
-        onClick={() => setExpanded((v) => !v)}
-        aria-expanded={expanded}
-        aria-label={expanded ? "收起原文摘要" : "展开原文摘要"}
-      >
-        <span className={`article-summary-footer-chevron ${expanded ? "is-expanded" : ""}`} aria-hidden>
-          &gt;&gt;
-        </span>
-      </button>
-    </div>
+    <button
+      type="button"
+      className="article-summary-footer article-summary-footer-toggle"
+      onClick={() => setExpanded((v) => !v)}
+      aria-expanded={expanded}
+      aria-label={expanded ? "收起原文摘要" : "展开原文摘要"}
+    >
+      <span className={`article-summary-footer-text ${expanded ? "is-expanded" : "is-collapsed"}`}>{summary}</span>
+      <span className={`article-summary-footer-chevron ${expanded ? "is-expanded" : ""}`} aria-hidden>
+        &gt;&gt;
+      </span>
+    </button>
   );
 }
 
@@ -115,6 +123,8 @@ export function ArticleCard({ article, showActions = true, collapseOriginalSumma
   const [digestMode, setDigestMode] = useState<DigestMode>("markDone");
   const [moreOpen, setMoreOpen] = useState(false);
   const [morePos, setMorePos] = useState<{ top: number; left: number } | null>(null);
+  const [summaryOpen, setSummaryOpen] = useState(false);
+  const [summaryDraft, setSummaryDraft] = useState(article.summary || "");
 
   const moreBtnRef = useRef<HTMLButtonElement>(null);
   const morePopRef = useRef<HTMLDivElement>(null);
@@ -126,7 +136,6 @@ export function ArticleCard({ article, showActions = true, collapseOriginalSumma
   const [theme, setTheme] = useState(article.theme);
   const [author, setAuthor] = useState(article.author || "");
   const [intensiveRead, setIntensiveRead] = useState(() => isIntensiveRead(article));
-  const [tagsText, setTagsText] = useState((article.customTags || []).join(", "));
   const [readOneLiner, setReadOneLiner] = useState(article.readOneLiner || "");
   const [kp1, setKp1] = useState(article.readKeyPoints?.[0] || "");
   const [kp2, setKp2] = useState(article.readKeyPoints?.[1] || "");
@@ -140,12 +149,12 @@ export function ArticleCard({ article, showActions = true, collapseOriginalSumma
     setTheme(article.theme);
     setAuthor(article.author || "");
     setIntensiveRead(isIntensiveRead(article));
-    setTagsText((article.customTags || []).join(", "));
     setReadOneLiner(article.readOneLiner || "");
     setKp1(article.readKeyPoints?.[0] || "");
     setKp2(article.readKeyPoints?.[1] || "");
     setKp3(article.readKeyPoints?.[2] || "");
     setReadAction(article.readAction || "");
+    setSummaryDraft(article.summary || "");
   }, [
     article.id,
     article.dueDate,
@@ -154,10 +163,11 @@ export function ArticleCard({ article, showActions = true, collapseOriginalSumma
     article.featured,
     article.recommendedDepth,
     article.summary,
+    article.titleZh,
+    article.language,
     article.readOneLiner,
     article.readAction,
     article.status,
-    JSON.stringify(article.customTags || []),
     JSON.stringify(article.readKeyPoints || []),
   ]);
 
@@ -167,10 +177,11 @@ export function ArticleCard({ article, showActions = true, collapseOriginalSumma
     setMoreOpen(false);
     setMorePos(null);
   }, []);
+  const closeSummary = useCallback(() => setSummaryOpen(false), []);
 
   useEffect(() => {
-    if (metaOpen || digestOpen || moreOpen) swipe.resetOffset();
-  }, [metaOpen, digestOpen, moreOpen, swipe.resetOffset]);
+    if (metaOpen || digestOpen || moreOpen || summaryOpen) swipe.resetOffset();
+  }, [metaOpen, digestOpen, moreOpen, summaryOpen, swipe.resetOffset]);
 
   useEffect(() => {
     if (!moreOpen) return;
@@ -185,25 +196,26 @@ export function ArticleCard({ article, showActions = true, collapseOriginalSumma
   }, [moreOpen, closeMore]);
 
   useEffect(() => {
-    if (!metaOpen && !digestOpen) return;
+    if (!metaOpen && !digestOpen && !summaryOpen) return;
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
       document.body.style.overflow = prev;
     };
-  }, [metaOpen, digestOpen]);
+  }, [metaOpen, digestOpen, summaryOpen]);
 
   useEffect(() => {
-    if (!metaOpen && !digestOpen) return;
+    if (!metaOpen && !digestOpen && !summaryOpen) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         if (digestOpen) closeDigest();
+        else if (summaryOpen) closeSummary();
         else closeMeta();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [metaOpen, digestOpen, closeMeta, closeDigest]);
+  }, [metaOpen, digestOpen, summaryOpen, closeMeta, closeDigest, closeSummary]);
 
   function toggleMore(e: React.MouseEvent) {
     e.stopPropagation();
@@ -214,15 +226,13 @@ export function ArticleCard({ article, showActions = true, collapseOriginalSumma
     const el = moreBtnRef.current;
     if (!el) return;
     const r = el.getBoundingClientRect();
-    const w = 172;
+    const w = 200;
     setMorePos({
       top: r.bottom + 6,
       left: Math.max(8, Math.min(r.right - w, window.innerWidth - w - 8)),
     });
     setMoreOpen(true);
   }
-
-  const status = computeStatus(article);
 
   async function call(method: "PATCH" | "DELETE", body?: object): Promise<boolean> {
     setBusy(true);
@@ -253,13 +263,22 @@ export function ArticleCard({ article, showActions = true, collapseOriginalSumma
       theme: theme.trim(),
       author: author.trim(),
       featured: intensiveRead,
-      customTags: tagsText
-        .split(",")
-        .map((t) => t.trim())
-        .filter(Boolean),
     });
     if (ok) {
       closeMeta();
+      closeMore();
+    }
+  }
+
+  async function saveSummaryEdit() {
+    const s = summaryDraft.trim();
+    if (!s) {
+      alert("摘要不能为空。");
+      return;
+    }
+    const ok = await call("PATCH", { summary: s });
+    if (ok) {
+      closeSummary();
       closeMore();
     }
   }
@@ -328,10 +347,10 @@ export function ArticleCard({ article, showActions = true, collapseOriginalSumma
     <div className="article-card-top">
       <div className="meta-row article-card-meta">
         <span className="tag theme">{article.theme}</span>
+        <span className="tag media-kind">{MEDIA_KIND_LABEL[article.mediaType]}</span>
         <span className={`tag ${isIntensiveRead(article) ? "deep" : "skim"}`}>
           {isIntensiveRead(article) ? "重点精读" : "快速扫览"}
         </span>
-        <span className={`tag ${status.kind}`}>{status.label}</span>
         <span>{article.estimatedMinutes} 分钟</span>
       </div>
       {showActions && (
@@ -361,7 +380,24 @@ export function ArticleCard({ article, showActions = true, collapseOriginalSumma
       <ArticleTitleLink url={article.url}>
         <h3 className="title">{article.title}</h3>
       </ArticleTitleLink>
-      <div className="muted-link">作者：{article.author || "未知作者"}</div>
+      {article.language === "en" && article.titleZh ? (
+        <div className="article-card-source">
+          <p className="article-card-title-zh-muted">{article.titleZh}</p>
+        </div>
+      ) : null}
+      <div className="article-card-byline">
+        <span className="article-card-byline-author muted-link">作者：{article.author || "未知作者"}</span>
+        {article.status === "todo" && (
+          <span className="article-card-byline-due muted-link" title="预期完成阅读日期">
+            预期 {article.dueDate} 读完
+          </span>
+        )}
+        {article.status === "done" && article.completedAt ? (
+          <span className="article-card-byline-due muted-link" title="标记为已读的日期">
+            已于 {formatReadCompletedDateYmd(article.completedAt)} 读完
+          </span>
+        ) : null}
+      </div>
 
       {article.status === "todo" && showSummaryInBody && (
         <p className="summary">{article.summary}</p>
@@ -386,15 +422,6 @@ export function ArticleCard({ article, showActions = true, collapseOriginalSumma
         <div className="meta-row" style={{ marginTop: 6 }}>
           {article.knowledgeTags.slice(0, 6).map((tag) => (
             <span key={tag} className="meta-tags-knowledge">
-              #{tag}
-            </span>
-          ))}
-        </div>
-      )}
-      {Array.isArray(article.customTags) && article.customTags.length > 0 && (
-        <div className="meta-row" style={{ marginTop: 4 }}>
-          {article.customTags.map((tag) => (
-            <span key={tag} className="tag theme">
               #{tag}
             </span>
           ))}
@@ -437,13 +464,6 @@ export function ArticleCard({ article, showActions = true, collapseOriginalSumma
             <input className="input" value={author} onChange={(e) => setAuthor(e.target.value)} placeholder="作者" />
             <label className="muted-link">主题标签</label>
             <input className="input" value={theme} onChange={(e) => setTheme(e.target.value)} placeholder="主题标签" />
-            <label className="muted-link">自定义标签（用逗号分隔）</label>
-            <input
-              className="input"
-              value={tagsText}
-              onChange={(e) => setTagsText(e.target.value)}
-              placeholder="自定义标签（用逗号分隔）"
-            />
             <label className="featured-check-row">
               <input
                 type="checkbox"
@@ -520,6 +540,50 @@ export function ArticleCard({ article, showActions = true, collapseOriginalSumma
     </div>
   );
 
+  const summaryModal = mounted && summaryOpen && (
+    <div
+      className="modal-backdrop"
+      role="presentation"
+      onClick={(e) => e.target === e.currentTarget && closeSummary()}
+    >
+      <div
+        className="modal-sheet"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="article-summary-modal-title"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="modal-sheet-header">
+          <h2 id="article-summary-modal-title">修改文章摘要</h2>
+          <button type="button" className="modal-sheet-close" onClick={closeSummary} aria-label="关闭">
+            ×
+          </button>
+        </div>
+        <div className="modal-sheet-body">
+          <div className="row">
+            <label className="muted-link">摘要（保存后同步到待读/已读卡片）</label>
+            <textarea
+              className="input textarea-input"
+              rows={6}
+              value={summaryDraft}
+              onChange={(e) => setSummaryDraft(e.target.value)}
+              placeholder="手动校对或改写自动摘要…"
+              aria-label="文章摘要"
+            />
+          </div>
+        </div>
+        <div className="modal-sheet-footer">
+          <button className="btn secondary" type="button" disabled={busy} onClick={saveSummaryEdit}>
+            保存
+          </button>
+          <button className="btn secondary" type="button" disabled={busy} onClick={closeSummary}>
+            取消
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
   const moreMenu =
     mounted && showActions && moreOpen && morePos
       ? createPortal(
@@ -529,6 +593,18 @@ export function ArticleCard({ article, showActions = true, collapseOriginalSumma
             style={{ top: morePos.top, left: morePos.left }}
             role="menu"
           >
+            <button
+              type="button"
+              className="article-more-item"
+              role="menuitem"
+              onClick={() => {
+                setSummaryDraft(article.summary || "");
+                closeMore();
+                setSummaryOpen(true);
+              }}
+            >
+              修改摘要
+            </button>
             <button
               type="button"
               className="article-more-item"
@@ -614,6 +690,7 @@ export function ArticleCard({ article, showActions = true, collapseOriginalSumma
         {moreMenu}
         {metaModal && createPortal(metaModal, document.body)}
         {digestModal && createPortal(digestModal, document.body)}
+        {summaryModal && createPortal(summaryModal, document.body)}
       </>
     );
   }
@@ -626,16 +703,7 @@ export function ArticleCard({ article, showActions = true, collapseOriginalSumma
       {moreMenu}
       {metaModal && createPortal(metaModal, document.body)}
       {digestModal && createPortal(digestModal, document.body)}
+      {summaryModal && createPortal(summaryModal, document.body)}
     </>
   );
-}
-
-function computeStatus(article: Article): { kind: string; label: string } {
-  if (article.status === "done") return { kind: "done", label: "已读" };
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const due = new Date(article.dueDate + "T00:00:00");
-  if (due < today) return { kind: "overdue", label: "逾期" };
-  if (due.getTime() === today.getTime()) return { kind: "today", label: "今日" };
-  return { kind: "future", label: `${article.dueDate} 前` };
 }

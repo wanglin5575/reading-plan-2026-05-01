@@ -17,9 +17,12 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
   if (!article) return NextResponse.json({ error: "not_found" }, { status: 404 });
 
   const scraped = await scrapeUrl(article.url);
-  const cls = await buildArticleClassification(article.url, scraped.title, scraped.body);
+  const cls = await buildArticleClassification(article.url, scraped.title, scraped.body, {
+    mediaKind: scraped.mediaKind,
+    durationSeconds: scraped.durationSeconds,
+  });
 
-  const updated = { ...article, ...cls };
+  const updated = { ...article, ...cls, author: scraped.author?.trim() || article.author || "未知作者" };
   try {
     await updateArticle(updated, ownerId ?? null);
     return NextResponse.json({ article: updated });

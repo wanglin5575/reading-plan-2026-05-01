@@ -18,6 +18,7 @@ import {
   type BrowseTopicFeed,
 } from "@/lib/browse-storage";
 import { BrowseHitCard } from "@/components/BrowseHitCard";
+import { createBrowseUiDemoHit, isBrowseUiDemoHit } from "@/lib/browse-demo-preview";
 
 function TopicTabButton({
   t,
@@ -483,6 +484,10 @@ export default function BrowsePageClient() {
   }
 
   function openBrowseMarkDone(hit: BrowseStoredHit) {
+    if (isBrowseUiDemoHit(hit)) {
+      setMsg("此为开发环境示例卡片，不会加入已读。");
+      return;
+    }
     setMarkDoneHit(hit);
     setRdOne("");
     setRdK1("");
@@ -501,6 +506,10 @@ export default function BrowsePageClient() {
 
   async function addHitToPlanTodo(hit: BrowseStoredHit) {
     if (busyUrl) return;
+    if (isBrowseUiDemoHit(hit)) {
+      setMsg("此为开发环境示例卡片，不会加入待读。");
+      return;
+    }
     setBusyUrl(hit.url);
     setMsg(null);
     try {
@@ -526,6 +535,10 @@ export default function BrowsePageClient() {
   async function submitBrowseMarkDone() {
     const hit = markDoneHit;
     if (!hit || busyUrl) return;
+    if (isBrowseUiDemoHit(hit)) {
+      setMsg("此为开发环境示例卡片，不会加入已读。");
+      return;
+    }
     const one = rdOne.trim();
     const action = rdAction.trim();
     const points = [rdK1.trim(), rdK2.trim(), rdK3.trim()];
@@ -563,6 +576,12 @@ export default function BrowsePageClient() {
   const active = topics.find((t) => t.id === activeId);
 
   const sortedHits = useMemo(() => sortBrowseItemsForDisplay(hits, sortBy), [hits, sortBy]);
+
+  /** 生产构建不包含开发示例（NODE_ENV 在客户端打包时固化） */
+  const hitsForUi = useMemo(() => {
+    if (process.env.NODE_ENV === "production") return sortedHits;
+    return [createBrowseUiDemoHit(active?.name ?? "示例主题"), ...sortedHits];
+  }, [sortedHits, active?.name]);
 
   const showPullVisual = pullPx > 4 || refreshing;
   const pullProgress = refreshing ? 1 : Math.min(1, pullPx / 48);
@@ -771,7 +790,7 @@ export default function BrowsePageClient() {
       )}
 
       <div className="browse-hits">
-        {!loadingTopics && activeId && hits.length === 0 && !refreshing && !autoPulling ? (
+        {!loadingTopics && activeId && hitsForUi.length === 0 && !refreshing && !autoPulling ? (
           <div className="browse-empty-center">
             <button
               type="button"
@@ -788,12 +807,13 @@ export default function BrowsePageClient() {
             </button>
           </div>
         ) : null}
-        {sortedHits.map((h) => (
+        {hitsForUi.map((h) => (
           <BrowseHitCard
-            key={h.url}
+            key={isBrowseUiDemoHit(h) ? "__browse_ui_demo__" : h.url}
             hit={h}
             topicName={active?.name ?? "—"}
             busy={busyUrl === h.url}
+            demo={isBrowseUiDemoHit(h)}
             onAddTodo={() => addHitToPlanTodo(h)}
             onAddDone={async () => {
               openBrowseMarkDone(h);

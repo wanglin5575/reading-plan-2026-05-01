@@ -1,13 +1,18 @@
+import type { MediaKind } from "./media-kind";
+
 export type ReadingDepth = "deep" | "skim";
 
 export interface Article {
   id: string;
   url: string;
   title: string;
+  /** 英文原标题的中文翻译，用于卡片在链接下展示；非英文稿为空字符串 */
+  titleZh: string;
   author: string;
   domain: string;
   theme: string;
-  customTags: string[];
+  /** 内容形态：文章 / 视频 / 音频 */
+  mediaType: MediaKind;
   featured: boolean;
   summary: string;
   language: "zh" | "en" | "mixed";

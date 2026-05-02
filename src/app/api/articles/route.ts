@@ -53,7 +53,10 @@ export async function POST(req: Request) {
 
   const dueDate = payload.dueDate || shiftDays(todayIso(), 2);
   const scraped = await scrapeUrl(parsed.toString());
-  const classification = await buildArticleClassification(parsed.toString(), scraped.title, scraped.body);
+  const classification = await buildArticleClassification(parsed.toString(), scraped.title, scraped.body, {
+    mediaKind: scraped.mediaKind,
+    durationSeconds: scraped.durationSeconds,
+  });
   const markIntensive = Boolean(payload.featured);
   const quickDone = Boolean(payload.quickDone);
   const topicHint =
@@ -85,7 +88,6 @@ export async function POST(req: Request) {
     dueDate,
     completedAt: quickDone ? new Date().toISOString() : null,
     author: scraped.author?.trim() || "未知作者",
-    customTags: quickDone ? ["随览"] : [],
     featured: markIntensive,
     readOneLiner: digest?.readOneLiner ?? "",
     readKeyPoints: digest?.readKeyPoints ?? [],

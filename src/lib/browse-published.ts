@@ -12,6 +12,9 @@ export function normalizePublishedToIso(raw: string | null | undefined): string 
 
   const t = Date.parse(s);
   if (Number.isNaN(t)) return null;
+  const now = Date.now();
+  /** 「发布时间」不应远晚于当前（多为误取定时/结构化噪声）；保留 ~36h 容忍时区与定时稿 */
+  if (t > now + 36 * 3600 * 1000) return null;
   const d = new Date(t);
   const y = d.getUTCFullYear();
   if (y < 1990 || y > new Date().getUTCFullYear() + 1) return null;

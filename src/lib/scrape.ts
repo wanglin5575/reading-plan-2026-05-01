@@ -1,29 +1,29 @@
 import FirecrawlApp from "@mendable/firecrawl-js";
+import type { MediaKind } from "@/lib/media-kind";
+import { detectMediaKindFromSignals, extractDurationSecondsFromMetadataDeep, parseIso8601DurationSeconds } from "@/lib/media-kind";
+import { resolveArticleAuthor } from "@/lib/author-resolve";
 
 export interface ScrapeResult {
   title: string;
   author: string;
   body: string;
   source: "firecrawl" | "fallback";
+  ogType?: string;
+  mediaKind: MediaKind;
+  durationSeconds: number | null;
+  rawMarkdown?: string;
+  metadata?: Record<string, unknown>;
 }
 
 interface FirecrawlScrapeData {
   markdown?: string;
-  metadata?: {
-    title?: string;
-    ogTitle?: string;
-    author?: string;
-  };
+  metadata?: Record<string, unknown>;
 }
 
 interface FirecrawlScrapeResponse {
   data?: FirecrawlScrapeData;
   markdown?: string;
-  metadata?: {
-    title?: string;
-    ogTitle?: string;
-    author?: string;
-  };
+  metadata?: Record<string, unknown>;
 }
 
 export async function scrapeUrl(url: string): Promise<ScrapeResult> {
@@ -38,18 +38,38 @@ export async function scrapeUrl(url: string): Promise<ScrapeResult> {
   return scrapeWithFallback(url);
 }
 
+function metaString(m: Record<string, unknown> | undefined, ...keys: string[]): string | undefined {
+  if (!m) return undefined;
+  for (const k of keys) {
+    const v = m[k];
+    if (typeof v === "string" && v.trim()) return v.trim();
+  }
+  return undefined;
+}
+
 async function scrapeWithFirecrawl(url: string, apiKey: string): Promise<ScrapeResult> {
   const client = new FirecrawlApp({ apiKey });
   const raw = (await client.scrape(url, { formats: ["markdown"] })) as unknown as FirecrawlScrapeResponse;
   const data = raw.data ?? raw;
-  const markdown = data?.markdown ?? "";
-  const title = data?.metadata?.title || data?.metadata?.ogTitle || "";
-  const author = data?.metadata?.author || "";
+  const markdown = data?.markdown ?? raw.markdown ?? "";
+  const meta = (data?.metadata ?? raw.metadata ?? {}) as Record<string, unknown>;
+  const title = metaString(meta, "title", "ogTitle", "og:title") || "";
+  const ogType = metaString(meta, "og:type", "ogType");
+  const primaryAuthor = metaString(meta, "author", "Author", "articleAuthor", "article:author");
+  const stripped = stripMarkdown(markdown);
+  const author = resolveArticleAuthor(primaryAuthor, meta, "", title, stripped, url);
+  const durationSec = extractDurationSecondsFromMetadataDeep(meta);
+  const mediaKind = detectMediaKindFromSignals(url, ogType, title);
   return {
     title,
     author,
-    body: stripMarkdown(markdown),
+    body: stripped,
     source: "firecrawl",
+    ogType,
+    mediaKind,
+    durationSeconds: durationSec,
+    rawMarkdown: markdown.slice(0, 50_000),
+    metadata: meta,
   };
 }
 
@@ -62,14 +82,40 @@ async function scrapeWithFallback(url: string): Promise<ScrapeResult> {
   });
   const html = await res.text();
   const title = extractTitle(html);
-  const author = extractAuthor(html);
-  const body = extractBodyText(html);
+  const stripped = extractBodyText(html);
+  const ogType =
+    html.match(/<meta[^>]+property=["']og:type["'][^>]+content=["']([^"']+)["']/i)?.[1] || undefined;
+  const primaryAuthor = extractAuthor(html);
+  const author = resolveArticleAuthor(primaryAuthor, undefined, html, title, stripped, url);
+  const durationSec =
+    extractDurationSecondsFromHtml(html) ?? extractDurationFromJsonLdSnippet(html);
+  const mediaKind = detectMediaKindFromSignals(url, ogType, title);
   return {
     title,
     author,
-    body,
+    body: stripped,
     source: "fallback",
+    ogType,
+    mediaKind,
+    durationSeconds: durationSec,
+    rawMarkdown: undefined,
+    metadata: undefined,
   };
+}
+
+function extractDurationFromJsonLdSnippet(html: string): number | null {
+  const m = html.match(/"duration"\s*:\s*"([^"]+)"/i);
+  if (m?.[1]) return parseIso8601DurationSeconds(m[1]);
+  return null;
+}
+
+function extractDurationSecondsFromHtml(html: string): number | null {
+  const itemProp = html.match(/itemprop=["']duration["'][^>]*content=["']([^"']+)["']/i);
+  if (itemProp?.[1]) {
+    const s = parseIso8601DurationSeconds(itemProp[1]);
+    if (s) return s;
+  }
+  return null;
 }
 
 function extractTitle(html: string): string {
