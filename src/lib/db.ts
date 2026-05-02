@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { isAuthEnabled } from "./auth";
 import type { Article, BrowseTopic } from "./types";
 import { DEFAULT_AI_EVALS_SEED_SOURCES } from "@/lib/browse-defaults";
+import { estimateUsdForPromptCompletion } from "@/lib/token-pricing";
 import type { MediaKind } from "./media-kind";
 import type { BrowseTopicFeed, BrowseStoredHit } from "./browse-storage";
 
@@ -889,14 +890,6 @@ export async function upsertBrowseTopicFeed(
   );
 }
 
-/** 按千 token 估算成本（美元）；未配置时为 0 */
-export function estimateUsdForTokens(totalTokens: number): number {
-  const raw = process.env.AI_TOKEN_USD_PER_1K?.trim();
-  const rate = raw ? parseFloat(raw) : 0;
-  if (!Number.isFinite(rate) || rate <= 0) return 0;
-  return (Math.max(0, totalTokens) / 1000) * rate;
-}
-
 export async function upsertUserRegistry(params: {
   userId: string;
   email: string;
@@ -935,7 +928,7 @@ export async function recordTokenUsage(params: {
   if (!p) return;
   try {
     await ensureSchema();
-    const cost = estimateUsdForTokens(params.totalTokens);
+    const cost = estimateUsdForPromptCompletion(params.promptTokens, params.completionTokens);
     await p.query(
       `INSERT INTO token_usage_log (id, user_id, source, prompt_tokens, completion_tokens, total_tokens, cost_usd)
        VALUES ($1, $2, $3, $4, $5, $6, $7::numeric)`,
@@ -983,38 +976,94 @@ export async function listAllRegistryUsers(): Promise<RegistryUserRow[]> {
   }));
 }
 
+export type BrowseTopicsSummary = {
+  /** 随览主题名称，「；」分隔 */
+  topicTitles: string;
+  /** 各主题关键词去重后「，」分隔 */
+  keywordsLine: string;
+};
+
+/** 管理后台：按用户汇总 browse_topics 的主题名与关键词 */
+export async function loadBrowseSummariesByUser(): Promise<Map<string, BrowseTopicsSummary>> {
+  const out = new Map<string, BrowseTopicsSummary>();
+  const p = getPoolOrNull();
+  if (!p) return out;
+  await ensureSchema();
+  try {
+    const { rows } = await p.query<{ user_id: string; name: string; keywords: unknown }>(
+      `SELECT user_id, name, keywords FROM browse_topics ORDER BY user_id, sort_order ASC, created_at ASC`,
+    );
+    const acc = new Map<string, { names: string[]; kw: Set<string> }>();
+    for (const row of rows) {
+      const uid = row.user_id;
+      if (!acc.has(uid)) acc.set(uid, { names: [], kw: new Set() });
+      const e = acc.get(uid)!;
+      const nm = typeof row.name === "string" ? row.name.trim() : "";
+      if (nm) e.names.push(nm);
+      const rawKw = safeJsonArray(row.keywords);
+      const arr = Array.isArray(rawKw) ? rawKw : [];
+      for (const x of arr) {
+        const s = String(x).trim();
+        if (s) e.kw.add(s);
+      }
+    }
+    for (const [uid, v] of acc) {
+      const topicTitles = v.names.length ? v.names.join("；") : "—";
+      const kws = [...v.kw];
+      const keywordsLine = kws.length ? kws.join("，") : "—";
+      out.set(uid, { topicTitles, keywordsLine });
+    }
+  } catch (e) {
+    console.error("[db] loadBrowseSummariesByUser failed:", e);
+  }
+  return out;
+}
+
 export type TokenSumRow = {
   userId: string;
+  promptTokens: number;
+  completionTokens: number;
   totalTokens: number;
-  costUsd: number;
 };
 
 export async function sumTokenUsageByUser(): Promise<TokenSumRow[]> {
   const p = getPoolOrNull();
   if (!p) return [];
   await ensureSchema();
-  const { rows } = await p.query<{ user_id: string; t: string; c: string }>(
-    `SELECT user_id, SUM(total_tokens)::text AS t, SUM(cost_usd)::text AS c
+  const { rows } = await p.query<{ user_id: string; p: string; o: string; t: string }>(
+    `SELECT user_id,
+            SUM(prompt_tokens)::text AS p,
+            SUM(completion_tokens)::text AS o,
+            SUM(total_tokens)::text AS t
      FROM token_usage_log GROUP BY user_id`,
   );
   return rows.map((r) => ({
     userId: r.user_id,
+    promptTokens: parseInt(r.p, 10) || 0,
+    completionTokens: parseInt(r.o, 10) || 0,
     totalTokens: parseInt(r.t, 10) || 0,
-    costUsd: parseFloat(r.c) || 0,
   }));
 }
 
-export async function sumTokenUsageGlobal(): Promise<{ totalTokens: number; costUsd: number }> {
+export async function sumTokenUsageGlobal(): Promise<{
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+}> {
   const p = getPoolOrNull();
-  if (!p) return { totalTokens: 0, costUsd: 0 };
+  if (!p) return { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
   await ensureSchema();
-  const { rows } = await p.query<{ t: string | null; c: string | null }>(
-    "SELECT SUM(total_tokens)::text AS t, SUM(cost_usd)::text AS c FROM token_usage_log",
+  const { rows } = await p.query<{ p: string | null; o: string | null; t: string | null }>(
+    `SELECT SUM(prompt_tokens)::text AS p,
+            SUM(completion_tokens)::text AS o,
+            SUM(total_tokens)::text AS t
+     FROM token_usage_log`,
   );
   const row = rows[0];
   return {
+    promptTokens: row?.p ? parseInt(row.p, 10) || 0 : 0,
+    completionTokens: row?.o ? parseInt(row.o, 10) || 0 : 0,
     totalTokens: row?.t ? parseInt(row.t, 10) || 0 : 0,
-    costUsd: row?.c ? parseFloat(row.c) || 0 : 0,
   };
 }
 
@@ -1033,10 +1082,11 @@ export async function getAdminDailySeries(params: {
   if (!p) return [];
   await ensureSchema();
 
-  const { rows: tokenRows } = await p.query<{ d: Date | string; t: string; c: string }>(
+  const { rows: tokenRows } = await p.query<{ d: Date | string; p: string; o: string; t: string }>(
     `SELECT (created_at AT TIME ZONE 'UTC')::date AS d,
-            SUM(total_tokens)::text AS t,
-            SUM(cost_usd)::text AS c
+            SUM(prompt_tokens)::text AS p,
+            SUM(completion_tokens)::text AS o,
+            SUM(total_tokens)::text AS t
      FROM token_usage_log
      WHERE (created_at AT TIME ZONE 'UTC')::date BETWEEN $1::date AND $2::date
      GROUP BY 1 ORDER BY 1`,
@@ -1074,8 +1124,10 @@ export async function getAdminDailySeries(params: {
     const day = dayKey(r.d);
     const row = map.get(day);
     if (row) {
+      const pt = parseInt(r.p, 10) || 0;
+      const ct = parseInt(r.o, 10) || 0;
       row.totalTokens = parseInt(r.t, 10) || 0;
-      row.costUsd = parseFloat(r.c) || 0;
+      row.costUsd = estimateUsdForPromptCompletion(pt, ct);
     }
   }
   return [...map.values()].sort((a, b) => a.day.localeCompare(b.day));

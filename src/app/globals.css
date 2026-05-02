@@ -991,22 +991,78 @@ a.account-menu-item--link:hover {
 
 .admin-dash-head {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
+  justify-content: space-between;
   gap: 12px;
-  margin-bottom: 16px;
+  margin-bottom: 12px;
 }
 
-.admin-dash-head h1 {
+.admin-dash-title {
   margin: 0;
   font-size: var(--fs-page-title);
   font-weight: var(--fw-bold);
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+}
+
+.admin-pricing-toolbar {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.admin-pricing-note-inner {
+  flex: 1;
+  min-width: 0;
+}
+
+.admin-pricing-note-inner--collapsed .admin-pricing-note {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+  overflow: hidden;
 }
 
 .admin-pricing-note {
   font-size: var(--fs-micro);
   line-height: var(--lh-snug);
-  margin: 0 0 14px;
+  margin: 0;
   word-break: break-word;
+}
+
+.admin-pricing-toggle {
+  flex-shrink: 0;
+  align-self: flex-start;
+  margin-top: 1px;
+  border: none;
+  background: transparent;
+  color: var(--brand);
+  font: inherit;
+  font-size: var(--fs-small);
+  cursor: pointer;
+  padding: 2px 4px;
+  line-height: var(--lh-snug);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.admin-pricing-toggle:hover {
+  opacity: 0.85;
+}
+
+.admin-col-browse {
+  max-width: 9.5rem;
+  min-width: 5.5rem;
+}
+
+.admin-table-td-clip {
+  max-width: 9.5rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-small);
+  vertical-align: top;
 }
 
 .admin-code-inline {
@@ -1022,6 +1078,9 @@ a.account-menu-item--link:hover {
   font-size: var(--fs-body);
   color: var(--brand);
   flex-shrink: 0;
+  white-space: nowrap;
+  line-height: var(--lh-tight);
+  padding-top: 2px;
 }
 
 .admin-tabs {

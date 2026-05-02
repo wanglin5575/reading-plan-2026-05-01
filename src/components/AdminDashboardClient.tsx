@@ -27,6 +27,8 @@ export default function AdminDashboardClient() {
   const [daily, setDaily] = useState<DailyPoint[]>([]);
   const [dailyErr, setDailyErr] = useState<string | null>(null);
   const [rangeDays, setRangeDays] = useState(30);
+  /** 顶部计价说明默认折叠为一行 */
+  const [pricingNoteOpen, setPricingNoteOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ active: boolean; startX: number; scrollLeft: number } | null>(null);
 
@@ -99,20 +101,67 @@ export default function AdminDashboardClient() {
   return (
     <div className="admin-dash">
       <header className="admin-dash-head">
+        <h1 className="admin-dash-title">管理后台</h1>
         <Link href="/weekly" className="admin-dash-back">
-          ← 返回
+          返回用户端
         </Link>
-        <h1>管理后台</h1>
       </header>
 
-      <p className="admin-pricing-note muted-link">
-        Token 金额为本站按环境变量 <code className="admin-code-inline">AI_TOKEN_USD_PER_1K</code>{" "}
-        估算（美元 / 千 tokens，对应所用 Chat Completions 模型）；与上游网关若按「输入 / 输出」分计价，请将控制台公示的综合单价或加权单价填入该变量以便对账。计价规则以服务商为准，可参考{" "}
-        <a href="https://wolfai.top/console" target="_blank" rel="noopener noreferrer">
-          WolfAI 控制台
-        </a>
-        。
-      </p>
+      <div className="admin-pricing-toolbar">
+        <div
+          className={
+            pricingNoteOpen ? "admin-pricing-note-inner" : "admin-pricing-note-inner admin-pricing-note-inner--collapsed"
+          }
+        >
+          <p className="admin-pricing-note muted-link">
+            {overview?.pricing ? (
+              <>
+                列表与 KPI 金额为「输入 / 补全 tokens」按当前规则重算（与日志分项一致）。计价模式：
+                {overview.pricing.mode === "blended" ? (
+                  <>
+                    {" "}
+                    单一环境变量 <code className="admin-code-inline">AI_TOKEN_USD_PER_1K</code>
+                    = {overview.pricing.blendedUsdPer1k?.toFixed(6) ?? "—"} 美元/千（合计 tokens）。
+                  </>
+                ) : (
+                  <>
+                    {" "}
+                    <code className="admin-code-inline">AI_TOKEN_INPUT_USD_PER_1K</code>
+                    ={overview.pricing.inputUsdPer1k.toFixed(6)} 美元/千、
+                    <code className="admin-code-inline">AI_TOKEN_COMPLETION_USD_PER_1K</code>
+                    ={overview.pricing.completionUsdPer1k.toFixed(6)} 美元/千（默认对应 WolfAI 图示：输入 $3/1M、补全 $15/1M）。
+                  </>
+                )}{" "}
+                {overview.pricing.referenceNote}
+                <a href="https://wolfai.top/pricing" target="_blank" rel="noopener noreferrer">
+                  定价页
+                </a>
+                、
+                <a href="https://wolfai.top/console" target="_blank" rel="noopener noreferrer">
+                  控制台
+                </a>
+                。
+              </>
+            ) : (
+              <>
+                金额按输入/补全分列计价；默认输入 0.003、补全 0.015 美元/千 tokens（对应 WolfAI 图示 $3/$15 每百万）。详见{" "}
+                <a href="https://wolfai.top/pricing" target="_blank" rel="noopener noreferrer">
+                  wolfai.top/pricing
+                </a>
+                。
+              </>
+            )}
+          </p>
+        </div>
+        <button
+          type="button"
+          className="admin-pricing-toggle"
+          onClick={() => setPricingNoteOpen((o) => !o)}
+          aria-expanded={pricingNoteOpen}
+        >
+          {pricingNoteOpen ? "收起" : "展开"}
+        </button>
+      </div>
 
       <div className="admin-tabs" role="tablist">
         <button type="button" className={tab === "overview" ? "active" : ""} onClick={() => setTab("overview")}>
@@ -150,8 +199,12 @@ export default function AdminDashboardClient() {
                   <thead>
                     <tr>
                       <th>邮箱</th>
+                      <th className="admin-col-browse">订阅主题</th>
+                      <th className="admin-col-browse">关键词</th>
                       <th>注册时间</th>
-                      <th>Token 用量</th>
+                      <th>输入 Token</th>
+                      <th>补全 Token</th>
+                      <th>合计</th>
                       <th>估算金额 (USD)</th>
                     </tr>
                   </thead>
@@ -159,7 +212,15 @@ export default function AdminDashboardClient() {
                     {overview.members.map((m: AdminMemberRow) => (
                       <tr key={m.userId}>
                         <td>{m.email}</td>
+                        <td className="admin-table-td-clip" title={m.browseTopicTitles}>
+                          {m.browseTopicTitles}
+                        </td>
+                        <td className="admin-table-td-clip" title={m.browseKeywords}>
+                          {m.browseKeywords}
+                        </td>
                         <td>{m.registeredAt ? new Date(m.registeredAt).toLocaleString("zh-CN") : "—"}</td>
+                        <td>{formatTok(m.promptTokens)}</td>
+                        <td>{formatTok(m.completionTokens)}</td>
                         <td>{formatTok(m.totalTokens)}</td>
                         <td>{formatUsd(m.costUsd)}</td>
                       </tr>
