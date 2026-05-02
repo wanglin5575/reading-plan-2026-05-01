@@ -20,17 +20,44 @@ export function MeAccountClient({
   const loginPasswordId = `${fieldId}-login-password`;
   const regEmailId = `${fieldId}-reg-email`;
   const regPasswordId = `${fieldId}-reg-password`;
+  const regPasswordConfirmId = `${fieldId}-reg-password-confirm`;
   const [mode, setMode] = useState<"login" | "register">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [regPasswordConfirm, setRegPasswordConfirm] = useState("");
+  /** signUp 成功但未立即可用 session 时（需邮箱确认），在本页输入邮件中的 OTP */
+  const [signupAwaitingOtp, setSignupAwaitingOtp] = useState(false);
+  const [signupOtp, setSignupOtp] = useState("");
+  const regOtpId = `${fieldId}-reg-otp`;
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  async function resendSignupEmail(): Promise<void> {
+    const em = email.trim();
+    if (!em) {
+      setMsg("请先填写邮箱");
+      return;
+    }
+    const supabase = createBrowserSupabaseClient();
+    const origin = window.location.origin;
+    const { error } = await supabase.auth.resend({
+      type: "signup",
+      email: em,
+      options: { emailRedirectTo: `${origin}/auth/callback` },
+    });
+    if (error) throw error;
+    setMsg("验证码已重新发送，请查收邮件（含垃圾箱）。");
+  }
 
   async function onRegister(e: React.FormEvent) {
     e.preventDefault();
     setMsg(null);
     if (password.length < 6) {
       setMsg("密码至少 6 位");
+      return;
+    }
+    if (password !== regPasswordConfirm) {
+      setMsg("两次输入的密码不一致，请检查后重试");
       return;
     }
     setBusy(true);
@@ -50,14 +77,18 @@ export function MeAccountClient({
       if (data.session) {
         setMsg("注册成功，已登录。");
         setPassword("");
+        setRegPasswordConfirm("");
         dispatchAuthChanged();
         router.refresh();
         router.replace("/weekly");
       } else {
+        setPassword("");
+        setRegPasswordConfirm("");
+        setSignupAwaitingOtp(true);
+        setSignupOtp("");
         setMsg(
-          "账号已创建。若 Supabase 开启了「邮箱确认」，请查收邮件并点击链接验证后再登录；关闭确认时通常可直接登录。",
+          "验证码已发送至邮箱，请填写邮件中的 6 位数字（也可在邮件中点击链接完成验证）。若未收到可点下方重新发送。",
         );
-        setMode("login");
       }
     } catch (e: unknown) {
       setMsg(formatSupabaseAuthMessage(e));
@@ -90,22 +121,39 @@ export function MeAccountClient({
 
   async function onResendConfirmation() {
     setMsg(null);
-    const em = email.trim();
-    if (!em) {
-      setMsg("请先填写邮箱");
+    setBusy(true);
+    try {
+      await resendSignupEmail();
+    } catch (e: unknown) {
+      setMsg(formatSupabaseAuthMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onVerifySignupOtp(e: React.FormEvent) {
+    e.preventDefault();
+    setMsg(null);
+    const token = signupOtp.replace(/\D/g, "");
+    if (token.length !== 6) {
+      setMsg("请输入邮件中的 6 位数字验证码");
       return;
     }
     setBusy(true);
     try {
       const supabase = createBrowserSupabaseClient();
-      const origin = window.location.origin;
-      const { error } = await supabase.auth.resend({
+      const { error } = await supabase.auth.verifyOtp({
+        email: email.trim(),
+        token,
         type: "signup",
-        email: em,
-        options: { emailRedirectTo: `${origin}/auth/callback` },
       });
       if (error) throw error;
-      setMsg("验证邮件已重新发送，请查收收件箱及垃圾箱。");
+      setSignupAwaitingOtp(false);
+      setSignupOtp("");
+      setMsg("验证成功，已登录。");
+      dispatchAuthChanged();
+      router.refresh();
+      router.replace("/weekly");
     } catch (e: unknown) {
       setMsg(formatSupabaseAuthMessage(e));
     } finally {
@@ -171,6 +219,9 @@ export function MeAccountClient({
           onClick={() => {
             setMode("login");
             setMsg(null);
+            setRegPasswordConfirm("");
+            setSignupAwaitingOtp(false);
+            setSignupOtp("");
           }}
         >
           登录
@@ -181,6 +232,9 @@ export function MeAccountClient({
           onClick={() => {
             setMode("register");
             setMsg(null);
+            setRegPasswordConfirm("");
+            setSignupAwaitingOtp(false);
+            setSignupOtp("");
           }}
         >
           注册
@@ -228,6 +282,49 @@ export function MeAccountClient({
             </button>
           </div>
         </form>
+      ) : signupAwaitingOtp ? (
+        <form className="row" onSubmit={onVerifySignupOtp}>
+          <p className="muted-link me-intro" style={{ margin: 0 }}>
+            验证码已发送至 <span className="me-code">{email.trim() || "（邮箱）"}</span>
+          </p>
+          <label className="muted-link" htmlFor={regOtpId}>
+            邮件中的 6 位验证码
+          </label>
+          <input
+            id={regOtpId}
+            className="input me-otp-input"
+            type="text"
+            inputMode="numeric"
+            maxLength={6}
+            autoComplete="one-time-code"
+            aria-invalid={signupOtp.length > 0 && signupOtp.replace(/\D/g, "").length !== 6}
+            placeholder="123456"
+            value={signupOtp}
+            onChange={(e) => setSignupOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
+            disabled={busy}
+          />
+          <button className="btn" type="submit" disabled={busy}>
+            {busy ? "验证中…" : "验证并登录"}
+          </button>
+          <button
+            type="button"
+            className="me-link-btn"
+            disabled={busy}
+            onClick={async () => {
+              setMsg(null);
+              setBusy(true);
+              try {
+                await resendSignupEmail();
+              } catch (e: unknown) {
+                setMsg(formatSupabaseAuthMessage(e));
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            重新发送验证码
+          </button>
+        </form>
       ) : (
         <form className="row" onSubmit={onRegister}>
           <label className="muted-link" htmlFor={regEmailId}>
@@ -250,6 +347,18 @@ export function MeAccountClient({
             autoComplete="new-password"
             value={password}
             onChange={setPassword}
+            required
+            minLength={6}
+            disabled={busy}
+          />
+          <label className="muted-link" htmlFor={regPasswordConfirmId}>
+            确认密码
+          </label>
+          <PasswordInputWithToggle
+            id={regPasswordConfirmId}
+            autoComplete="new-password"
+            value={regPasswordConfirm}
+            onChange={setRegPasswordConfirm}
             required
             minLength={6}
             disabled={busy}

@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>注册流程 · 交互预览（演示，不调 Supabase）</title>
+    <style>
+      :root {
+        --bg: #0f1218;
+        --card: #1a1f2a;
+        --border: #2a3344;
+        --text: #e8eaef;
+        --muted: #9aa3b2;
+        --accent: #6b9fff;
+        --danger: #f07178;
+        --ok: #7fd99a;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        font-family: system-ui, -apple-system, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        line-height: 1.5;
+        padding: 1rem;
+        max-width: 920px;
+        margin-inline: auto;
+      }
+      h1 {
+        font-size: 1.25rem;
+        font-weight: 600;
+        margin: 0 0 0.5rem;
+      }
+      .note {
+        color: var(--muted);
+        font-size: 0.875rem;
+        margin-bottom: 1.25rem;
+      }
+      .grid {
+        display: grid;
+        gap: 1rem;
+      }
+      @media (min-width: 760px) {
+        .grid {
+          grid-template-columns: 1fr 1fr;
+        }
+      }
+      .card {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 1rem 1.25rem;
+      }
+      .card h2 {
+        font-size: 1rem;
+        margin: 0 0 0.75rem;
+      }
+      .steps {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        counter-reset: s;
+      }
+      .steps li {
+        counter-increment: s;
+        margin-bottom: 0.5rem;
+        position: relative;
+        cursor: pointer;
+        border-radius: 8px;
+        padding: 0.45rem 0.5rem 0.45rem 2rem;
+      }
+      .steps li:hover {
+        background: rgba(255, 255, 255, 0.04);
+      }
+      .steps li::before {
+        content: counter(s);
+        position: absolute;
+        left: 0.35rem;
+        top: 0.4rem;
+        width: 1.35rem;
+        height: 1.35rem;
+        font-size: 0.7rem;
+        line-height: 1.35rem;
+        text-align: center;
+        background: var(--border);
+        border-radius: 50%;
+      }
+      .steps li.active {
+        outline: 1px solid var(--accent);
+      }
+      .steps li.active::before {
+        background: var(--accent);
+        color: var(--bg);
+      }
+      .step-detail {
+        margin-top: 0.75rem;
+        font-size: 0.875rem;
+        color: var(--muted);
+        min-height: 5rem;
+      }
+      .step-detail strong {
+        color: var(--text);
+      }
+      label {
+        display: block;
+        font-size: 0.8rem;
+        color: var(--muted);
+        margin-bottom: 0.25rem;
+      }
+      input {
+        width: 100%;
+        padding: 0.5rem 0.65rem;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        background: var(--bg);
+        color: var(--text);
+        margin-bottom: 0.65rem;
+      }
+      input.otp {
+        max-width: 11rem;
+        letter-spacing: 0.2em;
+        font-variant-numeric: tabular-nums;
+      }
+      button.btn {
+        width: 100%;
+        margin-top: 0.35rem;
+        padding: 0.6rem;
+        border-radius: 8px;
+        border: none;
+        background: var(--accent);
+        color: var(--bg);
+        font-weight: 600;
+        cursor: pointer;
+      }
+      button.btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      .tabs {
+        display: flex;
+        gap: 0.5rem;
+        margin-bottom: 0.75rem;
+      }
+      .tabs button {
+        flex: 1;
+        padding: 0.45rem;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        background: transparent;
+        color: var(--muted);
+        cursor: pointer;
+      }
+      .tabs button.on {
+        background: var(--border);
+        color: var(--text);
+      }
+      .msg {
+        margin-top: 0.75rem;
+        font-size: 0.875rem;
+        padding: 0.5rem;
+        border-radius: 8px;
+        background: rgba(240, 113, 120, 0.12);
+        color: var(--danger);
+      }
+      .msg.ok {
+        background: rgba(127, 217, 154, 0.12);
+        color: var(--ok);
+      }
+      .branch {
+        margin-top: 0.75rem;
+        font-size: 0.8rem;
+      }
+      .branch button {
+        margin-right: 0.5rem;
+        margin-top: 0.35rem;
+        padding: 0.35rem 0.65rem;
+        border-radius: 6px;
+        border: 1px solid var(--border);
+        background: var(--card);
+        color: var(--accent);
+        cursor: pointer;
+      }
+      .linkish {
+        margin-top: 0.5rem;
+        padding: 0;
+        border: none;
+        background: none;
+        color: var(--accent);
+        font: inherit;
+        cursor: pointer;
+        text-decoration: underline;
+        text-underline-offset: 2px;
+      }
+      code {
+        font-size: 0.78em;
+        background: var(--bg);
+        padding: 0.1em 0.35em;
+        border-radius: 4px;
+      }
+      .mono {
+        font-family: ui-monospace, monospace;
+        font-size: 0.85em;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>当前产品的注册流程 · 交互预览</h1>
+    <p class="note">
+      左侧为步骤说明（可点击）；右侧为<strong>离线模拟</strong>，不会请求 Supabase。真机：配置好环境变量后<code>npm run dev</code>，未登录时会看到蒙层，或打开<code>/me</code>。<br />
+      静态预览本文件：<code>/registration-flow-interactive.html</code>
+    </p>
+
+    <div class="grid">
+      <div class="card">
+        <h2>流程步骤</h2>
+        <ol class="steps" id="steps">
+          <li data-i="0">入口：蒙层或「我的」</li>
+          <li data-i="1">注册：密码 + 确认密码</li>
+          <li data-i="2">提交：signUp</li>
+          <li data-i="3">分支 A：直接有 session</li>
+          <li data-i="4">分支 B：无 session → 邮件 6 位码</li>
+          <li data-i="5">verifyOtp 或邮件链接</li>
+        </ol>
+        <div class="step-detail" id="detail"></div>
+        <div class="branch">
+          <span style="color: var(--muted)">邮件里点链接时：</span>
+          <button type="button" id="simEmail">说明 /auth/callback</button>
+        </div>
+        <p class="note" style="margin: 0.75rem 0 0; font-size: 0.8rem" id="emailSimMsg"></p>
+      </div>
+
+      <div class="card">
+        <h2>模拟注册（含验证码步骤）</h2>
+        <div class="tabs">
+          <button type="button" class="on" id="tabLogin">登录</button>
+          <button type="button" id="tabReg">注册</button>
+        </div>
+
+        <div id="panelLogin">
+          <form id="formLogin">
+            <label for="email">邮箱</label>
+            <input id="email" type="email" required autocomplete="email" value="you@example.com" />
+            <label for="pw">密码</label>
+            <input id="pw" type="password" autocomplete="current-password" required minlength="6" value="secret12" />
+            <button class="btn" type="submit">登录</button>
+          </form>
+        </div>
+
+        <div id="panelRegForm" hidden>
+          <form id="formReg">
+            <label for="email2">邮箱</label>
+            <input id="email2" type="email" required autocomplete="email" value="you@example.com" />
+            <label for="pw1">密码（至少 6 位）</label>
+            <input id="pw1" type="password" autocomplete="new-password" minlength="6" value="secret12" />
+            <label for="pw2">确认密码</label>
+            <input id="pw2" type="password" autocomplete="new-password" minlength="6" value="secret12" />
+            <button class="btn" type="submit">注册</button>
+          </form>
+        </div>
+
+        <div id="panelOtp" hidden>
+          <p class="note" style="margin-top: 0">
+            验证码已发送至 <span class="mono" id="otpEmailShow"></span>（演示：任意填 6 位数字点验证）
+          </p>
+          <form id="formOtp">
+            <label for="otp">邮件中的 6 位验证码</label>
+            <input
+              id="otp"
+              class="otp"
+              type="text"
+              inputmode="numeric"
+              maxlength="6"
+              autocomplete="one-time-code"
+              placeholder="123456"
+            />
+            <button class="btn" type="submit">验证并登录</button>
+          </form>
+          <button type="button" class="linkish" id="resendOtp">重新发送验证码</button>
+        </div>
+
+        <p id="formMsg" class="msg" style="display: none"></p>
+
+        <p class="note" style="margin-top: 1rem">
+          生产环境：<code>signUp</code> 后无 session 时本页会出现验证码表单并调用<code>verifyOtp({ type: 'signup' })</code>；邮件中的链接仍会打开<code>/auth/callback</code>用
+          code 换 session。
+        </p>
+      </div>
+    </div>
+
+    <script>
+      const DETAILS = [
+        "未登录时：全站遮罩显示「登录阅读计划」（<code>AuthGateOverlay</code> + <code>MeAccountClient</code>）；已登录用户也可在底部「我的」打开账号卡片。需已配置 <code>NEXT_PUBLIC_SUPABASE_URL</code> 与 <code>NEXT_PUBLIC_SUPABASE_ANON_KEY</code>。",
+        "切到「注册」：填写邮箱、密码、确认密码。切换「登录/注册」Tab 会清空确认密码与验证码状态。本地校验：密码不足 6 位、或与确认密码不一致 → 提示并<strong>不调用</strong> signUp。",
+        "通过后调用 <code>supabase.auth.signUp</code>，并带上 <code>emailRedirectTo → 本站/auth/callback</code>（邮件链接用）。若 Supabase 报错则展示中文或原文案。",
+        "若 <code>data.session</code> 立即可用（例如项目未强制邮箱确认）：提示成功，派发 <code>auth-changed</code>，跳转 <code>/weekly</code>。当前你方已开邮箱确认时，此路径一般不会出现。",
+        "若无 session：界面留在「注册」流程，出现<strong>6 位验证码</strong>输入框与「重新发送」。邮件模板里应含 <code>{{ .Token }}</code>（与你的 6 位设置一致）。",
+        "用户输入 6 位后 <code>verifyOtp({ email, token, type: 'signup' })</code>，成功则与登录成功相同：刷新会话并 <code>replace('/weekly')</code>。若用户点击邮件里的确认链接，则由 <code>/auth/callback</code> 里 <code>exchangeCodeForSession</code> 完成登录并重定向。",
+      ];
+
+      const stepsEl = document.getElementById("steps");
+      const detailEl = document.getElementById("detail");
+      const tabLogin = document.getElementById("tabLogin");
+      const tabReg = document.getElementById("tabReg");
+      const panelLogin = document.getElementById("panelLogin");
+      const panelRegForm = document.getElementById("panelRegForm");
+      const panelOtp = document.getElementById("panelOtp");
+      const formLogin = document.getElementById("formLogin");
+      const formReg = document.getElementById("formReg");
+      const formOtp = document.getElementById("formOtp");
+      const formMsg = document.getElementById("formMsg");
+      const emailSimMsg = document.getElementById("emailSimMsg");
+
+      function showMsg(text, ok) {
+        formMsg.textContent = text;
+        formMsg.className = ok ? "msg ok" : "msg";
+        formMsg.style.display = "block";
+      }
+      function hideMsg() {
+        formMsg.style.display = "none";
+      }
+
+      function renderStep(i) {
+        [...stepsEl.querySelectorAll("li")].forEach((li, j) => li.classList.toggle("active", j === i));
+        detailEl.innerHTML = DETAILS[i];
+      }
+      stepsEl.querySelectorAll("li").forEach((li) => {
+        li.addEventListener("click", () => renderStep(Number(li.dataset.i)));
+      });
+      renderStep(0);
+
+      function setMainMode(login) {
+        tabLogin.classList.toggle("on", login);
+        tabReg.classList.toggle("on", !login);
+        panelLogin.hidden = !login;
+        if (login) {
+          panelRegForm.hidden = true;
+          panelOtp.hidden = true;
+        } else if (!panelOtp.hidden) {
+          panelRegForm.hidden = true;
+        } else {
+          panelRegForm.hidden = false;
+          panelOtp.hidden = true;
+        }
+        hideMsg();
+      }
+
+      tabLogin.addEventListener("click", () => setMainMode(true));
+      tabReg.addEventListener("click", () => {
+        setMainMode(false);
+        panelOtp.hidden = true;
+        panelRegForm.hidden = false;
+        document.getElementById("email2").value = document.getElementById("email").value;
+      });
+
+      formLogin.addEventListener("submit", (e) => {
+        e.preventDefault();
+        hideMsg();
+        showMsg("（演示）真实环境：signInWithPassword 成功后进入 /weekly。", true);
+        renderStep(0);
+      });
+
+      formReg.addEventListener("submit", (e) => {
+        e.preventDefault();
+        hideMsg();
+        const p1 = document.getElementById("pw1").value;
+        const p2 = document.getElementById("pw2").value;
+        if (p1.length < 6) {
+          showMsg("密码至少 6 位", false);
+          renderStep(1);
+          return;
+        }
+        if (p1 !== p2) {
+          showMsg("两次输入的密码不一致，请检查后重试", false);
+          renderStep(1);
+          return;
+        }
+        const em = document.getElementById("email2").value.trim();
+        document.getElementById("otpEmailShow").textContent = em || "（邮箱）";
+        document.getElementById("otp").value = "";
+        panelRegForm.hidden = true;
+        panelOtp.hidden = false;
+        showMsg("（演示）此处已调用 signUp 成功且无 session → 进入验证码步骤。", true);
+        renderStep(2);
+        setTimeout(() => renderStep(4), 400);
+      });
+
+      formOtp.addEventListener("submit", (e) => {
+        e.preventDefault();
+        hideMsg();
+        const t = document.getElementById("otp").value.replace(/\D/g, "");
+        if (t.length !== 6) {
+          showMsg("请输入邮件中的 6 位数字验证码", false);
+          renderStep(4);
+          return;
+        }
+        showMsg("（演示）真实环境：verifyOtp 成功后进入 /weekly。", true);
+        renderStep(5);
+      });
+
+      document.getElementById("resendOtp").addEventListener("click", () => {
+        showMsg("（演示）真实环境：auth.resend({ type: 'signup' }) 重发邮件。", true);
+        renderStep(4);
+      });
+
+      document.getElementById("simEmail").addEventListener("click", () => {
+        emailSimMsg.textContent =
+          "GET /auth/callback?code=… → 服务端 exchangeCodeForSession 写入 Cookie → 302 到 /weekly（或 next）。";
+        renderStep(5);
+      });
+    </script>
+  </body>
+</html>

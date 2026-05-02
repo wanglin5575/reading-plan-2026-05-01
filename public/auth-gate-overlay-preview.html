@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>登录蒙层颜色预览（与 globals.css 同步）</title>
+  <style>
+    :root {
+      --card: #ffffff;
+      --border: #e3e8ef;
+      --muted: #5f6c7b;
+      --ink: #14202b;
+    }
+    .dark {
+      --card: #181d26;
+      --border: #2a313d;
+      --muted: #9aa6b6;
+      --ink: #eef1f6;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, "PingFang SC", sans-serif;
+      margin: 0;
+      padding: 20px 16px 40px;
+      background: #f0f2f6;
+      color: #14202b;
+    }
+    body.preview-dark {
+      background: #12151c;
+      color: #eef1f6;
+    }
+
+    h1 { font-size: 1.125rem; margin: 0 0 6px; }
+    .hint { font-size: 0.8125rem; opacity: 0.78; margin: 0 0 20px; line-height: 1.45; }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 16px;
+      max-width: 720px;
+    }
+    @media (min-width: 560px) {
+      .grid { grid-template-columns: 1fr 1fr; }
+    }
+
+    .card {
+      border-radius: 12px;
+      overflow: hidden;
+      border: 1px solid rgba(15, 23, 42, 0.12);
+    }
+    .preview-dark .card {
+      border-color: rgba(255, 255, 255, 0.1);
+    }
+
+    .card h2 {
+      margin: 0;
+      padding: 10px 12px;
+      font-size: 0.8125rem;
+      font-weight: 600;
+      background: rgba(255, 255, 255, 0.9);
+    }
+    .preview-dark .card h2 {
+      background: rgba(24, 29, 38, 0.95);
+    }
+
+    .sample {
+      position: relative;
+      height: 160px;
+    }
+
+    /** 棋盘格：模拟背后有内容 */
+    .checker {
+      position: absolute;
+      inset: 0;
+      background-color: #c5ccd6;
+      background-image:
+        linear-gradient(45deg, #aeb8c6 25%, transparent 25%),
+        linear-gradient(-45deg, #aeb8c6 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, #aeb8c6 75%),
+        linear-gradient(-45deg, transparent 75%, #aeb8c6 75%);
+      background-size: 24px 24px;
+      background-position: 0 0, 0 12px, 12px -12px, -12px 0;
+    }
+    .preview-dark .checker {
+      background-color: #2a3140;
+      background-image:
+        linear-gradient(45deg, #353d4f 25%, transparent 25%),
+        linear-gradient(-45deg, #353d4f 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, #353d4f 75%),
+        linear-gradient(-45deg, transparent 75%, #353d4f 75%);
+    }
+
+    /** 与 app globals.css .auth-gate-overlay 一致（手机磨砂） */
+    .overlay-mobile {
+      position: absolute;
+      inset: 0;
+      background: color-mix(
+        in srgb,
+        color-mix(in srgb, var(--card) 76%, var(--border) 24%) 42%,
+        transparent
+      );
+      backdrop-filter: blur(12px) saturate(1.04);
+      -webkit-backdrop-filter: blur(12px) saturate(1.04);
+    }
+
+    /** 暗色手机额外规则 */
+    .overlay-mobile-dark {
+      background: color-mix(
+        in srgb,
+        color-mix(in srgb, var(--card) 72%, var(--muted) 28%) 48%,
+        transparent
+      );
+    }
+
+    /** 网页实心（无 blur） */
+    .overlay-web {
+      position: absolute;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.62);
+    }
+    .overlay-web-dark {
+      background: rgba(0, 0, 0, 0.76);
+    }
+
+    .badge {
+      position: absolute;
+      bottom: 10px;
+      left: 10px;
+      right: 10px;
+      padding: 8px 10px;
+      border-radius: 8px;
+      font-size: 0.6875rem;
+      line-height: 1.35;
+      background: rgba(255, 255, 255, 0.92);
+      color: #14202b;
+      border: 1px solid rgba(15, 23, 42, 0.08);
+    }
+    .preview-dark .badge {
+      background: rgba(24, 29, 38, 0.92);
+      color: #eef1f6;
+      border-color: rgba(255, 255, 255, 0.08);
+    }
+
+    .toggle {
+      margin-bottom: 16px;
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .toggle button {
+      font: inherit;
+      font-size: 0.875rem;
+      padding: 8px 14px;
+      border-radius: 8px;
+      border: 1px solid #c5ccd6;
+      background: #fff;
+      cursor: pointer;
+    }
+    .preview-dark .toggle button {
+      background: #181d26;
+      border-color: #3d4654;
+      color: #eef1f6;
+    }
+  </style>
+</head>
+<body id="page">
+  <h1>登录蒙层颜色预览</h1>
+  <p class="hint">
+    与 <code>src/app/globals.css</code> 中 <code>.auth-gate-overlay</code> 当前数值一致。磨砂样张需用支持
+    <code>backdrop-filter</code> 的浏览器查看。路径含空格时请对 URL 编码 <code>%20</code>。
+  </p>
+
+  <div class="toggle">
+    <span style="font-size:0.875rem">主题：</span>
+    <button type="button" id="btn-light">浅色</button>
+    <button type="button" id="btn-dark">深色</button>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h2>手机 · 磨砂玻璃（浅色 / 暗色令牌）</h2>
+      <div class="sample">
+        <div class="checker"></div>
+        <div class="overlay-mobile" id="ovl-m"></div>
+        <div class="badge" id="cap-m">浅色：card76%+border24% → 42% 叠透明 + blur</div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>网页 · 实心蒙层</h2>
+      <div class="sample">
+        <div class="checker"></div>
+        <div class="overlay-web" id="ovl-w"></div>
+        <div class="badge" id="cap-w">浅色页：rgba(15,23,42,0.62)</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const page = document.getElementById("page");
+    const ovlM = document.getElementById("ovl-m");
+    const capM = document.getElementById("cap-m");
+    const ovlW = document.getElementById("ovl-w");
+    const capW = document.getElementById("cap-w");
+
+    function setLight() {
+      page.classList.remove("preview-dark", "dark");
+      ovlM.className = "overlay-mobile";
+      ovlM.classList.remove("overlay-mobile-dark");
+      capM.textContent = "浅色：card76% + border24% → 42% 叠透明 + blur";
+      ovlW.className = "overlay-web";
+      ovlW.classList.remove("overlay-web-dark");
+      capW.textContent = "浅色页：rgba(15, 23, 42, 0.62)";
+    }
+
+    function setDark() {
+      page.classList.add("preview-dark", "dark");
+      ovlM.className = "overlay-mobile overlay-mobile-dark";
+      capM.textContent = "暗色：card72% + muted28% → 48% 叠透明 + blur";
+      ovlW.className = "overlay-web overlay-web-dark";
+      capW.textContent = "暗色页：rgba(0, 0, 0, 0.76)";
+    }
+
+    document.getElementById("btn-light").addEventListener("click", setLight);
+    document.getElementById("btn-dark").addEventListener("click", setDark);
+
+    if (window.matchMedia("(prefers-color-scheme: dark)").matches) {
+      setDark();
+    } else {
+      setLight();
+    }
+  </script>
+</body>
+</html>
