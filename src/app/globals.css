@@ -668,19 +668,25 @@ a:active { opacity: 0.7; }
   opacity: 0.92;
 }
 
-.browse-ai-rejected-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 1rem;
-  height: 1rem;
-  padding: 0 4px;
-  border-radius: 999px;
-  font-size: 0.5625rem;
-  font-weight: var(--fw-semibold);
-  line-height: 1;
-  color: var(--card);
-  background: color-mix(in srgb, var(--muted) 85%, var(--ink) 15%);
+.browse-ai-rejected-btn-text {
+  display: inline;
+}
+
+.browse-ai-rejected-record-wrap {
+  position: relative;
+  display: inline-block;
+}
+
+.browse-ai-rejected-unread-dot {
+  position: absolute;
+  top: -4px;
+  right: -6px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #f8bbd9;
+  box-shadow: 0 0 0 1.5px var(--card);
+  pointer-events: none;
 }
 
 .browse-ai-rejected-empty {
@@ -721,6 +727,13 @@ a:active { opacity: 0.7; }
 
 .browse-ai-rejected-link:hover {
   text-decoration: underline;
+}
+
+.browse-ai-rejected-meta {
+  margin: 4px 0 0;
+  font-size: var(--fs-micro);
+  color: var(--muted);
+  line-height: var(--lh-snug);
 }
 
 .browse-ai-rejected-reason {

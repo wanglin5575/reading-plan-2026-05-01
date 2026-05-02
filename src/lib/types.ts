@@ -64,6 +64,10 @@ export type BrowseAiRejectedItem = {
   title: string;
   /** 不超过 50 字 */
   reason: string;
+  /** 文章作者（抓取侧或模型推断，可能为空） */
+  author?: string | null;
+  /** 发布位置 / 平台（由域名推断，如 YouTube、LinkedIn） */
+  sourceLabel?: string | null;
 };
 
 /** 随览：单条检索结果（Firecrawl 联网 + 摘要/正文节选） */

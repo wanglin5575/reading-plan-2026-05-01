@@ -6,10 +6,12 @@ import type { BrowseAiRejectedItem, BrowseHit, BrowseTopic } from "@/lib/types";
 import {
   loadBrowseStorage,
   loadBrowseAiRejectedMap,
+  loadRejectedSeenMap,
   mergeBrowseFeed,
   mergeBrowseTopicFeeds,
   saveBrowseStorage,
   saveBrowseAiRejectedMap,
+  saveRejectedSeenMap,
   pruneBrowseItems,
   sortBrowseItemsForDisplay,
   BROWSE_BOOTSTRAP_SINCE_MS,
@@ -19,6 +21,7 @@ import {
   type BrowseStoredHit,
   type BrowseTopicFeed,
 } from "@/lib/browse-storage";
+import { publicationSourceLabelFromUrl } from "@/lib/browse-rejected-meta";
 import { filterBrowseHitsByPublishedAge, effectiveMaxPublishedAgeDays } from "@/lib/browse-recency";
 import { BROWSE_DEFAULT_MAX_PUBLISHED_AGE_DAYS } from "@/lib/browse-defaults";
 import { BrowseHitCard } from "@/components/BrowseHitCard";
@@ -108,6 +111,7 @@ export default function BrowsePageClient() {
   const [sortMenuOpen, setSortMenuOpen] = useState(false);
   const [aiRejectedOpen, setAiRejectedOpen] = useState(false);
   const [aiRejectedList, setAiRejectedList] = useState<BrowseAiRejectedItem[]>([]);
+  const [rejectedSeenNonce, setRejectedSeenNonce] = useState(0);
   const sortDdRef = useRef<HTMLDivElement>(null);
   const activeIdRef = useRef<string | null>(null);
   const autoPullRafRef = useRef<number | null>(null);
@@ -131,6 +135,22 @@ export default function BrowsePageClient() {
     const map = loadBrowseAiRejectedMap();
     setAiRejectedList(map[activeId] ?? []);
   }, [activeId]);
+
+  const rejectedHasUnread = useMemo(() => {
+    if (!activeId || aiRejectedList.length === 0) return false;
+    const sig = JSON.stringify(aiRejectedList);
+    return loadRejectedSeenMap()[activeId] !== sig;
+  }, [activeId, aiRejectedList, rejectedSeenNonce]);
+
+  const openAiRejectedModal = useCallback(() => {
+    if (activeId && typeof window !== "undefined") {
+      const m = { ...loadRejectedSeenMap() };
+      m[activeId] = JSON.stringify(aiRejectedList);
+      saveRejectedSeenMap(m);
+      setRejectedSeenNonce((n) => n + 1);
+    }
+    setAiRejectedOpen(true);
+  }, [activeId, aiRejectedList]);
 
   useEffect(() => {
     return () => {
@@ -349,6 +369,10 @@ export default function BrowsePageClient() {
       const rj = loadBrowseAiRejectedMap();
       delete rj[cur];
       saveBrowseAiRejectedMap(rj);
+      const seen = loadRejectedSeenMap();
+      delete seen[cur];
+      saveRejectedSeenMap(seen);
+      setRejectedSeenNonce((n) => n + 1);
       setAiRejectedList([]);
 
       const r = await fetch(`/api/browse/topics/${encodeURIComponent(cur)}/reset`, { method: "POST" });
@@ -754,14 +778,20 @@ export default function BrowsePageClient() {
                 type="button"
                 className="browse-ai-rejected-btn"
                 aria-haspopup="dialog"
-                onClick={() => setAiRejectedOpen(true)}
+                aria-label={
+                  rejectedHasUnread ? "筛除记录（有新筛除条目）" : "筛除记录"
+                }
+                onClick={() => openAiRejectedModal()}
               >
-                筛除记录
-                {aiRejectedList.length > 0 ? (
-                  <span className="browse-ai-rejected-badge" aria-hidden>
-                    {aiRejectedList.length}
+                <span className="browse-ai-rejected-btn-text">
+                  筛除记
+                  <span className="browse-ai-rejected-record-wrap">
+                    录
+                    {rejectedHasUnread ? (
+                      <span className="browse-ai-rejected-unread-dot" aria-hidden />
+                    ) : null}
                   </span>
-                ) : null}
+                </span>
               </button>
               <div className="browse-sort-dd" ref={sortDdRef}>
                 <button
@@ -1088,19 +1118,30 @@ export default function BrowsePageClient() {
                   </p>
                 ) : (
                   <ul className="browse-ai-rejected-list">
-                    {aiRejectedList.map((x) => (
-                      <li key={x.url}>
-                        <a
-                          href={x.url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="browse-ai-rejected-link"
-                        >
-                          {x.title}
-                        </a>
-                        <p className="browse-ai-rejected-reason">{x.reason}</p>
-                      </li>
-                    ))}
+                    {aiRejectedList.map((x) => {
+                      const src =
+                        (x.sourceLabel && String(x.sourceLabel).trim()) ||
+                        publicationSourceLabelFromUrl(x.url);
+                      const authorLine =
+                        x.author && String(x.author).trim() ? String(x.author).trim() : null;
+                      return (
+                        <li key={x.url}>
+                          <a
+                            href={x.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="browse-ai-rejected-link"
+                          >
+                            {x.title}
+                          </a>
+                          <p className="browse-ai-rejected-meta">
+                            <span>{src}</span>
+                            {authorLine ? <span> · 作者：{authorLine}</span> : null}
+                          </p>
+                          <p className="browse-ai-rejected-reason">{x.reason}</p>
+                        </li>
+                      );
+                    })}
                   </ul>
                 )}
                 <div className="modal-sheet-footer">

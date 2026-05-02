@@ -1,5 +1,6 @@
 import { enrichArticleWithAi } from "@/lib/ai-summary";
 import { normalizePublishedToIso } from "@/lib/browse-published";
+import { publicationSourceLabelFromUrl } from "@/lib/browse-rejected-meta";
 import type { BrowseAiRejectedItem, BrowseHit } from "@/lib/types";
 
 function trimEnv(...keys: string[]): string | undefined {
@@ -92,10 +93,13 @@ export async function enrichBrowseHitsWithAi(hits: BrowseHit[]): Promise<EnrichB
       const reason =
         enrichment.notWorthReason?.trim() ||
         "模型判定为导航、聚合或低信息密度页面";
+      const authorRaw = enrichment.author?.trim() || h.author?.trim() || "";
       rejected.push({
         url: h.url.trim(),
         title: h.title.trim().slice(0, 400) || "无标题",
         reason: reason.slice(0, 50),
+        author: authorRaw ? authorRaw.slice(0, 120) : null,
+        sourceLabel: publicationSourceLabelFromUrl(h.url),
       });
       continue;
     }

@@ -16,6 +16,9 @@ export const BROWSE_SORT_LS_KEY = "reading-plan-browse-sort-v1";
 /** 各主题下本轮/近期被 AI 筛除的条目（仅本地） */
 export const BROWSE_AI_REJECTED_LS_KEY = "reading-plan-browse-ai-rejected-v1";
 
+/** 各主题下用户上次已查看的筛除列表快照（JSON.stringify 比对用） */
+export const BROWSE_REJECTED_SEEN_LS_KEY = "reading-plan-browse-rejected-seen-v1";
+
 export type BrowseSortMode = "refreshed" | "published";
 
 export interface BrowseStoredHit extends BrowseHit {
@@ -213,6 +216,28 @@ export function saveBrowseAiRejectedMap(map: Record<string, BrowseAiRejectedItem
   if (typeof window === "undefined") return;
   try {
     localStorage.setItem(BROWSE_AI_REJECTED_LS_KEY, JSON.stringify(map));
+  } catch {
+    /* ignore */
+  }
+}
+
+export function loadRejectedSeenMap(): Record<string, string> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = localStorage.getItem(BROWSE_REJECTED_SEEN_LS_KEY);
+    if (!raw) return {};
+    const p = JSON.parse(raw) as unknown;
+    if (!p || typeof p !== "object" || Array.isArray(p)) return {};
+    return p as Record<string, string>;
+  } catch {
+    return {};
+  }
+}
+
+export function saveRejectedSeenMap(map: Record<string, string>) {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(BROWSE_REJECTED_SEEN_LS_KEY, JSON.stringify(map));
   } catch {
     /* ignore */
   }
