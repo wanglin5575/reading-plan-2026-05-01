@@ -732,10 +732,10 @@ a:active { opacity: 0.7; }
 
 .browse-ai-rejected-unread-dot {
   position: absolute;
-  top: -4px;
-  right: -6px;
-  width: 7px;
-  height: 7px;
+  top: -2px;
+  right: -3px;
+  width: 3px;
+  height: 3px;
   border-radius: 50%;
   background: #f8bbd9;
   pointer-events: none;
