@@ -7,6 +7,8 @@ import { type Article, isIntensiveRead } from "@/lib/types";
 import { useSwipeCardFace } from "@/lib/useSwipeCardFace";
 import { MEDIA_KIND_LABEL } from "@/lib/media-kind";
 import { formatPublishedTimeZh } from "@/lib/browse-attribution";
+import { ArticleReadPreviewModal } from "@/components/ArticleReadPreviewModal";
+import { fallbackReadModalBody } from "@/lib/read-modal-fallback";
 
 interface Props {
   article: Article;
@@ -52,11 +54,67 @@ function ArticleSummaryFooter({ summary }: { summary: string }) {
   );
 }
 
-/** 点击打开原文；长按（约 0.55s）复制链接 */
-export function ArticleTitleLink({ url, children }: { url: string; children: ReactNode }) {
+/** 点击先打开 AI 摘要大弹窗；弹窗内可「查看原文」；长按（约 0.55s）复制链接 */
+export function ArticleTitleLink({
+  url,
+  children,
+  previewTitle,
+  previewSourceText,
+}: {
+  url: string;
+  children: ReactNode;
+  previewTitle: string;
+  previewSourceText: string;
+}) {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const blockClickRef = useRef(false);
   const startRef = useRef<{ x: number; y: number } | null>(null);
+  const [mounted, setMounted] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [body, setBody] = useState("");
+  const [showFallback, setShowFallback] = useState(false);
+
+  useEffect(() => setMounted(true), []);
+
+  useEffect(() => {
+    if (!previewOpen) return;
+    let cancelled = false;
+    setLoading(true);
+    setBody("");
+    setShowFallback(false);
+    void fetch("/api/read-preview", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: previewTitle,
+        url,
+        sourceText: previewSourceText,
+      }),
+    })
+      .then(async (r) => {
+        const d = (await r.json().catch(() => ({}))) as { text?: string; fallback?: boolean };
+        if (cancelled) return;
+        if (!r.ok) {
+          setBody(fallbackReadModalBody(previewSourceText));
+          setShowFallback(true);
+          return;
+        }
+        setBody(typeof d.text === "string" ? d.text : "");
+        setShowFallback(Boolean(d.fallback));
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setBody(fallbackReadModalBody(previewSourceText));
+        setShowFallback(true);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [previewOpen, previewTitle, url, previewSourceText]);
 
   const clearTimer = () => {
     if (timerRef.current) {
@@ -95,23 +153,50 @@ export function ArticleTitleLink({ url, children }: { url: string; children: Rea
   };
 
   return (
-    <a
-      href={url}
-      target="_blank"
-      rel="noreferrer"
-      className="article-title-link"
-      title="点击打开原文；长按复制链接"
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-      onPointerCancel={onPointerUp}
-      onClick={(e) => {
-        if (blockClickRef.current) e.preventDefault();
-      }}
-    >
-      {children}
-    </a>
+    <>
+      <a
+        href={url}
+        target="_blank"
+        rel="noreferrer"
+        className="article-title-link"
+        title="点击查看 AI 摘要；长按复制链接"
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
+        onClick={(e) => {
+          if (blockClickRef.current) {
+            e.preventDefault();
+            return;
+          }
+          e.preventDefault();
+          setPreviewOpen(true);
+        }}
+      >
+        {children}
+      </a>
+      {mounted ? (
+        <ArticleReadPreviewModal
+          open={previewOpen}
+          onClose={() => setPreviewOpen(false)}
+          title={previewTitle}
+          url={url}
+          loading={loading}
+          bodyText={body}
+          showFallbackNote={showFallback}
+        />
+      ) : null}
+    </>
   );
+}
+
+function buildArticlePreviewSource(article: Pick<Article, "summary" | "rawExcerpt">): string {
+  const parts: string[] = [];
+  const s = article.summary?.trim();
+  if (s && s !== "(暂无摘要)") parts.push(s);
+  const ex = article.rawExcerpt?.trim();
+  if (ex) parts.push(ex);
+  return parts.join("\n\n");
 }
 
 export function ArticleCard({ article, showActions = true, collapseOriginalSummary = false }: Props) {
@@ -378,7 +463,11 @@ export function ArticleCard({ article, showActions = true, collapseOriginalSumma
   const cardMiddle = (
     <>
       {cardTop}
-      <ArticleTitleLink url={article.url}>
+      <ArticleTitleLink
+        url={article.url}
+        previewTitle={article.title}
+        previewSourceText={buildArticlePreviewSource(article)}
+      >
         <h3 className="title">{article.title}</h3>
       </ArticleTitleLink>
       {article.titleZh?.trim() ? (

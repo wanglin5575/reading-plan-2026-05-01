@@ -10,6 +10,13 @@ import { countChars, countWords, detectLanguage, estimateMinutes } from "@/lib/c
 /** 与待读列表同一套滑轨；右缘两枚圆钮：已读 + 待读（加入已读 / 加入待读） */
 const BROWSE_SWIPE_REVEAL_PX = 144;
 
+function buildBrowseHitPreviewSource(hit: BrowseStoredHit): string {
+  const parts = [hit.summary, hit.excerpt, hit.description]
+    .map((x) => (typeof x === "string" ? x.trim() : ""))
+    .filter((x) => x && x !== "(暂无摘要)");
+  return parts.join("\n\n");
+}
+
 export function BrowseHitCard({
   hit,
   topicName,
@@ -109,7 +116,11 @@ export function BrowseHitCard({
           <h3 className="title browse-hit-demo-title">{hit.title}</h3>
         ) : (
           <>
-            <ArticleTitleLink url={hit.url}>
+            <ArticleTitleLink
+              url={hit.url}
+              previewTitle={hit.title}
+              previewSourceText={buildBrowseHitPreviewSource(hit)}
+            >
               <h3 className="title">{hit.title}</h3>
             </ArticleTitleLink>
             {hit.titleZh?.trim() ? (
