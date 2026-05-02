@@ -32,14 +32,36 @@
   /* Bottom tab bar: FAB diameter → strip height = 7/9 (see public/tabbar-preview.html) */
   --tabbar-fab: 56px;
   --tabbar-strip: calc(var(--tabbar-fab) * 7 / 9);
-  /** 底栏占地：蒙层内底部留白、避免表单被 Tab 挡住（与 .app 底部留白同一量级） */
-  --auth-gate-tabbar-gap: calc(var(--tabbar-fab) + 16px + env(safe-area-inset-bottom));
+  /** 底栏 Tab：相邻间距 B=C=D=E = --tabbar-col-gap；左右边距 A=F = 其一半（flex gap + padding-inline） */
+  --tabbar-col-gap: 6px;
+  /** 底栏占地：蒙层与主内容底部留白 */
+  --auth-gate-tabbar-gap: calc(var(--tabbar-fab) + 16px + env(safe-area-inset-bottom) + var(--tabbar-extra-height));
+  /** 底栏竖向：底边贴屏 bottom:0（lift 预留） */
+  --tabbar-edge-lift: 0px;
+  /** 底栏加高（恒为 0；算式仍引用以保持改动面小） */
+  --tabbar-extra-height: 0px;
+  /** 圆形「添加」相对栏内容上移；移动端栏高收紧时用于保持按钮在屏上位置与此前一致 */
+  --tabbar-add-lift: 0px;
+  /** 已读/随览 相对格内向「添加」一侧微移 */
+  --tabbar-adjacent-inset: 2px;
 }
 
 @media (min-width: 430px) {
   :root {
     --tabbar-fab: 60px;
-    --auth-gate-tabbar-gap: calc(var(--tabbar-fab) + 16px + env(safe-area-inset-bottom));
+    --auth-gate-tabbar-gap: calc(var(--tabbar-fab) + 16px + env(safe-area-inset-bottom) + var(--tabbar-extra-height));
+  }
+}
+
+@media (max-width: 768px) {
+  :root {
+    --tabbar-col-gap: 8px;
+    --tabbar-add-lift: 20px;
+  }
+
+  html {
+    overflow-x: clip;
+    touch-action: manipulation;
   }
 }
 
@@ -74,7 +96,7 @@ a:active { opacity: 0.7; }
 .app {
   max-width: 720px;
   margin: 0 auto;
-  padding: 16px 14px calc(24px + var(--tabbar-fab) + env(safe-area-inset-bottom));
+  padding: 16px 14px calc(24px + var(--tabbar-fab) + env(safe-area-inset-bottom) + var(--tabbar-extra-height));
 }
 
 .app-header {
@@ -238,9 +260,11 @@ a:active { opacity: 0.7; }
 
 .tabbar {
   position: fixed;
-  bottom: 0;
+  bottom: var(--tabbar-edge-lift);
   left: 0;
   right: 0;
+  width: 100%;
+  box-sizing: border-box;
   background: var(--card);
   border-top: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
   display: grid;
@@ -248,8 +272,8 @@ a:active { opacity: 0.7; }
   align-items: stretch;
   justify-items: stretch;
   z-index: 50;
-  min-height: calc(var(--tabbar-strip) + 8px + env(safe-area-inset-bottom));
-  padding: 4px 3px calc(4px + env(safe-area-inset-bottom));
+  min-height: calc(var(--tabbar-strip) + 8px + env(safe-area-inset-bottom) + var(--tabbar-extra-height));
+  padding: 4px calc(0.5 * var(--tabbar-col-gap)) calc(4px + env(safe-area-inset-bottom) + var(--tabbar-extra-height));
   overflow: visible;
   box-shadow: 0 -1px 0 color-mix(in srgb, var(--border) 70%, transparent),
     0 -6px 24px rgba(15, 23, 42, 0.05);
@@ -267,8 +291,12 @@ a:active { opacity: 0.7; }
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
-.tabbar-cols-5 {
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+.tabbar.tabbar-cols-5 {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  gap: var(--tabbar-col-gap);
 }
 
 .calendar-grid {
@@ -379,13 +407,24 @@ a:active { opacity: 0.7; }
   box-sizing: border-box;
   text-decoration: none;
   -webkit-tap-highlight-color: transparent;
-  transition: color 0.18s ease, opacity 0.15s ease, transform 0.15s ease;
+  transition: color 0.18s ease, opacity 0.15s ease, transform 0.18s ease;
 }
 
-.tabbar a:not(.tabbar-add) {
+.tabbar.tabbar-cols-5 > a:not(.tabbar-add) {
   align-self: stretch;
-  height: 100%;
-  min-height: 0;
+  height: auto;
+  min-height: var(--tabbar-strip);
+  flex: 1 1 0;
+  min-width: 0;
+  transform: translateY(-8px);
+}
+
+.tabbar.tabbar-cols-5 > a[href="/read"] {
+  transform: translateY(-8px) translateX(var(--tabbar-adjacent-inset));
+}
+
+.tabbar.tabbar-cols-5 > a[href="/browse"] {
+  transform: translateY(-8px) translateX(calc(-1 * var(--tabbar-adjacent-inset)));
 }
 
 .tabbar a.active {
@@ -411,11 +450,12 @@ a:active { opacity: 0.7; }
   font-weight: var(--fw-semibold);
   border: 1px solid color-mix(in srgb, var(--border) 92%, var(--muted));
   align-self: end;
-  justify-self: center;
+  flex: 0 0 auto;
   margin-top: 0;
   margin-bottom: 0;
   line-height: 1.25;
   letter-spacing: 0.02em;
+  transform: translateY(calc(-1 * var(--tabbar-add-lift)));
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06),
     0 4px 14px rgba(15, 23, 42, 0.09);
   transition: color 0.18s ease, background-color 0.18s ease, border-color 0.18s ease,
@@ -433,15 +473,15 @@ a:active { opacity: 0.7; }
 }
 
 .tabbar a.tabbar-add:active {
-  transform: scale(0.96);
+  transform: translateY(calc(-1 * var(--tabbar-add-lift))) scale(0.96);
   opacity: 1;
 }
 
 /* iPhone 15 Pro Max 等寬屏機型：--tabbar-fab 60px（见 :root 媒体查询） */
 @media (min-width: 430px) {
   .tabbar {
-    min-height: calc(var(--tabbar-strip) + 8px + env(safe-area-inset-bottom));
-    padding: 4px 4px calc(4px + env(safe-area-inset-bottom));
+    min-height: calc(var(--tabbar-strip) + 8px + env(safe-area-inset-bottom) + var(--tabbar-extra-height));
+    padding: 4px calc(0.5 * var(--tabbar-col-gap)) calc(4px + env(safe-area-inset-bottom) + var(--tabbar-extra-height));
   }
 
   .tabbar a {
