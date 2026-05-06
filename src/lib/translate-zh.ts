@@ -1,8 +1,10 @@
 import type { BrowseHit } from "./types";
+import { parseOpenAiCompatibleUsage } from "@/lib/ai-summary";
 import { translateLlmInputHash } from "@/lib/ai-cache-hash";
 import {
   getAiGenerationCache,
   isDatabaseConfigured,
+  recordTokenUsage,
   upsertAiGenerationCache,
 } from "@/lib/db";
 
@@ -101,6 +103,16 @@ async function translateWithOpenAiCompatibleGateway(
     data = await res.json();
   } catch {
     return null;
+  }
+  const usage = parseOpenAiCompatibleUsage(data);
+  if (cacheUserId && usage && usage.totalTokens > 0) {
+    void recordTokenUsage({
+      userId: cacheUserId,
+      source: "translate_llm",
+      promptTokens: usage.promptTokens,
+      completionTokens: usage.completionTokens,
+      totalTokens: usage.totalTokens,
+    });
   }
   const d = data as { choices?: Array<{ message?: { content?: string } }> };
   const raw = d.choices?.[0]?.message?.content?.trim();

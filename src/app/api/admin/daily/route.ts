@@ -13,8 +13,8 @@ function addDays(isoDay: string, delta: number): string {
 
 export async function GET(req: Request) {
   const session = await getRouteHandlerUser();
-  if (!session?.email || !isAdminEmail(session.email)) {
-    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  if (!session?.id || !session.email) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
   if (!isDatabaseConfigured()) {
@@ -26,6 +26,9 @@ export async function GET(req: Request) {
   const days = Math.min(Math.max(parseInt(searchParams.get("days") || "30", 10) || 30, 7), 366);
   const from = addDays(to, -(days - 1));
 
-  const series = await getAdminDailySeries({ fromDay: from, toDay: to });
+  const isAdmin = isAdminEmail(session.email);
+  const filterUserId = isAdmin ? null : session.id;
+
+  const series = await getAdminDailySeries({ fromDay: from, toDay: to, filterUserId });
   return NextResponse.json({ from, to, series });
 }

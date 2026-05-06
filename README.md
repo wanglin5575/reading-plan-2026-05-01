@@ -62,6 +62,12 @@ dev server 已绑定 `0.0.0.0`，所以同 WiFi 下手机可以直接打开。
 5. **Authentication → URL Configuration**：**Site URL** 填你的站点根地址（本地常用 `http://localhost:3000`，生产填正式域名）。**Redirect URLs** 至少包含 `http://localhost:3000/auth/callback` 与线上 `https://你的域名/auth/callback`（或用 Supabase 文档允许的通配写法），否则验证邮件或 OAuth 回调会被拒绝。
 6. 若注册或请求接口时出现 **`Invalid path specified in request URL`**：常见原因是把 **带路径的地址** 填进了 `NEXT_PUBLIC_SUPABASE_URL`（例如 `https://xxxx.supabase.co/auth/v1` 或 `/rest/v1`）。应只填 **API 设置里的 Project URL 根**：`https://xxxx.supabase.co`，不要任何后缀路径。Vercel 上改完环境变量后需 **重新部署**（`NEXT_PUBLIC_*` 在构建时写入）。代码会把误带路径的 URL 自动纠正为 `origin`，但仍建议在控制台里改成干净根地址。
 
+### 管理后台（/admin）
+
+- 管理员判定见 `src/lib/admin.ts`：内置默认邮箱 `vienna.wwl@gmail.com`，并可通过 **`ADMIN_EMAILS`**（逗号分隔）追加；详见 `.env.example`。
+- 对 **Gmail / Googlemail**，比对前会规范化本地部分（忽略 `.` 与 `+标签`），避免「配置的邮箱」与「Supabase 里登记的邮箱」仅差标点却无法识别管理员。
+- 「会员与用量」全量列表依赖 **`SUPABASE_SERVICE_ROLE_KEY`** 拉取 Auth 用户；未配置时主要依赖用户登录后写入的 **`app_user_registry`**，与是否为管理员无关。
+
 ## 数据库配置（Supabase）
 
 1. 在 Supabase 创建项目。

@@ -9,19 +9,30 @@ export const dynamic = "force-dynamic";
 
 export async function GET() {
   const session = await getRouteHandlerUser();
-  if (!session?.email || !isAdminEmail(session.email)) {
-    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  if (!session?.id || !session.email) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  const authUsers = await listAllSupabaseAuthUsers();
-  const overview = await buildAdminOverview({ authUsers });
+  const viewerIsAdmin = isAdminEmail(session.email);
+  const authUsers = viewerIsAdmin ? await listAllSupabaseAuthUsers() : [];
+
+  const overview = await buildAdminOverview({
+    authUsers,
+    viewerUserId: session.id,
+    viewerEmail: session.email,
+    viewerIsAdmin,
+  });
 
   return NextResponse.json({
     ...overview,
-    meta: {
-      ...overview.meta,
-      serviceRoleConfigured: Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()),
-      databaseConfigured: isDatabaseConfigured(),
-    },
+    meta: viewerIsAdmin
+      ? {
+          ...overview.meta,
+          serviceRoleConfigured: Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()),
+          databaseConfigured: isDatabaseConfigured(),
+        }
+      : {
+          databaseConfigured: isDatabaseConfigured(),
+        },
   });
 }

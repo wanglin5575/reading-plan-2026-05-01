@@ -1,11 +1,12 @@
 ---
-name: publish-to-vercel
+
+## name: publish-to-vercel
+
 description: >-
   Publishes the reading-plan Next.js app by committing changes and pushing
   origin/main so the linked Vercel project runs a production deployment.
   Use when the user asks to 发布、部署、上线、release、deploy to Vercel, or ship
   changes for this repository.
----
 
 # 发布到 Vercel（reading-plan）
 
@@ -20,10 +21,10 @@ description: >-
 ## 标准发布流程（助手应代为执行）
 
 1. **确认工作目录**为项目根：`reading-plan-2026-05-01`（或当前 monorepo 下的该子目录）。
-2. **`git status`**：查看变更；如有未跟踪文件一并纳入。
+2. `**git status`**：查看变更；如有未跟踪文件一并纳入。
 3. **可选**：`npm run build` 确认能通过（用户赶时间时可跳过，但 CI/ Vercel 失败时要能排查）。
-4. **`git add`** 相关文件 → **`git commit -m "…"`**：说明性英文或中文提交信息（类型前缀如 `feat:` / `fix:` 与仓库习惯一致）。
-5. **`git push origin main`**（需要 network + git 权限）。
+4. `**git add`** 相关文件 → `**git commit -m "…"`**：说明性英文或中文提交信息（类型前缀如 `feat:` / `fix:` 与仓库习惯一致）。
+5. `**git push origin main**`（需要 network + git 权限）。
 6. **告知用户**：推送已完成；请到 [Vercel Dashboard](https://vercel.com) → 对应项目 → **Deployments** 查看构建与 Production URL。若失败，根据构建日志排查（依赖、环境变量、`next build` 错误等）。
 
 ## 不要做
@@ -34,5 +35,5 @@ description: >-
 
 ## 与本项目相关的备注
 
-- 数据库表由应用在首次连接 Postgres 时 **`ensureSchema()`** 创建；新环境需在 Vercel 配置 **`DATABASE_URL`**。
+- 数据库表由应用在首次连接 Postgres 时 `**ensureSchema()`** 创建；新环境需在 Vercel 配置 `**DATABASE_URL`**。
 - 若用户曾用 CLI 部署，可作为兜底提及：`vercel --prod`（需在项目目录且已 `vercel login`），但以 **推送 main** 为主流程。

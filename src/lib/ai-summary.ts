@@ -134,7 +134,8 @@ export type AiEnrichArticleResult = {
   usage: AiChatUsage | null;
 };
 
-function parseUsage(data: unknown): AiChatUsage | null {
+/** 解析 OpenAI 兼容 Chat Completions 响应中的 `usage`（供其它 Wolf/网关调用复用） */
+export function parseOpenAiCompatibleUsage(data: unknown): AiChatUsage | null {
   if (!data || typeof data !== "object") return null;
   const u = (data as { usage?: unknown }).usage;
   if (!u || typeof u !== "object") return null;
@@ -293,7 +294,7 @@ ${bodyText || "(正文为空)"}`;
   } catch {
     return { enrichment: null, usage: null };
   }
-  usage = parseUsage(jsonPayload);
+  usage = parseOpenAiCompatibleUsage(jsonPayload);
 
   if (!res.ok) return { enrichment: null, usage };
 

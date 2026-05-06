@@ -21,7 +21,12 @@ const TABS = [
 ];
 
 export function Tabbar() {
-  const pathname = usePathname();
+  const pathnameFromHook = usePathname() || "";
+  /** 与 AuthGateOverlay 一致：首帧 `usePathname()` 可能为空，避免对非 `/` 项调用 `.startsWith` 抛错导致整树白屏 */
+  const pathname =
+    pathnameFromHook ||
+    (typeof window !== "undefined" ? window.location.pathname : "") ||
+    "";
   const navRef = useRef<HTMLElement>(null);
 
   useLayoutEffect(() => {
@@ -43,10 +48,23 @@ export function Tabbar() {
     return () => ro.disconnect();
   }, []);
 
+  function isTabActive(tabHref: string): boolean {
+    if (tabHref === "/") return pathname === "/";
+    /** 「我的」对应 /weekly；/weekly-ui-preview 为同 Tab 的纯 UI 预览，底栏应高亮「我的」 */
+    if (tabHref === "/weekly") {
+      return (
+        pathname.startsWith("/weekly") ||
+        pathname === "/weekly-ui-preview" ||
+        pathname.startsWith("/weekly-ui-preview/")
+      );
+    }
+    return pathname.startsWith(tabHref);
+  }
+
   return (
     <nav ref={navRef} className="tabbar tabbar-cols-5">
       {TABS.map((tab) => {
-        const active = tab.href === "/" ? pathname === "/" : pathname.startsWith(tab.href);
+        const active = isTabActive(tab.href);
         const isAdd = tab.href === "/add";
         const className = [active ? "active" : "", isAdd ? "tabbar-add" : ""].filter(Boolean).join(" ");
         return (

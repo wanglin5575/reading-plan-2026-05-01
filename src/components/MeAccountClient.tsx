@@ -39,6 +39,7 @@ export function MeAccountClient({
 }) {
   const router = useRouter();
   const registerDialogRef = useRef<HTMLDialogElement>(null);
+  const vipDialogRef = useRef<HTMLDialogElement>(null);
   const fieldId = useId();
   const loginEmailId = `${fieldId}-login-email`;
   const loginPasswordId = `${fieldId}-login-password`;
@@ -52,6 +53,9 @@ export function MeAccountClient({
   const [msg, setMsg] = useState<string | null>(null);
   const [registerMsg, setRegisterMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [vipUsername, setVipUsername] = useState("");
+  const [vipPassword, setVipPassword] = useState("");
+  const [vipMsg, setVipMsg] = useState<string | null>(null);
 
   function openRegisterDialog() {
     setRegisterMsg(null);
@@ -62,6 +66,15 @@ export function MeAccountClient({
 
   function closeRegisterDialog() {
     registerDialogRef.current?.close();
+  }
+
+  function openVipDialog() {
+    setVipMsg(null);
+    vipDialogRef.current?.showModal();
+  }
+
+  function closeVipDialog() {
+    vipDialogRef.current?.close();
   }
 
   async function onRegister(e: React.FormEvent) {
@@ -201,6 +214,41 @@ export function MeAccountClient({
     }
   }
 
+  async function onVipLogin(e: React.FormEvent) {
+    e.preventDefault();
+    setVipMsg(null);
+    setBusy(true);
+    try {
+      const r = await fetch("/api/auth/vip/login", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ username: vipUsername.trim(), password: vipPassword }),
+      });
+      const d = (await r.json().catch(() => ({}))) as { error?: string; ok?: boolean };
+      if (!r.ok) {
+        if (d.error === "server_misconfigured_vip_secret") {
+          setVipMsg(
+            "服务器无法签发 VIP 会话：请配置数据库连接或 SUPABASE_SERVICE_ROLE_KEY，或显式设置 READING_PLAN_VIP_SESSION_SECRET。",
+          );
+        } else if (d.error === "invalid_credentials" || r.status === 401) {
+          setVipMsg("用户名或密码错误，或账号已停用。");
+        } else {
+          setVipMsg(d.error || "VIP 登录失败");
+        }
+        return;
+      }
+      setVipPassword("");
+      closeVipDialog();
+      dispatchAuthChanged();
+      router.refresh();
+      router.replace("/weekly");
+    } catch {
+      setVipMsg("网络错误，请稍后重试。");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (!authEnabled) {
     return (
       <div className="card me-account-card">
@@ -223,11 +271,6 @@ export function MeAccountClient({
       ) : (
         <h2>账号</h2>
       )}
-      <p className="muted-link me-intro">
-        {variant === "overlay"
-          ? "使用邮箱或 Google 登录；新用户请点击底部注册。（请在 Supabase 开启 Google 提供商）"
-          : "邮箱或 Google 登录；新用户请注册。"}
-      </p>
 
       <form className="row me-login-form" onSubmit={onLogin}>
         <label className="muted-link" htmlFor={loginEmailId}>
@@ -270,19 +313,25 @@ export function MeAccountClient({
         </div>
       </form>
 
-      <button
-        type="button"
-        className="me-google-btn"
-        disabled={busy}
-        onClick={() => void signInWithGoogle()}
-      >
-        <GoogleMark className="me-google-btn-icon" />
-        Google 一键登录
-      </button>
-
-      <button type="button" className="me-register-open-btn" disabled={busy} onClick={openRegisterDialog}>
-        注册
-      </button>
+      <div className="me-auth-oauth-stack">
+        <button type="button" className="me-register-open-btn" disabled={busy} onClick={openRegisterDialog}>
+          注册
+        </button>
+        <div className="me-auth-oauth-row">
+          <button type="button" className="me-vip-open-btn" disabled={busy} onClick={openVipDialog}>
+            VIP 登录
+          </button>
+          <button
+            type="button"
+            className="me-google-btn"
+            disabled={busy}
+            onClick={() => void signInWithGoogle()}
+          >
+            <GoogleMark className="me-google-btn-icon" />
+            Google 一键登录
+          </button>
+        </div>
+      </div>
 
       {msg && <p className="me-msg">{msg}</p>}
 
@@ -350,6 +399,58 @@ export function MeAccountClient({
             </button>
           </form>
           {registerMsg && <p className="me-msg me-msg--in-dialog">{registerMsg}</p>}
+        </div>
+      </dialog>
+
+      <dialog
+        ref={vipDialogRef}
+        className="me-register-dialog me-vip-dialog"
+        onClose={() => {
+          setVipMsg(null);
+        }}
+      >
+        <div className="me-register-dialog-inner">
+          <div className="me-register-head">
+            <h2 className="me-register-title me-vip-dialog-title">VIP 账号登录</h2>
+            <button
+              type="button"
+              className="me-register-close"
+              aria-label="关闭"
+              disabled={busy}
+              onClick={closeVipDialog}
+            >
+              ×
+            </button>
+          </div>
+          <p className="muted-link me-vip-hint me-vip-hint--in-dialog">由管理员开通的用户名与密码，无需邮箱验证。</p>
+          <form className="row me-login-form" onSubmit={(e) => void onVipLogin(e)}>
+            <label className="muted-link" htmlFor={`${fieldId}-vip-user`}>
+              VIP 用户名
+            </label>
+            <input
+              id={`${fieldId}-vip-user`}
+              className="input"
+              autoComplete="username"
+              value={vipUsername}
+              onChange={(e) => setVipUsername(e.target.value)}
+              disabled={busy}
+            />
+            <label className="muted-link" htmlFor={`${fieldId}-vip-pw`}>
+              密码
+            </label>
+            <PasswordInputWithToggle
+              id={`${fieldId}-vip-pw`}
+              autoComplete="current-password"
+              value={vipPassword}
+              onChange={setVipPassword}
+              minLength={6}
+              disabled={busy}
+            />
+            <button className="btn secondary" type="submit" disabled={busy}>
+              {busy ? "登录中…" : "VIP 登录"}
+            </button>
+          </form>
+          {vipMsg ? <p className="me-msg me-msg--in-dialog">{vipMsg}</p> : null}
         </div>
       </dialog>
     </div>

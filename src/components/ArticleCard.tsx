@@ -11,6 +11,7 @@ import { ArticleReadPreviewModal } from "@/components/ArticleReadPreviewModal";
 import { fallbackReadModalBody } from "@/lib/read-modal-fallback";
 import { getReadPreviewUiCache, setReadPreviewUiCache } from "@/lib/read-preview-ui-cache";
 import { readPreviewSourceFromApiPayload, type ReadPreviewSource } from "@/lib/read-preview-source";
+import { buildArticlePreviewSource } from "@/lib/article-preview-source";
 
 interface Props {
   article: Article;
@@ -36,6 +37,10 @@ function joinKeyPointsProse(points: unknown[] | undefined): string {
     .filter(Boolean);
   if (!parts.length) return "";
   return parts.join("；");
+}
+
+function trimmedKeyPoints(points: unknown[] | undefined): string[] {
+  return (Array.isArray(points) ? points : []).map((p) => String(p).trim()).filter(Boolean);
 }
 
 function ArticleSummaryFooter({ summary }: { summary: string }) {
@@ -251,15 +256,6 @@ export function ArticleTitleLink({
   );
 }
 
-function buildArticlePreviewSource(article: Pick<Article, "summary" | "rawExcerpt">): string {
-  const parts: string[] = [];
-  const s = article.summary?.trim();
-  if (s && s !== "(暂无摘要)") parts.push(s);
-  const ex = article.rawExcerpt?.trim();
-  if (ex) parts.push(ex);
-  return parts.join("\n\n");
-}
-
 export function ArticleCard({ article, showActions = true, collapseOriginalSummary = false }: Props) {
   const router = useRouter();
   const [, startTransition] = useTransition();
@@ -282,6 +278,8 @@ export function ArticleCard({ article, showActions = true, collapseOriginalSumma
   const [dueDate, setDueDate] = useState(article.dueDate);
   const [theme, setTheme] = useState(article.theme);
   const [author, setAuthor] = useState(article.author || "");
+  const [titleEdit, setTitleEdit] = useState(article.title);
+  const [titleZhEdit, setTitleZhEdit] = useState(article.titleZh || "");
   const [intensiveRead, setIntensiveRead] = useState(() => isIntensiveRead(article));
   const [readOneLiner, setReadOneLiner] = useState(article.readOneLiner || "");
   const [kp1, setKp1] = useState(article.readKeyPoints?.[0] || "");
@@ -295,6 +293,8 @@ export function ArticleCard({ article, showActions = true, collapseOriginalSumma
     setDueDate(article.dueDate);
     setTheme(article.theme);
     setAuthor(article.author || "");
+    setTitleEdit(article.title);
+    setTitleZhEdit(article.titleZh || "");
     setIntensiveRead(isIntensiveRead(article));
     setReadOneLiner(article.readOneLiner || "");
     setKp1(article.readKeyPoints?.[0] || "");
@@ -307,6 +307,7 @@ export function ArticleCard({ article, showActions = true, collapseOriginalSumma
     article.dueDate,
     article.theme,
     article.author,
+    article.title,
     article.featured,
     article.recommendedDepth,
     article.summary,
@@ -405,7 +406,14 @@ export function ArticleCard({ article, showActions = true, collapseOriginalSumma
   }
 
   async function saveMeta() {
+    const t = titleEdit.trim();
+    if (!t) {
+      alert("文章标题不能为空。");
+      return;
+    }
     const ok = await call("PATCH", {
+      title: t,
+      titleZh: titleZhEdit.trim(),
       dueDate,
       theme: theme.trim(),
       author: author.trim(),
@@ -565,6 +573,33 @@ export function ArticleCard({ article, showActions = true, collapseOriginalSumma
       )}
 
       {article.status === "done" &&
+        collapseOriginalSummary &&
+        (digestComplete ? (
+          <div className="article-card-read-digest">
+            <p className="article-card-read-todo-row">
+              <span className="article-card-read-field-label article-card-read-field-label-todo">todo</span>
+              <span className="article-card-read-action-value">{article.readAction.trim()}</span>
+            </p>
+            {article.readOneLiner?.trim() ? (
+              <p className="article-card-read-oneliner">{article.readOneLiner.trim()}</p>
+            ) : null}
+            <div className="article-card-keypoints-block">
+              <div className="article-card-read-field-label article-card-keypoints-heading">重要观点</div>
+              <div className="article-card-keypoints-lines">
+                {trimmedKeyPoints(article.readKeyPoints).map((t, i) => (
+                  <p key={i} className="article-card-keypoint-line">
+                    {i + 1}. {t}
+                  </p>
+                ))}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <p className="muted-link">可从 ⋯ 补全读后笔记。</p>
+        ))}
+
+      {article.status === "done" &&
+        !collapseOriginalSummary &&
         (digestComplete ? (
           <div className="read-after-stack">
             <p className="summary">{article.readOneLiner}</p>
@@ -575,15 +610,6 @@ export function ArticleCard({ article, showActions = true, collapseOriginalSumma
           <p className="muted-link">可从 ⋯ 补全读后笔记。</p>
         ))}
 
-      {Array.isArray(article.knowledgeTags) && article.knowledgeTags.length > 0 && (
-        <div className="meta-row" style={{ marginTop: 6 }}>
-          {article.knowledgeTags.slice(0, 6).map((tag) => (
-            <span key={tag} className="meta-tags-knowledge">
-              #{tag}
-            </span>
-          ))}
-        </div>
-      )}
       {collapseOriginalSummary && hasUsableSummary && (
         <ArticleSummaryFooter summary={article.summary} />
       )}
@@ -605,6 +631,22 @@ export function ArticleCard({ article, showActions = true, collapseOriginalSumma
         </div>
         <div className="modal-sheet-body">
           <div className="row">
+            <label className="muted-link">文章标题</label>
+            <input
+              className="input"
+              value={titleEdit}
+              onChange={(e) => setTitleEdit(e.target.value)}
+              placeholder="文章标题"
+              aria-label="文章标题"
+            />
+            <label className="muted-link">中文标题（可选）</label>
+            <input
+              className="input"
+              value={titleZhEdit}
+              onChange={(e) => setTitleZhEdit(e.target.value)}
+              placeholder="英文稿时的中文译名，可留空"
+              aria-label="中文标题"
+            />
             {article.status === "todo" && (
               <>
                 <label className="muted-link">期望完成阅读时间</label>

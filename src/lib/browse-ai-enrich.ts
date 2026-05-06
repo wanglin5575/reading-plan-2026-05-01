@@ -1,4 +1,5 @@
 import { enrichArticleWithAi } from "@/lib/ai-summary";
+import { recordTokenUsage } from "@/lib/db";
 import { normalizePublishedToIso } from "@/lib/browse-published";
 import { publicationSourceLabelFromUrl } from "@/lib/browse-rejected-meta";
 import type { BrowseAiRejectedItem, BrowseHit } from "@/lib/types";
@@ -78,7 +79,7 @@ export async function enrichBrowseHitsWithAi(
     const fallbackBlob = [h.excerpt, h.summary, h.description].filter(Boolean).join("\n").trim();
     const body = composeBodyForBrowseAi(bodyFromScrape, fallbackBlob, maxInput);
 
-    const { enrichment } = await enrichArticleWithAi({
+    const { enrichment, usage } = await enrichArticleWithAi({
       title: h.title,
       body,
       url: h.url,
@@ -87,6 +88,16 @@ export async function enrichBrowseHitsWithAi(
       browseQualify: true,
       cacheUserId: cacheUserId ?? null,
     });
+
+    if (usage && cacheUserId && usage.totalTokens > 0) {
+      void recordTokenUsage({
+        userId: cacheUserId,
+        source: "browse_enrich",
+        promptTokens: usage.promptTokens,
+        completionTokens: usage.completionTokens,
+        totalTokens: usage.totalTokens,
+      });
+    }
 
     if (!enrichment?.summary?.trim()) {
       out.push(h);

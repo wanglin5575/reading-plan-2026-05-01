@@ -19,6 +19,7 @@ function buildBrowseHitPreviewSource(hit: BrowseStoredHit): string {
 
 export function BrowseHitCard({
   hit,
+  topicId,
   topicName,
   busy,
   onAddTodo,
@@ -26,6 +27,7 @@ export function BrowseHitCard({
   demo = false,
 }: {
   hit: BrowseStoredHit;
+  topicId: string;
   topicName: string;
   busy: boolean;
   onAddTodo: () => Promise<void>;

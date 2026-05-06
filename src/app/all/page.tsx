@@ -40,7 +40,7 @@ export default async function AllPage({ searchParams }: { searchParams: Promise<
           <h1>全部文章</h1>
           <span className="sub">共 {articles.length} 篇 · 当前筛选 {filtered.length} 篇</span>
         </div>
-        <WeeklyAccountEntry email={user?.email ?? null} showAdmin={isAdminEmail(user?.email)} />
+        <WeeklyAccountEntry email={user?.email ?? null} isAdmin={isAdminEmail(user?.email)} />
       </header>
 
       <AllFilters themes={themes} initial={params} />

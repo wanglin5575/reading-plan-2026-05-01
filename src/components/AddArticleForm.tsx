@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { Article } from "@/lib/types";
+import { ArticleCard } from "@/components/ArticleCard";
 
 export function AddArticleForm() {
   const router = useRouter();
@@ -100,14 +101,12 @@ export function AddArticleForm() {
       </form>
 
       {lastAdded && (
-        <div className="card">
-          <h2>添加成功内容</h2>
-          <div className="muted-link">标题：{lastAdded.title}</div>
-          <div className="muted-link">作者：{lastAdded.author || "未知作者"}</div>
-          <div className="muted-link">主题标签：{lastAdded.theme}</div>
-          <div className="muted-link">添加时间：{new Date(lastAdded.addedAt).toLocaleString()}</div>
-          <div className="muted-link">期望阅读完成时间：{lastAdded.dueDate}</div>
-        </div>
+        <section className="add-article-success" aria-labelledby="add-article-success-title">
+          <h2 id="add-article-success-title" className="add-article-success-title">
+            添加成功 · 与「待读」相同卡片（可点击标题看摘要、左滑已读）
+          </h2>
+          <ArticleCard article={lastAdded} />
+        </section>
       )}
     </>
   );

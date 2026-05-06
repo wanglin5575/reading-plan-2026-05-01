@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import type { Article } from "@/lib/types";
+import { useMemo, useState, useEffect } from "react";
+import type { Article, ActionReviewItem } from "@/lib/types";
 import {
   shiftDays,
   todayIso,
@@ -10,10 +10,75 @@ import {
   filterDoneOnDay,
   buildPeriodReviewFromArticles,
 } from "@/lib/plan";
-import { ArticleCard } from "./ArticleCard";
+import { ArticleCard, ArticleTitleLink } from "./ArticleCard";
 import { MonthCalendarPicker } from "./MonthCalendarPicker";
+import { buildArticlePreviewSource } from "@/lib/article-preview-source";
 
 type ViewMode = "week" | "day";
+
+function ReviewActionTodoList({
+  items,
+  periodKey,
+  viewMode,
+}: {
+  items: ActionReviewItem[];
+  periodKey: string;
+  viewMode: ViewMode;
+}) {
+  const [doneMap, setDoneMap] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    const next: Record<string, boolean> = {};
+    for (const it of items) {
+      const k = `review-action-done:${viewMode}:${periodKey}:${it.articleId}`;
+      next[it.articleId] = typeof localStorage !== "undefined" && localStorage.getItem(k) === "1";
+    }
+    setDoneMap(next);
+  }, [items, periodKey, viewMode]);
+
+  function toggle(articleId: string) {
+    const k = `review-action-done:${viewMode}:${periodKey}:${articleId}`;
+    setDoneMap((m) => {
+      const nextVal = !m[articleId];
+      if (typeof localStorage !== "undefined") {
+        if (nextVal) localStorage.setItem(k, "1");
+        else localStorage.removeItem(k);
+      }
+      return { ...m, [articleId]: nextVal };
+    });
+  }
+
+  if (!items.length) return null;
+
+  return (
+    <div className="review-action-todos">
+      <h3 className="review-action-todos-title">行动回顾</h3>
+      <ul className="review-action-todos-list">
+        {items.map((it) => (
+          <li key={it.articleId} className={`review-action-todos-item${doneMap[it.articleId] ? " is-done" : ""}`}>
+            <label className="review-action-todos-check">
+              <input
+                type="checkbox"
+                checked={Boolean(doneMap[it.articleId])}
+                onChange={() => toggle(it.articleId)}
+                aria-label={doneMap[it.articleId] ? "标为未完成" : "标为已完成"}
+              />
+            </label>
+            <ArticleTitleLink
+              previewCacheNamespaceId={it.articleId}
+              url={it.article.url}
+              previewTitle={it.article.titleZh?.trim() ? it.article.titleZh : it.article.title}
+              previewSourceText={buildArticlePreviewSource(it.article)}
+            >
+              <span className="review-action-todos-num">{it.n}</span>
+            </ArticleTitleLink>
+            <span className="review-action-todos-text">{it.text}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
 
 const WEEKDAY_LABELS = ["一", "二", "三", "四", "五", "六", "日"];
 
@@ -282,6 +347,7 @@ export default function WeeklyReviewClient({
           <div className="card">
             <h2>复盘建议</h2>
             <p className="review-advice">{weekReview.advice}</p>
+            <ReviewActionTodoList items={weekReview.actionItems} periodKey={weekStart} viewMode="week" />
           </div>
 
           <div className="card">
@@ -298,6 +364,7 @@ export default function WeeklyReviewClient({
           <div className="card">
             <h2>复盘建议</h2>
             <p className="review-advice">{dayReview.advice}</p>
+            <ReviewActionTodoList items={dayReview.actionItems} periodKey={selectedDay} viewMode="day" />
           </div>
 
           <div className="card">

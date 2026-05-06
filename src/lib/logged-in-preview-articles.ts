@@ -1,0 +1,96 @@
+import type { Article } from "@/lib/types";
+import { shiftDays, startOfWeekIso, todayIso } from "@/lib/plan";
+
+const excerpt =
+  "这是「已登录态预览」专用演示节选，用于展示复盘建议、行动回顾与文章摘要弹窗；不会写入你的账号数据。";
+
+/** 与本地 db 演示数据风格一致，专供 /weekly-ui-preview（原 /logged-in-preview），周内有数篇已读 + 行动项 */
+export function buildLoggedInPreviewArticles(): Article[] {
+  const weekStart = startOfWeekIso();
+  const today = todayIso();
+  const t = (day: string, h: number) => `${day}T${String(h).padStart(2, "0")}:00:00.000Z`;
+
+  return [
+    {
+      id: "preview-logged-in-001",
+      url: "https://example.com/preview-reading-habit",
+      title: "Preview · Building a sustainable reading habit",
+      titleZh: "预览 · 如何养成可持续的阅读习惯",
+      author: "演示作者 A",
+      publishedAt: shiftDays(today, -2),
+      domain: "example.com",
+      theme: "效率 / 习惯",
+      mediaType: "article",
+      featured: true,
+      summary: "演示摘要：用固定时段与主题清单降低启动成本，把「读完」拆成可验收的小步。",
+      language: "en",
+      charCount: 2200,
+      wordCount: 380,
+      estimatedMinutes: 8,
+      recommendedDepth: "deep",
+      knowledgeTags: ["习惯", "时间管理", "复盘"],
+      status: "done",
+      addedAt: t(shiftDays(weekStart, 0), 9),
+      dueDate: shiftDays(weekStart, 0),
+      completedAt: t(today, 11),
+      readOneLiner: "把阅读从「有空再看」改成「每天 15 分钟 + 一个输出」。",
+      readKeyPoints: ["固定时段比随机更容易坚持", "输出倒逼理解", "主题清单减少选择成本"],
+      readAction: "今晚列出下周 3 个固定阅读时段（各 15 分钟）。",
+      rawExcerpt: excerpt,
+    },
+    {
+      id: "preview-logged-in-002",
+      url: "https://example.com/preview-note-taking",
+      title: "Preview · Note-taking for technical articles",
+      titleZh: "预览 · 技术长文的笔记方法",
+      author: "演示作者 B",
+      publishedAt: shiftDays(today, -5),
+      domain: "example.com",
+      theme: "学习 / 方法",
+      mediaType: "article",
+      featured: false,
+      summary: "演示摘要：用「问题—结论—证据」三栏快速抓主线，避免抄书式笔记。",
+      language: "en",
+      charCount: 1800,
+      wordCount: 310,
+      estimatedMinutes: 6,
+      recommendedDepth: "skim",
+      knowledgeTags: ["笔记", "技术阅读"],
+      status: "done",
+      addedAt: t(shiftDays(weekStart, 1), 8),
+      dueDate: shiftDays(weekStart, 2),
+      completedAt: t(shiftDays(weekStart, 2), 14),
+      readOneLiner: "先写要回答的问题，再扫结构找结论与反例。",
+      readKeyPoints: ["问题驱动阅读", "结论与证据分开记", "留一条「对我工作的启发」"],
+      readAction: "用三栏模板整理一篇本周已读长文的主线。",
+      rawExcerpt: excerpt,
+    },
+    {
+      id: "preview-logged-in-003",
+      url: "https://example.com/preview-weekly-review",
+      title: "Preview · Weekly review checklist",
+      titleZh: "预览 · 周复盘清单（精简版）",
+      author: "演示作者 C",
+      publishedAt: shiftDays(today, -1),
+      domain: "example.com",
+      theme: "复盘 / 工作",
+      mediaType: "article",
+      featured: false,
+      summary: "演示摘要：用三件事收尾：本周产出、阻塞、下周一个实验。",
+      language: "zh",
+      charCount: 900,
+      wordCount: 120,
+      estimatedMinutes: 4,
+      recommendedDepth: "skim",
+      knowledgeTags: ["复盘", "清单"],
+      status: "done",
+      addedAt: t(shiftDays(weekStart, 3), 10),
+      dueDate: shiftDays(weekStart, 4),
+      completedAt: t(shiftDays(weekStart, 4), 16),
+      readOneLiner: "复盘越短越能坚持，关键是可执行的下一步。",
+      readKeyPoints: ["产出可视化", "阻塞要具体到人/事", "下周只设一个实验"],
+      readAction: "写一条不超过 5 行的本周复盘，贴在桌面便签。",
+      rawExcerpt: excerpt,
+    },
+  ];
+}

@@ -8,6 +8,7 @@ import { formatSupabaseAuthMessage } from "@/lib/auth";
 import { dispatchAuthChanged } from "@/lib/auth-events";
 import { createBrowserSupabaseClient } from "@/lib/supabase/client";
 import { PasswordInputWithToggle } from "@/components/PasswordInputWithToggle";
+import { TokenUsageViewerModal } from "@/components/TokenUsageViewerModal";
 import { LS_ADMIN_REGISTRY_ACK_AT } from "@/lib/admin-registry-badge";
 
 function ThreeDotsIcon({ className }: { className?: string }) {
@@ -37,29 +38,36 @@ function PersonGlyph({ className }: { className?: string }) {
 
 export function AccountAvatarMenu({
   email,
-  showAdmin,
+  isAdmin,
   menuTrigger = "dots",
+  /** 仅设计预览页：菜单默认展开 */
+  defaultMenuOpen = false,
 }: {
   email: string;
-  showAdmin?: boolean;
+  isAdmin?: boolean;
   /** 「我的」复盘页用小人图标；其它页用竖三点 */
   menuTrigger?: "dots" | "avatar";
+  defaultMenuOpen?: boolean;
 }) {
   const router = useRouter();
   const [mounted, setMounted] = useState(false);
-  const [menuOpen, setMenuOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(defaultMenuOpen);
+  const [tokenUsageOpen, setTokenUsageOpen] = useState(false);
   const [pwOpen, setPwOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [newPassword, setNewPassword] = useState("");
   const [newPassword2, setNewPassword2] = useState("");
   const [showRegistryDot, setShowRegistryDot] = useState(false);
+  const [showVipPwDot, setShowVipPwDot] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
+
+  const isVipUser = email.trim().toLowerCase().endsWith("@vip.local");
 
   useEffect(() => setMounted(true), []);
 
   useEffect(() => {
-    if (!showAdmin || typeof window === "undefined") return;
+    if (!isAdmin || typeof window === "undefined") return;
 
     const refresh = () => {
       void (async () => {
@@ -97,7 +105,27 @@ export function AccountAvatarMenu({
       document.removeEventListener("visibilitychange", onVis);
       window.removeEventListener("admin-registry-ack", onAck);
     };
-  }, [showAdmin]);
+  }, [isAdmin]);
+
+  useEffect(() => {
+    if (!isVipUser) {
+      setShowVipPwDot(false);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const r = await fetch("/api/auth/vip/password-reminder", { cache: "no-store" });
+        const d = (await r.json().catch(() => ({}))) as { mustChangePassword?: boolean };
+        if (!cancelled) setShowVipPwDot(Boolean(d.mustChangePassword) && r.ok);
+      } catch {
+        if (!cancelled) setShowVipPwDot(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isVipUser]);
 
   const closeMenu = useCallback(() => setMenuOpen(false), []);
 
@@ -124,8 +152,12 @@ export function AccountAvatarMenu({
     closeMenu();
     setBusy(true);
     try {
-      const supabase = createBrowserSupabaseClient();
-      await supabase.auth.signOut();
+      if (isVipUser) {
+        await fetch("/api/auth/vip/logout", { method: "POST" });
+      } else {
+        const supabase = createBrowserSupabaseClient();
+        await supabase.auth.signOut();
+      }
       dispatchAuthChanged();
       router.refresh();
     } finally {
@@ -154,9 +186,23 @@ export function AccountAvatarMenu({
     }
     setBusy(true);
     try {
-      const supabase = createBrowserSupabaseClient();
-      const { error } = await supabase.auth.updateUser({ password: newPassword });
-      if (error) throw error;
+      if (isVipUser) {
+        const r = await fetch("/api/auth/vip/password", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ newPassword }),
+        });
+        const d = (await r.json().catch(() => ({}))) as { error?: string };
+        if (!r.ok) {
+          if (d.error === "invalid_password") throw new Error("新密码至少 6 位");
+          throw new Error(d.error || "修改失败");
+        }
+        setShowVipPwDot(false);
+      } else {
+        const supabase = createBrowserSupabaseClient();
+        const { error } = await supabase.auth.updateUser({ password: newPassword });
+        if (error) throw error;
+      }
       setPwOpen(false);
       setNewPassword("");
       setNewPassword2("");
@@ -230,7 +276,7 @@ export function AccountAvatarMenu({
         <button
           type="button"
           className={`account-avatar-btn${menuTrigger === "dots" ? " account-menu-kebab" : ""}`}
-          aria-label={showRegistryDot ? "账号菜单（有新人注册）" : "账号菜单"}
+          aria-label={showRegistryDot || showVipPwDot ? "账号菜单（有提醒）" : "账号菜单"}
           aria-expanded={menuOpen}
           aria-haspopup="true"
           disabled={busy}
@@ -241,18 +287,29 @@ export function AccountAvatarMenu({
           ) : (
             <ThreeDotsIcon className="account-avatar-icon" />
           )}
-          {showRegistryDot ? <span className="account-avatar-registry-dot" aria-hidden /> : null}
+          {showRegistryDot || showVipPwDot ? <span className="account-avatar-registry-dot" aria-hidden /> : null}
         </button>
         {menuOpen && (
           <div className="account-menu-popover" role="menu">
             <p className="account-menu-email" role="presentation">
               {email}
             </p>
-            {showAdmin ? (
+            {isAdmin ? (
               <Link href="/admin" className="account-menu-item account-menu-item--link" role="menuitem" onClick={closeMenu}>
                 管理后台
               </Link>
             ) : null}
+            <button
+              type="button"
+              className="account-menu-item"
+              role="menuitem"
+              onClick={() => {
+                closeMenu();
+                setTokenUsageOpen(true);
+              }}
+            >
+              查看token消耗
+            </button>
             <button type="button" className="account-menu-item" role="menuitem" onClick={openPasswordModal}>
               修改密码
             </button>
@@ -269,6 +326,11 @@ export function AccountAvatarMenu({
         )}
       </div>
       {modal && createPortal(modal, document.body)}
+      <TokenUsageViewerModal
+        open={tokenUsageOpen}
+        onClose={() => setTokenUsageOpen(false)}
+        viewerIsAdmin={Boolean(isAdmin)}
+      />
     </>
   );
 }

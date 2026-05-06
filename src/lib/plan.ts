@@ -1,7 +1,15 @@
-import { type Article, type DailyPlan, type PeriodReview, type WeeklyReview, isIntensiveRead } from "./types";
+import { type Article, type DailyPlan, type PeriodReview, type WeeklyReview, type ActionReviewItem, isIntensiveRead } from "./types";
+
+/** YYYY-MM-DD in the runtime's local calendar (not UTC), for consistent UI + string compares. */
+function formatLocalIsoDate(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
 
 export function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
+  return formatLocalIsoDate(new Date());
 }
 
 export function startOfWeekIso(date: Date = new Date()): string {
@@ -9,13 +17,13 @@ export function startOfWeekIso(date: Date = new Date()): string {
   d.setHours(0, 0, 0, 0);
   const dayIdx = (d.getDay() + 6) % 7;
   d.setDate(d.getDate() - dayIdx);
-  return d.toISOString().slice(0, 10);
+  return formatLocalIsoDate(d);
 }
 
 export function shiftDays(iso: string, days: number): string {
   const d = new Date(iso + "T00:00:00");
   d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
+  return formatLocalIsoDate(d);
 }
 
 export function buildDailyPlan(all: Article[], date: string = todayIso()): DailyPlan {
@@ -171,8 +179,22 @@ export function aggregateKnowledgePoints(articles: Article[]): string[] {
   return out.slice(0, 24);
 }
 
+export function listActionReviewItems(articles: Article[]): ActionReviewItem[] {
+  const done = articles.filter((a) => a.status === "done" && a.readAction?.trim());
+  return done.map((a, i) => ({
+    n: i + 1,
+    articleId: a.id,
+    text: a.readAction.trim(),
+    article: a,
+  }));
+}
+
 /** 周期复盘建议文案 */
-export function buildAdviceForPeriod(articles: Article[], periodLabel: string): string {
+export function buildAdviceForPeriod(
+  articles: Article[],
+  periodLabel: string,
+  options?: { omitActionParagraph?: boolean },
+): string {
   if (!articles.length) {
     return `${periodLabel}暂无已读记录。完成阅读并填写总结与行动项后，我们会基于你的笔记生成建议。`;
   }
@@ -185,19 +207,25 @@ export function buildAdviceForPeriod(articles: Article[], periodLabel: string): 
   if (intensiveCount > 0) {
     parts.push(`其中有 ${intensiveCount} 篇重点精读，建议优先核对你的「一句话总结」是否仍适用于当前工作上下文。`);
   }
-  const actions = [...new Set(articles.map((a) => a.readAction).filter(Boolean))];
-  if (actions.length) {
-    parts.push(`行动项回顾：${actions.slice(0, 6).join("；")}${actions.length > 6 ? "…" : ""}。`);
+  if (!options?.omitActionParagraph) {
+    const actions = [...new Set(articles.map((a) => a.readAction).filter(Boolean))];
+    if (actions.length) {
+      parts.push(`行动项回顾：${actions.slice(0, 6).join("；")}${actions.length > 6 ? "…" : ""}。`);
+    }
   }
   return parts.join(" ");
 }
 
 export function buildPeriodReviewFromArticles(articles: Article[], periodLabel: string): PeriodReview {
   const totalMinutes = articles.reduce((s, a) => s + a.estimatedMinutes, 0);
+  const actionItems = listActionReviewItems(articles);
   return {
     articles,
     totalMinutes,
     knowledgePoints: aggregateKnowledgePoints(articles),
-    advice: buildAdviceForPeriod(articles, periodLabel),
+    advice: buildAdviceForPeriod(articles, periodLabel, {
+      omitActionParagraph: actionItems.length > 0,
+    }),
+    actionItems,
   };
 }

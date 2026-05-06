@@ -129,9 +129,19 @@ export interface WeeklyReview {
 }
 
 /** 某周或某日回顾的聚合展示用 */
+export interface ActionReviewItem {
+  /** 从 1 开始的序号 */
+  n: number;
+  articleId: string;
+  text: string;
+  article: Article;
+}
+
 export interface PeriodReview {
   articles: Article[];
   totalMinutes: number;
   knowledgePoints: string[];
   advice: string;
+  /** 已读且有行动项的待办行（与 advice 中「行动项回顾」拆开展示） */
+  actionItems: ActionReviewItem[];
 }

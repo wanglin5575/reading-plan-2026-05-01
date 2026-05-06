@@ -1,5 +1,7 @@
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { isAuthEnabled } from "@/lib/auth";
+import { tryReadVipSessionUser } from "@/lib/auth/vip-session-server";
+import { tryReadPreviewUiSessionUser } from "@/lib/preview-session-server";
 
 /** API Route / Server Action：当前请求的登录用户 id（未启用 Auth 时为 null） */
 export async function getRouteHandlerUserId(): Promise<string | null> {
@@ -18,17 +20,33 @@ export async function getRouteHandlerUser(): Promise<{
     const supabase = await createServerSupabaseClient();
     const {
       data: { user },
+      error,
     } = await supabase.auth.getUser();
-    if (!user?.id) return null;
-    const email = user.email?.trim() || "";
-    const createdAt =
-      typeof user.created_at === "string"
-        ? user.created_at
-        : user.created_at != null
-          ? String(user.created_at)
-          : null;
-    return { id: user.id, email, createdAt };
+    if (!error && user?.id) {
+      const email = user.email?.trim() || "";
+      if (email) {
+        const createdAt =
+          typeof user.created_at === "string"
+            ? user.created_at
+            : user.created_at != null
+              ? String(user.created_at)
+              : null;
+        return { id: user.id, email, createdAt };
+      }
+    }
   } catch {
-    return null;
+    /* fall through to VIP */
   }
+  const vip = await tryReadVipSessionUser();
+  if (vip) return vip;
+
+  const previewUi = await tryReadPreviewUiSessionUser();
+  if (previewUi) {
+    return {
+      id: previewUi.id,
+      email: previewUi.email,
+      createdAt: previewUi.createdAt,
+    };
+  }
+  return null;
 }

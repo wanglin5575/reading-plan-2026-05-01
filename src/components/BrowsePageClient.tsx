@@ -736,11 +736,12 @@ export default function BrowsePageClient() {
     return filterBrowseHitsByPublishedAge(s, effectiveMaxPublishedAgeDays(active ?? undefined));
   }, [hits, sortBy, active]);
 
-  /** 生产构建不包含开发示例（NODE_ENV 在客户端打包时固化） */
+  /** 生产构建不包含开发示例（NODE_ENV 在客户端打包时固化）；无主题时不插入示例卡片 */
   const hitsForUi = useMemo(() => {
+    if (!activeId || topics.length === 0) return sortedHits;
     if (process.env.NODE_ENV === "production") return sortedHits;
     return [createBrowseUiDemoHit(active?.name ?? "示例主题"), ...sortedHits];
-  }, [sortedHits, active?.name]);
+  }, [sortedHits, active?.name, activeId, topics.length]);
 
   const showPullVisual = pullPx > 4 || refreshing;
   const pullProgress = refreshing ? 1 : Math.min(1, pullPx / 48);
@@ -812,6 +813,33 @@ export default function BrowsePageClient() {
           </>
         )}
       </div>
+
+      {!loadingTopics && topics.length === 0 ? (
+        <div className="card browse-onboarding-card" style={{ marginBottom: 16 }}>
+          <h2 style={{ marginTop: 0 }}>还没有随览主题</h2>
+          <p className="muted-link" style={{ lineHeight: 1.6 }}>
+            随览按「主题 + 关键词」从网络发现文章：先起一个主题名，再填若干关键词（逗号分隔）。保存后点「+」旁的编辑可补充<strong>种子站 / RSS</strong>
+            （每行一条 URL），下拉刷新即可拉取。
+          </p>
+          <p className="muted-link" style={{ fontWeight: 600, marginBottom: 6 }}>
+            举例（可按需改写）
+          </p>
+          <ul className="muted-link" style={{ margin: "0 0 12px", paddingLeft: 20, lineHeight: 1.65 }}>
+            <li>
+              主题名「大模型评测」· 关键词 <code className="admin-code-inline">benchmark, evaluation, LLM</code>
+            </li>
+            <li>
+              主题名「产品周报」· 关键词 <code className="admin-code-inline">release notes, changelog, 产品更新</code>
+            </li>
+            <li>
+              主题名「前端架构」· 关键词 <code className="admin-code-inline">React, performance, bundler</code>
+            </li>
+          </ul>
+          <button type="button" className="btn" onClick={() => setFormOpen(true)}>
+            添加第一个主题
+          </button>
+        </div>
+      ) : null}
 
       {active && (
         <div className="browse-kw-row">
@@ -988,7 +1016,7 @@ export default function BrowsePageClient() {
               className="input"
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
-              placeholder="如 AI Evals"
+              placeholder="如：大模型评测"
             />
             <label className="muted-link" htmlFor="browse-new-kw">
               关键词（与主题为且，多项为或；逗号分隔）
@@ -998,7 +1026,7 @@ export default function BrowsePageClient() {
               className="input"
               value={newKw}
               onChange={(e) => setNewKw(e.target.value)}
-              placeholder="Hamel, Shreya, Stella&Amy, Anthropic"
+              placeholder="benchmark, evaluation, 论文（中英文逗号均可）"
             />
             <div className="browse-form-actions">
               <button className="btn" type="submit">
@@ -1034,6 +1062,7 @@ export default function BrowsePageClient() {
           <BrowseHitCard
             key={isBrowseUiDemoHit(h) ? "__browse_ui_demo__" : h.url}
             hit={h}
+            topicId={activeId ?? ""}
             topicName={active?.name ?? "—"}
             busy={busyUrl === h.url}
             demo={isBrowseUiDemoHit(h)}

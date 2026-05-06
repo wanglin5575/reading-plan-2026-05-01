@@ -32,6 +32,8 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     dueDate?: string;
     theme?: string;
     author?: string;
+    title?: string;
+    titleZh?: string;
     featured?: boolean;
     readOneLiner?: string;
     readKeyPoints?: string[];
@@ -87,6 +89,14 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   if (body.dueDate) article.dueDate = body.dueDate;
   if (body.theme) article.theme = body.theme;
   if (typeof body.author === "string") article.author = body.author.trim() || "未知作者";
+  if (typeof body.title === "string") {
+    const t = body.title.trim();
+    if (!t) {
+      return NextResponse.json({ error: "title_required", message: "文章标题不能为空。" }, { status: 400 });
+    }
+    article.title = t;
+  }
+  if (typeof body.titleZh === "string") article.titleZh = body.titleZh.trim();
   if (typeof body.featured === "boolean") {
     article.featured = body.featured;
     article.recommendedDepth = body.featured ? "deep" : "skim";

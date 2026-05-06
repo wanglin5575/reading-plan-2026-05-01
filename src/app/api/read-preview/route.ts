@@ -25,7 +25,6 @@ export async function POST(req: Request) {
   const title = payload.title?.trim() || "无标题";
   const url = payload.url?.trim() || "";
   let sourceText = (payload.sourceText ?? "").trim().slice(0, MAX_SOURCE);
-
   if (!url) {
     return NextResponse.json({ error: "url_required" }, { status: 400 });
   }

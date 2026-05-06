@@ -21,14 +21,21 @@ function PersonGlyph() {
 /** 各页右上角：已登录为账号菜单，未登录为进入 /me 登录页 */
 export function WeeklyAccountEntry({
   email,
-  showAdmin,
+  isAdmin,
   menuTrigger = "dots",
+  defaultMenuOpen,
 }: {
   email: string | null;
-  showAdmin?: boolean;
+  /** 管理员：注册红点、入口「管理后台」；非管理员无后台入口，使用「查看token消耗」 */
+  isAdmin?: boolean;
   menuTrigger?: "dots" | "avatar";
+  /** 仅预览页：头像菜单默认展开 */
+  defaultMenuOpen?: boolean;
 }) {
-  if (email) return <AccountAvatarMenu email={email} showAdmin={showAdmin} menuTrigger={menuTrigger} />;
+  if (email)
+    return (
+      <AccountAvatarMenu email={email} isAdmin={isAdmin} menuTrigger={menuTrigger} defaultMenuOpen={defaultMenuOpen ?? false} />
+    );
   return (
     <Link href="/me" className="account-avatar-btn account-avatar-btn--link" aria-label="登录或注册" prefetch>
       <PersonGlyph />

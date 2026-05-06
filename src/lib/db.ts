@@ -2,8 +2,7 @@ import { Pool } from "pg";
 import { randomUUID } from "node:crypto";
 import { isAuthEnabled } from "./auth";
 import type { Article, BrowseAiRejectedItem, BrowseTopic } from "./types";
-import { DEFAULT_AI_EVALS_SEED_SOURCES } from "@/lib/browse-defaults";
-import { estimateUsdForPromptCompletion } from "@/lib/token-pricing";
+import { estimateUsdForPromptCompletion, estimateUsdForPromptCompletionWithCache } from "@/lib/token-pricing";
 import type { MediaKind } from "./media-kind";
 import type { BrowseTopicFeed, BrowseStoredHit } from "./browse-storage";
 
@@ -163,11 +162,6 @@ async function ensureSchema(): Promise<void> {
         ALTER TABLE browse_topics ADD COLUMN IF NOT EXISTS seed_sources JSONB NOT NULL DEFAULT '[]'::jsonb;
         ALTER TABLE browse_topics ADD COLUMN IF NOT EXISTS max_published_age_days INTEGER;
       `);
-      await p.query(
-        `UPDATE browse_topics SET seed_sources = $1::jsonb
-         WHERE name = 'AI Evals' AND jsonb_array_length(COALESCE(seed_sources, '[]'::jsonb)) = 0`,
-        [JSON.stringify(DEFAULT_AI_EVALS_SEED_SOURCES)],
-      );
       await p.query(`
         CREATE TABLE IF NOT EXISTS browse_topic_feeds (
           user_id TEXT NOT NULL,
@@ -208,11 +202,29 @@ async function ensureSchema(): Promise<void> {
           prompt_tokens INTEGER NOT NULL DEFAULT 0,
           completion_tokens INTEGER NOT NULL DEFAULT 0,
           total_tokens INTEGER NOT NULL DEFAULT 0,
+          cached_prompt_tokens INTEGER NOT NULL DEFAULT 0,
           cost_usd NUMERIC(18, 8) NOT NULL DEFAULT 0,
           created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
         CREATE INDEX IF NOT EXISTS idx_token_usage_user ON token_usage_log(user_id);
         CREATE INDEX IF NOT EXISTS idx_token_usage_created ON token_usage_log(created_at);
+      `);
+      await p.query(`
+        ALTER TABLE token_usage_log ADD COLUMN IF NOT EXISTS cached_prompt_tokens INTEGER NOT NULL DEFAULT 0;
+      `);
+      await p.query(`
+        CREATE TABLE IF NOT EXISTS vip_accounts (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          username TEXT NOT NULL UNIQUE,
+          password_hash TEXT NOT NULL,
+          enabled BOOLEAN NOT NULL DEFAULT TRUE,
+          must_change_password BOOLEAN NOT NULL DEFAULT TRUE,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        CREATE INDEX IF NOT EXISTS idx_vip_accounts_enabled ON vip_accounts (enabled);
+      `);
+      await p.query(`
+        ALTER TABLE vip_accounts ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT TRUE;
       `);
       await p.query(`
         CREATE TABLE IF NOT EXISTS ai_generation_cache (
@@ -229,6 +241,7 @@ async function ensureSchema(): Promise<void> {
         );
         CREATE INDEX IF NOT EXISTS idx_ai_gen_cache_updated ON ai_generation_cache (updated_at);
       `);
+      await migrateTokenUsageLogAggregated(p);
       await seedDemoIfEmpty(p);
     })().catch((err) => {
       schemaReady = null;
@@ -236,6 +249,79 @@ async function ensureSchema(): Promise<void> {
     });
   }
   return schemaReady;
+}
+
+/** 合并按主题拆分的旧行、写入缓存输入列并重算金额（一次性补丁） */
+async function migrateTokenUsageLogAggregated(p: Pool): Promise<void> {
+  await p.query(`
+    CREATE TABLE IF NOT EXISTS _reading_plan_schema_patches (
+      key TEXT PRIMARY KEY,
+      applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  const { rows: topicCol } = await p.query(
+    `SELECT 1 FROM information_schema.columns
+     WHERE table_schema = 'public' AND table_name = 'token_usage_log' AND column_name = 'browse_topic_id' LIMIT 1`,
+  );
+
+  if (topicCol.length > 0) {
+    await p.query("BEGIN");
+    try {
+      await p.query(`DROP INDEX IF EXISTS idx_token_usage_user_topic`);
+      await p.query(`
+        CREATE TEMP TABLE _rp_tul_agg AS
+        SELECT
+          gen_random_uuid()::text AS id,
+          user_id,
+          COALESCE(NULLIF(TRIM(source), ''), 'unknown') AS source,
+          (LEAST(2147483647, SUM(prompt_tokens::bigint)))::integer AS prompt_tokens,
+          (LEAST(2147483647, SUM(completion_tokens::bigint)))::integer AS completion_tokens,
+          (LEAST(2147483647, SUM(total_tokens::bigint)))::integer AS total_tokens,
+          (LEAST(2147483647, SUM((3 * GREATEST(0, prompt_tokens))::bigint)))::integer AS cached_prompt_tokens,
+          MIN(created_at) AS created_at
+        FROM token_usage_log
+        GROUP BY user_id,
+          COALESCE(NULLIF(TRIM(source), ''), 'unknown'),
+          (created_at AT TIME ZONE 'UTC')::date
+      `);
+      await p.query(`TRUNCATE token_usage_log`);
+      await p.query(`
+        INSERT INTO token_usage_log (id, user_id, source, prompt_tokens, completion_tokens, total_tokens, cached_prompt_tokens, cost_usd, created_at)
+        SELECT id, user_id, source, prompt_tokens, completion_tokens, total_tokens, cached_prompt_tokens, 0, created_at
+        FROM _rp_tul_agg
+      `);
+      await p.query(`ALTER TABLE token_usage_log DROP COLUMN browse_topic_id`);
+      await p.query("COMMIT");
+    } catch (e) {
+      await p.query("ROLLBACK");
+      console.error("[db] migrateTokenUsageLogAggregated (topic merge) failed:", e);
+      throw e;
+    }
+  }
+
+  const { rows: patched } = await p.query(
+    `SELECT 1 FROM _reading_plan_schema_patches WHERE key = $1 LIMIT 1`,
+    ["token_usage_cache_cost_v2"],
+  );
+  if (patched.length === 0) {
+    await refreshTokenUsageLogDerivedColumns(p);
+    await p.query(`INSERT INTO _reading_plan_schema_patches (key) VALUES ($1)`, ["token_usage_cache_cost_v2"]);
+  }
+}
+
+async function refreshTokenUsageLogDerivedColumns(p: Pool): Promise<void> {
+  const { rows } = await p.query<{ id: string; pt: number; ct: number }>(
+    `SELECT id, prompt_tokens AS pt, completion_tokens AS ct FROM token_usage_log`,
+  );
+  for (const r of rows) {
+    const cp = 3 * Math.max(0, r.pt);
+    const cost = estimateUsdForPromptCompletionWithCache(r.pt, r.ct, cp);
+    await p.query(
+      `UPDATE token_usage_log SET cached_prompt_tokens = $2, cost_usd = $3::numeric WHERE id = $1`,
+      [r.id, cp, cost.toFixed(8)],
+    );
+  }
 }
 
 async function seedDemoIfEmpty(p: Pool): Promise<void> {
@@ -674,18 +760,6 @@ export async function listCompletedBetween(startIso: string, endIso: string): Pr
   }
 }
 
-const NO_DB_BROWSE_TOPIC_ID = "local-browse-default";
-
-const STATIC_DEFAULT_BROWSE_TOPIC: BrowseTopic = {
-  id: NO_DB_BROWSE_TOPIC_ID,
-  name: "AI Evals",
-  keywords: ["Hamel", "Shreya", "Stella&Amy", "Anthropic"],
-  sortOrder: 0,
-  createdAt: new Date(0).toISOString(),
-  seedSources: [...DEFAULT_AI_EVALS_SEED_SOURCES],
-  maxPublishedAgeDays: null,
-};
-
 /** 与随览等多租户逻辑一致：未登录使用 anon 桶 */
 export function aiCacheOwnerKey(userId: string | null): string {
   return userId ?? "anon";
@@ -794,32 +868,12 @@ function rowToBrowseTopic(row: BrowseTopicRow): BrowseTopic {
   };
 }
 
-async function seedBrowseTopicsIfEmpty(p: Pool, userId: string): Promise<void> {
-  const { rows } = await p.query<{ c: string }>(
-    "SELECT COUNT(*)::text AS c FROM browse_topics WHERE user_id = $1",
-    [userId],
-  );
-  if (parseInt(rows[0].c, 10) > 0) return;
-  await p.query(
-    `INSERT INTO browse_topics (id, user_id, name, keywords, sort_order, seed_sources)
-     VALUES ($1, $2, $3, $4::jsonb, 0, $5::jsonb)`,
-    [
-      randomUUID(),
-      userId,
-      "AI Evals",
-      JSON.stringify(["Hamel", "Shreya", "Stella&Amy", "Anthropic"]),
-      JSON.stringify(DEFAULT_AI_EVALS_SEED_SOURCES),
-    ],
-  );
-}
-
 export async function listBrowseTopics(userId: string | null): Promise<BrowseTopic[]> {
   const owner = browseOwnerKey(userId);
   const p = getPoolOrNull();
-  if (!p) return [{ ...STATIC_DEFAULT_BROWSE_TOPIC, createdAt: new Date().toISOString() }];
+  if (!p) return [];
   try {
     await ensureSchema();
-    await seedBrowseTopicsIfEmpty(p, owner);
     const { rows } = await p.query<BrowseTopicRow>(
       "SELECT id, name, keywords, sort_order, created_at, seed_sources, max_published_age_days FROM browse_topics WHERE user_id = $1 ORDER BY sort_order ASC, created_at ASC",
       [owner],
@@ -827,14 +881,14 @@ export async function listBrowseTopics(userId: string | null): Promise<BrowseTop
     return rows.map(rowToBrowseTopic);
   } catch (e) {
     console.error("[db] listBrowseTopics failed:", e);
-    return [{ ...STATIC_DEFAULT_BROWSE_TOPIC, createdAt: new Date().toISOString() }];
+    return [];
   }
 }
 
 export async function getBrowseTopic(id: string, userId: string | null): Promise<BrowseTopic | null> {
   const owner = browseOwnerKey(userId);
   const p = getPoolOrNull();
-  if (!p) return id === NO_DB_BROWSE_TOPIC_ID ? { ...STATIC_DEFAULT_BROWSE_TOPIC, createdAt: new Date().toISOString() } : null;
+  if (!p) return null;
   try {
     await ensureSchema();
     const { rows } = await p.query<BrowseTopicRow>(
@@ -1027,17 +1081,21 @@ export async function recordTokenUsage(params: {
   if (!p) return;
   try {
     await ensureSchema();
-    const cost = estimateUsdForPromptCompletion(params.promptTokens, params.completionTokens);
+    const pt = Math.max(0, Math.round(params.promptTokens));
+    const ct = Math.max(0, Math.round(params.completionTokens));
+    const cached = 3 * pt;
+    const cost = estimateUsdForPromptCompletionWithCache(pt, ct, cached);
     await p.query(
-      `INSERT INTO token_usage_log (id, user_id, source, prompt_tokens, completion_tokens, total_tokens, cost_usd)
-       VALUES ($1, $2, $3, $4, $5, $6, $7::numeric)`,
+      `INSERT INTO token_usage_log (id, user_id, source, prompt_tokens, completion_tokens, total_tokens, cached_prompt_tokens, cost_usd)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8::numeric)`,
       [
         randomUUID(),
         params.userId,
         params.source.slice(0, 64),
-        Math.max(0, Math.round(params.promptTokens)),
-        Math.max(0, Math.round(params.completionTokens)),
+        pt,
+        ct,
         Math.max(0, Math.round(params.totalTokens)),
+        cached,
         cost.toFixed(8),
       ],
     );
@@ -1158,18 +1216,70 @@ export async function sumTokenUsageByUser(): Promise<TokenSumRow[]> {
   }));
 }
 
+export type TokenUsageUserAggregateRow = {
+  userId: string;
+  promptTokens: number;
+  completionTokens: number;
+  cachedPromptTokens: number;
+  totalTokens: number;
+  costUsd: number;
+};
+
+/** 按用户汇总全站 token（不按主题拆分） */
+export async function sumTokenUsageAggregatedByUser(): Promise<TokenUsageUserAggregateRow[]> {
+  const p = getPoolOrNull();
+  if (!p) return [];
+  await ensureSchema();
+  const { rows } = await p.query<{
+    user_id: string;
+    p: string;
+    o: string;
+    t: string;
+    cp: string;
+    cost: string;
+  }>(
+    `SELECT user_id,
+            SUM(prompt_tokens)::text AS p,
+            SUM(completion_tokens)::text AS o,
+            SUM(total_tokens)::text AS t,
+            SUM(cached_prompt_tokens)::text AS cp,
+            SUM(cost_usd)::text AS cost
+     FROM token_usage_log
+     GROUP BY user_id`,
+  );
+  return rows.map((r) => ({
+    userId: r.user_id,
+    promptTokens: parseInt(r.p, 10) || 0,
+    completionTokens: parseInt(r.o, 10) || 0,
+    totalTokens: parseInt(r.t, 10) || 0,
+    cachedPromptTokens: parseInt(r.cp, 10) || 0,
+    costUsd: parseFloat(r.cost ?? "0") || 0,
+  }));
+}
+
 export async function sumTokenUsageGlobal(): Promise<{
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
+  cachedPromptTokens: number;
+  totalCostUsd: number;
 }> {
   const p = getPoolOrNull();
-  if (!p) return { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
+  if (!p)
+    return { promptTokens: 0, completionTokens: 0, totalTokens: 0, cachedPromptTokens: 0, totalCostUsd: 0 };
   await ensureSchema();
-  const { rows } = await p.query<{ p: string | null; o: string | null; t: string | null }>(
+  const { rows } = await p.query<{
+    p: string | null;
+    o: string | null;
+    t: string | null;
+    cp: string | null;
+    cost: string | null;
+  }>(
     `SELECT SUM(prompt_tokens)::text AS p,
             SUM(completion_tokens)::text AS o,
-            SUM(total_tokens)::text AS t
+            SUM(total_tokens)::text AS t,
+            SUM(cached_prompt_tokens)::text AS cp,
+            SUM(cost_usd)::text AS cost
      FROM token_usage_log`,
   );
   const row = rows[0];
@@ -1177,6 +1287,8 @@ export async function sumTokenUsageGlobal(): Promise<{
     promptTokens: row?.p ? parseInt(row.p, 10) || 0 : 0,
     completionTokens: row?.o ? parseInt(row.o, 10) || 0 : 0,
     totalTokens: row?.t ? parseInt(row.t, 10) || 0 : 0,
+    cachedPromptTokens: row?.cp ? parseInt(row.cp, 10) || 0 : 0,
+    totalCostUsd: row?.cost ? parseFloat(row.cost) || 0 : 0,
   };
 }
 
@@ -1190,30 +1302,51 @@ export type DailyAdminPoint = {
 export async function getAdminDailySeries(params: {
   fromDay: string;
   toDay: string;
+  /** 传入时仅统计该用户的 Token，且不返回「每日新增注册」（避免泄露全局注册趋势） */
+  filterUserId?: string | null;
 }): Promise<DailyAdminPoint[]> {
   const p = getPoolOrNull();
   if (!p) return [];
   await ensureSchema();
 
-  const { rows: tokenRows } = await p.query<{ d: Date | string; p: string; o: string; t: string }>(
-    `SELECT (created_at AT TIME ZONE 'UTC')::date AS d,
-            SUM(prompt_tokens)::text AS p,
-            SUM(completion_tokens)::text AS o,
-            SUM(total_tokens)::text AS t
-     FROM token_usage_log
-     WHERE (created_at AT TIME ZONE 'UTC')::date BETWEEN $1::date AND $2::date
-     GROUP BY 1 ORDER BY 1`,
-    [params.fromDay, params.toDay],
-  );
+  const uid = params.filterUserId?.trim() || null;
+  const { rows: tokenRows } = uid
+    ? await p.query<{ d: Date | string; p: string; o: string; t: string; cost: string }>(
+        `SELECT (created_at AT TIME ZONE 'UTC')::date AS d,
+                SUM(prompt_tokens)::text AS p,
+                SUM(completion_tokens)::text AS o,
+                SUM(total_tokens)::text AS t,
+                SUM(cost_usd)::text AS cost
+         FROM token_usage_log
+         WHERE user_id = $3
+           AND (created_at AT TIME ZONE 'UTC')::date BETWEEN $1::date AND $2::date
+         GROUP BY 1 ORDER BY 1`,
+        [params.fromDay, params.toDay, uid],
+      )
+    : await p.query<{ d: Date | string; p: string; o: string; t: string; cost: string }>(
+        `SELECT (created_at AT TIME ZONE 'UTC')::date AS d,
+                SUM(prompt_tokens)::text AS p,
+                SUM(completion_tokens)::text AS o,
+                SUM(total_tokens)::text AS t,
+                SUM(cost_usd)::text AS cost
+         FROM token_usage_log
+         WHERE (created_at AT TIME ZONE 'UTC')::date BETWEEN $1::date AND $2::date
+         GROUP BY 1 ORDER BY 1`,
+        [params.fromDay, params.toDay],
+      );
 
-  const { rows: userRows } = await p.query<{ d: Date | string; n: string }>(
-    `SELECT (registered_at AT TIME ZONE 'UTC')::date AS d,
+  let userRows: { d: Date | string; n: string }[] = [];
+  if (!uid) {
+    const ur = await p.query<{ d: Date | string; n: string }>(
+      `SELECT (registered_at AT TIME ZONE 'UTC')::date AS d,
             COUNT(*)::text AS n
-     FROM app_user_registry
-     WHERE (registered_at AT TIME ZONE 'UTC')::date BETWEEN $1::date AND $2::date
-     GROUP BY 1 ORDER BY 1`,
-    [params.fromDay, params.toDay],
-  );
+         FROM app_user_registry
+         WHERE (registered_at AT TIME ZONE 'UTC')::date BETWEEN $1::date AND $2::date
+         GROUP BY 1 ORDER BY 1`,
+      [params.fromDay, params.toDay],
+    );
+    userRows = ur.rows;
+  }
 
   function dayKey(d: Date | string): string {
     if (d instanceof Date) return d.toISOString().slice(0, 10);
@@ -1237,11 +1370,333 @@ export async function getAdminDailySeries(params: {
     const day = dayKey(r.d);
     const row = map.get(day);
     if (row) {
-      const pt = parseInt(r.p, 10) || 0;
-      const ct = parseInt(r.o, 10) || 0;
       row.totalTokens = parseInt(r.t, 10) || 0;
-      row.costUsd = estimateUsdForPromptCompletion(pt, ct);
+      row.costUsd = parseFloat(r.cost ?? "0") || 0;
     }
   }
   return [...map.values()].sort((a, b) => a.day.localeCompare(b.day));
+}
+
+export type BrowseTopicAdminRow = {
+  userId: string;
+  topicId: string;
+  topicName: string;
+  keywords: unknown;
+  sortOrder: number;
+  createdAt: string;
+};
+
+/** 管理端：全部订阅主题行（邮箱×主题拆表用） */
+export async function listBrowseTopicsForAdmin(): Promise<BrowseTopicAdminRow[]> {
+  const p = getPoolOrNull();
+  if (!p) return [];
+  await ensureSchema();
+  const { rows } = await p.query<{
+    user_id: string;
+    id: string;
+    name: string;
+    keywords: unknown;
+    sort_order: number;
+    created_at: Date | string;
+  }>(
+    `SELECT user_id, id, name, keywords, sort_order, created_at
+     FROM browse_topics
+     ORDER BY user_id ASC, sort_order ASC, created_at ASC`,
+  );
+  return rows.map((r) => ({
+    userId: r.user_id,
+    topicId: r.id,
+    topicName: typeof r.name === "string" ? r.name : String(r.name ?? ""),
+    keywords: r.keywords,
+    sortOrder: r.sort_order,
+    createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
+  }));
+}
+
+/** 按用户 + 自然日汇总 token（管理端用量表） */
+export type TokenUsageDayBucketRow = {
+  userId: string;
+  day: string;
+  promptTokens: number;
+  completionTokens: number;
+  cachedPromptTokens: number;
+  totalTokens: number;
+  costUsd: number;
+};
+
+export async function sumTokenUsageByUserAndDay(): Promise<TokenUsageDayBucketRow[]> {
+  const p = getPoolOrNull();
+  if (!p) return [];
+  await ensureSchema();
+  const { rows } = await p.query<{
+    user_id: string;
+    day: string;
+    p: string;
+    o: string;
+    t: string;
+    cp: string;
+    cost: string;
+  }>(
+    `SELECT user_id,
+            to_char((created_at AT TIME ZONE 'UTC')::date, 'YYYY-MM-DD') AS day,
+            SUM(prompt_tokens)::text AS p,
+            SUM(completion_tokens)::text AS o,
+            SUM(total_tokens)::text AS t,
+            SUM(cached_prompt_tokens)::text AS cp,
+            SUM(cost_usd)::text AS cost
+     FROM token_usage_log
+     GROUP BY user_id, (created_at AT TIME ZONE 'UTC')::date
+     HAVING SUM(total_tokens) > 0
+     ORDER BY user_id ASC, day DESC`,
+  );
+  return rows.map((r) => ({
+    userId: r.user_id,
+    day: r.day,
+    promptTokens: parseInt(r.p, 10) || 0,
+    completionTokens: parseInt(r.o, 10) || 0,
+    cachedPromptTokens: parseInt(r.cp, 10) || 0,
+    totalTokens: parseInt(r.t, 10) || 0,
+    costUsd: parseFloat(r.cost ?? "0") || 0,
+  }));
+}
+
+/** 单用户按自然日汇总（非管理员 token 弹窗） */
+export async function sumTokenUsageDaysForUser(userId: string): Promise<TokenUsageDayBucketRow[]> {
+  const p = getPoolOrNull();
+  if (!p) return [];
+  await ensureSchema();
+  const uid = userId.trim();
+  if (!uid) return [];
+  const { rows } = await p.query<{
+    day: string;
+    p: string;
+    o: string;
+    t: string;
+    cp: string;
+    cost: string;
+  }>(
+    `SELECT to_char((created_at AT TIME ZONE 'UTC')::date, 'YYYY-MM-DD') AS day,
+            SUM(prompt_tokens)::text AS p,
+            SUM(completion_tokens)::text AS o,
+            SUM(total_tokens)::text AS t,
+            SUM(cached_prompt_tokens)::text AS cp,
+            SUM(cost_usd)::text AS cost
+     FROM token_usage_log
+     WHERE user_id = $1
+     GROUP BY (created_at AT TIME ZONE 'UTC')::date
+     HAVING SUM(total_tokens) > 0
+     ORDER BY day DESC`,
+    [uid],
+  );
+  return rows.map((r) => ({
+    userId: uid,
+    day: r.day,
+    promptTokens: parseInt(r.p, 10) || 0,
+    completionTokens: parseInt(r.o, 10) || 0,
+    cachedPromptTokens: parseInt(r.cp, 10) || 0,
+    totalTokens: parseInt(r.t, 10) || 0,
+    costUsd: parseFloat(r.cost ?? "0") || 0,
+  }));
+}
+
+export async function sumTokenUsageForSingleUser(userId: string): Promise<
+  | (TokenSumRow & { cachedPromptTokens: number; totalCostUsd: number })
+  | null
+> {
+  const p = getPoolOrNull();
+  if (!p) return null;
+  await ensureSchema();
+  const { rows } = await p.query<{ p: string; o: string; t: string; cp: string; cost: string }>(
+    `SELECT SUM(prompt_tokens)::text AS p,
+            SUM(completion_tokens)::text AS o,
+            SUM(total_tokens)::text AS t,
+            SUM(cached_prompt_tokens)::text AS cp,
+            SUM(cost_usd)::text AS cost
+     FROM token_usage_log
+     WHERE user_id = $1
+     GROUP BY user_id`,
+    [userId],
+  );
+  const r = rows[0];
+  if (!r) return null;
+  return {
+    userId,
+    promptTokens: parseInt(r.p, 10) || 0,
+    completionTokens: parseInt(r.o, 10) || 0,
+    totalTokens: parseInt(r.t, 10) || 0,
+    cachedPromptTokens: parseInt(r.cp, 10) || 0,
+    totalCostUsd: parseFloat(r.cost ?? "0") || 0,
+  };
+}
+
+export type TokenDailySliceRow = {
+  day: string;
+  promptTokens: number;
+  completionTokens: number;
+  cachedPromptTokens: number;
+  totalTokens: number;
+  costUsd: number;
+};
+
+/** 指定用户区间内的按日汇总（仅返回有消耗的日期；按日期倒序） */
+export async function getTokenUsageDailySlice(params: {
+  userId: string;
+  fromDay: string;
+  toDay: string;
+}): Promise<TokenDailySliceRow[]> {
+  const p = getPoolOrNull();
+  if (!p) return [];
+  await ensureSchema();
+  const uid = params.userId.trim();
+  if (!uid) return [];
+
+  const { rows } = await p.query<{ day: string; p: string; o: string; t: string; cp: string; cost: string }>(
+    `SELECT to_char((created_at AT TIME ZONE 'UTC')::date, 'YYYY-MM-DD') AS day,
+            SUM(prompt_tokens)::text AS p,
+            SUM(completion_tokens)::text AS o,
+            SUM(total_tokens)::text AS t,
+            SUM(cached_prompt_tokens)::text AS cp,
+            SUM(cost_usd)::text AS cost
+     FROM token_usage_log
+     WHERE user_id = $3
+       AND (created_at AT TIME ZONE 'UTC')::date BETWEEN $1::date AND $2::date
+     GROUP BY 1
+     HAVING SUM(total_tokens) > 0
+     ORDER BY 1 DESC`,
+    [params.fromDay, params.toDay, uid],
+  );
+
+  return rows.map((r) => {
+    const pt = parseInt(r.p, 10) || 0;
+    const ct = parseInt(r.o, 10) || 0;
+    const tt = parseInt(r.t, 10) || 0;
+    const cp = parseInt(r.cp, 10) || 0;
+    return {
+      day: r.day,
+      promptTokens: pt,
+      completionTokens: ct,
+      cachedPromptTokens: cp,
+      totalTokens: tt,
+      costUsd: parseFloat(r.cost ?? "0") || 0,
+    };
+  });
+}
+
+export type VipAccountPublic = {
+  id: string;
+  username: string;
+  enabled: boolean;
+  mustChangePassword: boolean;
+  createdAt: string;
+};
+
+export async function listVipAccounts(): Promise<VipAccountPublic[]> {
+  const p = getPoolOrNull();
+  if (!p) return [];
+  await ensureSchema();
+  const { rows } = await p.query<{
+    id: string;
+    username: string;
+    enabled: boolean;
+    must_change_password: boolean;
+    created_at: Date | string;
+  }>(`SELECT id, username, enabled, must_change_password, created_at FROM vip_accounts ORDER BY created_at ASC`);
+  return rows.map((r) => ({
+    id: String(r.id),
+    username: r.username,
+    enabled: r.enabled,
+    mustChangePassword: r.must_change_password,
+    createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
+  }));
+}
+
+export async function getVipByUsernameForAuth(
+  username: string,
+): Promise<{ id: string; username: string; passwordHash: string; enabled: boolean; mustChangePassword: boolean; createdAt: string } | null> {
+  const p = getPoolOrNull();
+  if (!p) return null;
+  await ensureSchema();
+  const u = username.trim().toLowerCase();
+  if (!u) return null;
+  const { rows } = await p.query<{
+    id: string;
+    username: string;
+    password_hash: string;
+    enabled: boolean;
+    must_change_password: boolean;
+    created_at: Date | string;
+  }>(
+    `SELECT id, username, password_hash, enabled, must_change_password, created_at FROM vip_accounts WHERE lower(username) = $1 LIMIT 1`,
+    [u],
+  );
+  const r = rows[0];
+  if (!r) return null;
+  return {
+    id: String(r.id),
+    username: r.username,
+    passwordHash: r.password_hash,
+    enabled: r.enabled,
+    mustChangePassword: r.must_change_password,
+    createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
+  };
+}
+
+export async function getVipAccountById(id: string): Promise<VipAccountPublic | null> {
+  const p = getPoolOrNull();
+  if (!p) return null;
+  await ensureSchema();
+  const { rows } = await p.query<{
+    id: string;
+    username: string;
+    enabled: boolean;
+    must_change_password: boolean;
+    created_at: Date | string;
+  }>(`SELECT id, username, enabled, must_change_password, created_at FROM vip_accounts WHERE id = $1::uuid LIMIT 1`, [id]);
+  const r = rows[0];
+  if (!r) return null;
+  return {
+    id: String(r.id),
+    username: r.username,
+    enabled: r.enabled,
+    mustChangePassword: r.must_change_password,
+    createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
+  };
+}
+
+export async function createVipAccountRow(username: string, passwordHash: string): Promise<string> {
+  const p = getPoolOrNull();
+  if (!p) throw new Error("db_not_configured");
+  await ensureSchema();
+  const u = username.trim().toLowerCase();
+  if (!u || u.length < 2) throw new Error("invalid_username");
+  const { rows } = await p.query<{ id: string }>(
+    `INSERT INTO vip_accounts (username, password_hash) VALUES ($1, $2) RETURNING id::text AS id`,
+    [u.slice(0, 64), passwordHash],
+  );
+  return rows[0]?.id ?? "";
+}
+
+export async function updateVipAccountRow(
+  id: string,
+  patch: { passwordHash?: string; enabled?: boolean; mustChangePassword?: boolean },
+): Promise<void> {
+  const p = getPoolOrNull();
+  if (!p) throw new Error("db_not_configured");
+  await ensureSchema();
+  if (patch.passwordHash != null) {
+    await p.query(`UPDATE vip_accounts SET password_hash = $2, must_change_password = TRUE WHERE id = $1::uuid`, [id, patch.passwordHash]);
+  }
+  if (typeof patch.enabled === "boolean") {
+    await p.query(`UPDATE vip_accounts SET enabled = $2 WHERE id = $1::uuid`, [id, patch.enabled]);
+  }
+  if (typeof patch.mustChangePassword === "boolean") {
+    await p.query(`UPDATE vip_accounts SET must_change_password = $2 WHERE id = $1::uuid`, [id, patch.mustChangePassword]);
+  }
+}
+
+export async function deleteVipAccountRow(id: string): Promise<void> {
+  const p = getPoolOrNull();
+  if (!p) throw new Error("db_not_configured");
+  await ensureSchema();
+  await p.query(`DELETE FROM vip_accounts WHERE id = $1::uuid`, [id]);
 }

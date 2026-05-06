@@ -18,7 +18,7 @@ export default async function WeeklyPage() {
           <div className="weekly-title-inline">
             <WeeklyAccountEntry
               email={user?.email ?? null}
-              showAdmin={isAdminEmail(user?.email)}
+              isAdmin={isAdminEmail(user?.email)}
               menuTrigger="avatar"
             />
             <h1>我的复盘</h1>
