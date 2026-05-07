@@ -412,6 +412,7 @@ a:active { opacity: 0.7; }
 .article-card-keypoints-heading {
   margin: 0;
   letter-spacing: 0.02em;
+  font-weight: 600;
 }
 .article-card-keypoints-lines {
   margin: 0;
@@ -425,9 +426,20 @@ a:active { opacity: 0.7; }
   line-height: 1.45;
   color: var(--muted);
 }
-.article-card-read-oneliner {
+
+/* 一句话总结：与「todo」标签同字号、灰色、加粗 */
+.article-card-read-summary-line {
   margin: 0;
   font-size: var(--fs-small);
+  font-weight: 600;
+  color: var(--muted);
+  line-height: var(--lh-normal);
+}
+
+.article-card-keypoints-placeholder {
+  margin: 0;
+  font-size: var(--fs-small);
+  font-weight: 400;
   color: var(--muted);
   line-height: var(--lh-normal);
 }
@@ -1290,6 +1302,16 @@ a:active { opacity: 0.7; }
   -webkit-line-clamp: 1;
   line-clamp: 1;
   word-break: break-all;
+}
+
+.article-card a.article-title-link.browse-hit-summary-as-title {
+  margin: 6px 0 0;
+  color: inherit;
+}
+
+.article-card a.article-title-link.browse-hit-summary-as-title .summary {
+  margin: 0;
+  cursor: pointer;
 }
 
 .article-card .browse-hit-demo-title {
@@ -3306,6 +3328,16 @@ a.account-menu-item--link:hover {
 
 .article-card a.article-title-link + .article-card-source {
   margin-top: 0;
+}
+
+/* 待读卡片：概述与标题相同，点击打开读前预览 */
+.article-card a.article-title-link.article-card-summary-title-link {
+  margin: 8px 0 0;
+}
+
+.article-card a.article-title-link.article-card-summary-title-link .summary {
+  margin: 0;
+  cursor: pointer;
 }
 
 .article-card-byline {

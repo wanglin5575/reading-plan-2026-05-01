@@ -135,11 +135,17 @@ export default function BrowsePageClient() {
   const [rdK3, setRdK3] = useState("");
   const [rdAction, setRdAction] = useState("");
   const browseRdOneRef = useRef<HTMLTextAreaElement>(null);
-  const adjustBrowseRdOneHeight = useCallback(() => {
-    const el = browseRdOneRef.current;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${Math.min(320, Math.max(44, el.scrollHeight))}px`;
+  const browseRdK1Ref = useRef<HTMLTextAreaElement>(null);
+  const browseRdK2Ref = useRef<HTMLTextAreaElement>(null);
+  const browseRdK3Ref = useRef<HTMLTextAreaElement>(null);
+  const browseRdActionRef = useRef<HTMLTextAreaElement>(null);
+  const adjustBrowseMarkDoneHeights = useCallback(() => {
+    for (const r of [browseRdOneRef, browseRdK1Ref, browseRdK2Ref, browseRdK3Ref, browseRdActionRef]) {
+      const el = r.current;
+      if (!el) continue;
+      el.style.height = "auto";
+      el.style.height = `${Math.min(320, Math.max(44, el.scrollHeight))}px`;
+    }
   }, []);
   const [sortBy, setSortBy] = useState<BrowseSortMode>("published");
   const [sortMenuOpen, setSortMenuOpen] = useState(false);
@@ -153,8 +159,8 @@ export default function BrowsePageClient() {
   const autoPullBusyRef = useRef(false);
   useLayoutEffect(() => {
     if (!markDoneOpen) return;
-    adjustBrowseRdOneHeight();
-  }, [markDoneOpen, rdOne, adjustBrowseRdOneHeight]);
+    adjustBrowseMarkDoneHeights();
+  }, [markDoneOpen, rdOne, rdK1, rdK2, rdK3, rdAction, adjustBrowseMarkDoneHeights]);
 
   useEffect(() => {
     activeIdRef.current = activeId;
@@ -1386,37 +1392,47 @@ export default function BrowsePageClient() {
                     <label className="muted-link" htmlFor="browse-rd-k1">
                       3 个重要观点（选填）
                     </label>
-                    <input
+                    <textarea
                       id="browse-rd-k1"
-                      className="input"
+                      ref={browseRdK1Ref}
+                      className="input textarea-input article-digest-oneliner-textarea"
+                      rows={1}
                       value={rdK1}
                       onChange={(e) => setRdK1(e.target.value)}
-                      placeholder="选填：第 1 条观点，可留空"
+                      placeholder="选填：第 1 条观点，可留空（支持多行）"
                       disabled={busyUrl !== null}
                     />
-                    <input
-                      className="input"
+                    <textarea
+                      id="browse-rd-k2"
+                      ref={browseRdK2Ref}
+                      className="input textarea-input article-digest-oneliner-textarea"
+                      rows={1}
                       value={rdK2}
                       onChange={(e) => setRdK2(e.target.value)}
-                      placeholder="选填：第 2 条观点，可留空"
+                      placeholder="选填：第 2 条观点，可留空（支持多行）"
                       disabled={busyUrl !== null}
                     />
-                    <input
-                      className="input"
+                    <textarea
+                      id="browse-rd-k3"
+                      ref={browseRdK3Ref}
+                      className="input textarea-input article-digest-oneliner-textarea"
+                      rows={1}
                       value={rdK3}
                       onChange={(e) => setRdK3(e.target.value)}
-                      placeholder="选填：第 3 条观点，可留空"
+                      placeholder="选填：第 3 条观点，可留空（支持多行）"
                       disabled={busyUrl !== null}
                     />
                     <label className="muted-link" htmlFor="browse-rd-action">
                       1 个行动项
                     </label>
-                    <input
+                    <textarea
                       id="browse-rd-action"
-                      className="input"
+                      ref={browseRdActionRef}
+                      className="input textarea-input article-digest-oneliner-textarea"
+                      rows={1}
                       value={rdAction}
                       onChange={(e) => setRdAction(e.target.value)}
-                      placeholder="你打算在工作中具体做什么"
+                      placeholder="你打算在工作中具体做什么（支持多行）"
                       disabled={busyUrl !== null}
                     />
                   </div>

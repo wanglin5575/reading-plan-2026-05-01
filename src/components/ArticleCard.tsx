@@ -47,14 +47,6 @@ function formatReadCompletedDateYmd(iso: string): string {
   return `${y}-${m}-${day}`;
 }
 
-function joinKeyPointsProse(points: unknown[] | undefined): string {
-  const parts = (Array.isArray(points) ? points : [])
-    .map((p) => String(p).trim())
-    .filter(Boolean);
-  if (!parts.length) return "";
-  return parts.join("；");
-}
-
 function trimmedKeyPoints(points: unknown[] | undefined): string[] {
   return (Array.isArray(points) ? points : []).map((p) => String(p).trim()).filter(Boolean);
 }
@@ -84,6 +76,7 @@ export function ArticleTitleLink({
   children,
   previewTitle,
   previewSourceText,
+  className,
 }: {
   /** 书库用 article.id；随览等无 id 时用稳定 url */
   previewCacheNamespaceId: string;
@@ -91,6 +84,8 @@ export function ArticleTitleLink({
   children: ReactNode;
   previewTitle: string;
   previewSourceText: string;
+  /** 追加到 `article-title-link` 上，如概述与标题同行为 */
+  className?: string;
 }) {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const blockClickRef = useRef(false);
@@ -238,7 +233,7 @@ export function ArticleTitleLink({
         href={url}
         target="_blank"
         rel="noreferrer"
-        className="article-title-link"
+        className={["article-title-link", className].filter(Boolean).join(" ")}
         title="点击查看 AI 摘要；长按复制链接"
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -350,17 +345,23 @@ export function ArticleCard({
   ]);
 
   const digestOneLinerRef = useRef<HTMLTextAreaElement>(null);
-  const adjustDigestOneLinerHeight = useCallback(() => {
-    const el = digestOneLinerRef.current;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${Math.min(320, Math.max(44, el.scrollHeight))}px`;
+  const digestKp1Ref = useRef<HTMLTextAreaElement>(null);
+  const digestKp2Ref = useRef<HTMLTextAreaElement>(null);
+  const digestKp3Ref = useRef<HTMLTextAreaElement>(null);
+  const digestActionRef = useRef<HTMLTextAreaElement>(null);
+  const adjustDigestFieldHeights = useCallback(() => {
+    for (const r of [digestOneLinerRef, digestKp1Ref, digestKp2Ref, digestKp3Ref, digestActionRef]) {
+      const el = r.current;
+      if (!el) continue;
+      el.style.height = "auto";
+      el.style.height = `${Math.min(320, Math.max(44, el.scrollHeight))}px`;
+    }
   }, []);
 
   useLayoutEffect(() => {
     if (!digestOpen) return;
-    adjustDigestOneLinerHeight();
-  }, [digestOpen, readOneLiner, adjustDigestOneLinerHeight]);
+    adjustDigestFieldHeights();
+  }, [digestOpen, readOneLiner, kp1, kp2, kp3, readAction, adjustDigestFieldHeights]);
 
   const closeMeta = useCallback(() => setMetaOpen(false), []);
   const closeDigest = useCallback(() => setDigestOpen(false), []);
@@ -565,7 +566,8 @@ export function ArticleCard({
 
   const hasUsableSummary = Boolean(article.summary && article.summary !== "(暂无摘要)");
   const showSummaryInBody = hasUsableSummary && !collapseOriginalSummary;
-  const readAfterKpProse = joinKeyPointsProse(article.readKeyPoints);
+  const digestKpTrimmed = trimmedKeyPoints(article.readKeyPoints);
+  const readAfterKpProse = digestKpTrimmed.join("；");
 
   const cardMiddle = (
     <>
@@ -603,7 +605,15 @@ export function ArticleCard({
       </div>
 
       {article.status === "todo" && showSummaryInBody && (
-        <p className="summary">{article.summary}</p>
+        <ArticleTitleLink
+          previewCacheNamespaceId={article.id}
+          url={article.url}
+          previewTitle={article.title}
+          previewSourceText={buildArticlePreviewSource(article)}
+          className="article-card-summary-title-link"
+        >
+          <p className="summary">{article.summary}</p>
+        </ArticleTitleLink>
       )}
 
       {article.status === "done" && showSummaryInBody && (
@@ -614,23 +624,27 @@ export function ArticleCard({
         collapseOriginalSummary &&
         (digestComplete ? (
           <div className="article-card-read-digest">
+            {article.readOneLiner?.trim() ? (
+              <p className="article-card-read-summary-line">{article.readOneLiner.trim()}</p>
+            ) : null}
             <p className="article-card-read-todo-row">
               <span className="article-card-read-field-label article-card-read-field-label-todo">todo</span>
               <span className="article-card-read-action-value">{article.readAction.trim()}</span>
             </p>
             <div className="article-card-keypoints-block">
-              <div className="article-card-read-field-label article-card-keypoints-heading">重要观点</div>
-              <div className="article-card-keypoints-lines">
-                {trimmedKeyPoints(article.readKeyPoints).map((t, i) => (
-                  <p key={i} className="article-card-keypoint-line">
-                    {i + 1}. {t}
-                  </p>
-                ))}
-              </div>
+              <div className="article-card-read-field-label article-card-keypoints-heading">重要观点：</div>
+              {digestKpTrimmed.length > 0 ? (
+                <div className="article-card-keypoints-lines">
+                  {digestKpTrimmed.map((t, i) => (
+                    <p key={i} className="article-card-keypoint-line">
+                      {i + 1}. {t}
+                    </p>
+                  ))}
+                </div>
+              ) : (
+                <p className="article-card-keypoints-placeholder">本文尚未总结重要的3个观点</p>
+              )}
             </div>
-            {article.readOneLiner?.trim() ? (
-              <p className="article-card-read-oneliner">{article.readOneLiner.trim()}</p>
-            ) : null}
           </div>
         ) : (
           <p className="muted-link">可从 ⋯ 补全读后笔记。</p>
@@ -640,10 +654,16 @@ export function ArticleCard({
         !collapseOriginalSummary &&
         (digestComplete ? (
           <div className="read-after-stack">
-            <div className="article-card-read-field-label article-card-keypoints-heading">重要观点</div>
-            {readAfterKpProse ? <p className="read-after-points">{readAfterKpProse}</p> : null}
-            <p className="summary">{article.readOneLiner}</p>
-            <p className="read-after-points">{article.readAction}</p>
+            {article.readOneLiner?.trim() ? (
+              <p className="article-card-read-summary-line">{article.readOneLiner.trim()}</p>
+            ) : null}
+            <div className="article-card-read-field-label article-card-keypoints-heading">重要观点：</div>
+            {readAfterKpProse ? (
+              <p className="read-after-points">{readAfterKpProse}</p>
+            ) : (
+              <p className="article-card-keypoints-placeholder">本文尚未总结重要的3个观点</p>
+            )}
+            <p className="read-after-points read-after-action">{article.readAction}</p>
           </div>
         ) : (
           <p className="muted-link">可从 ⋯ 补全读后笔记。</p>
@@ -778,31 +798,47 @@ export function ArticleCard({
               onChange={(e) => setReadOneLiner(e.target.value)}
               placeholder="用一两句话概括你从文中带走的核心信息（支持多行）"
             />
-            <label className="muted-link">3 个重要观点（选填）</label>
-            <input
-              className="input"
+            <label className="muted-link" htmlFor="article-digest-kp1">
+              3 个重要观点（选填）
+            </label>
+            <textarea
+              id="article-digest-kp1"
+              ref={digestKp1Ref}
+              className="input textarea-input article-digest-oneliner-textarea"
+              rows={1}
               value={kp1}
               onChange={(e) => setKp1(e.target.value)}
-              placeholder="选填：第 1 条观点，可留空"
+              placeholder="选填：第 1 条观点，可留空（支持多行）"
             />
-            <input
-              className="input"
+            <textarea
+              id="article-digest-kp2"
+              ref={digestKp2Ref}
+              className="input textarea-input article-digest-oneliner-textarea"
+              rows={1}
               value={kp2}
               onChange={(e) => setKp2(e.target.value)}
-              placeholder="选填：第 2 条观点，可留空"
+              placeholder="选填：第 2 条观点，可留空（支持多行）"
             />
-            <input
-              className="input"
+            <textarea
+              id="article-digest-kp3"
+              ref={digestKp3Ref}
+              className="input textarea-input article-digest-oneliner-textarea"
+              rows={1}
               value={kp3}
               onChange={(e) => setKp3(e.target.value)}
-              placeholder="选填：第 3 条观点，可留空"
+              placeholder="选填：第 3 条观点，可留空（支持多行）"
             />
-            <label className="muted-link">1 个行动项</label>
-            <input
-              className="input"
+            <label className="muted-link" htmlFor="article-digest-action">
+              1 个行动项
+            </label>
+            <textarea
+              id="article-digest-action"
+              ref={digestActionRef}
+              className="input textarea-input article-digest-oneliner-textarea"
+              rows={1}
               value={readAction}
               onChange={(e) => setReadAction(e.target.value)}
-              placeholder="你打算在工作中具体做什么"
+              placeholder="你打算在工作中具体做什么（支持多行）"
             />
           </div>
         </div>
