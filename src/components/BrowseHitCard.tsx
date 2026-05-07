@@ -103,6 +103,7 @@ export function BrowseHitCard({
         onTouchMove={swipe.onTouchMove}
         onTouchEnd={swipe.onTouchEnd}
         onMouseDown={swipe.onMouseDown}
+        onClickCapture={swipe.onClickCapture}
       >
         <div className="article-card-top browse-hit-card-top">
           <div className="meta-row article-card-meta">

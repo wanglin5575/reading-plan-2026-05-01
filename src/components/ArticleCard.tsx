@@ -29,12 +29,21 @@ interface Props {
   collapseOriginalSummary?: boolean;
   /** 随览查看他人书库：隐藏编辑/删除 */
   readOnlyBorrowed?: boolean;
-  /** 与 readOnlyBorrowed、已读配合：左滑仅露出「评论」 */
+  /** 与 readOnlyBorrowed 配合：他人书库卡片左滑露出「评论」（已读 / 待读均可用） */
   swipeCommentOnly?: boolean;
   articleOwnerIdForSocial?: string;
   socialComments?: ArticleSocialComment[];
   onSocialCommentPosted?: () => void;
+  /** 关注用户待读：左滑除评论外，增加「加入我的待读 / 已读」（与 swipeCommentOnly、todo 同用） */
+  followPlanActions?: {
+    busy: boolean;
+    onAddTodo: () => void | Promise<void>;
+    onAddDone: () => void | Promise<void>;
+  };
 }
+
+/** 三钮（评论·已读·待读）露出宽度，与 Browse 双钮比例一致 */
+const FOLLOW_TODO_PLAN_SWIPE_REVEAL_PX = 200;
 
 type DigestMode = "markDone" | "edit";
 
@@ -276,6 +285,7 @@ export function ArticleCard({
   articleOwnerIdForSocial,
   socialComments = [],
   onSocialCommentPosted,
+  followPlanActions,
 }: Props) {
   const router = useRouter();
   const [, startTransition] = useTransition();
@@ -297,8 +307,17 @@ export function ArticleCard({
 
   const showActionsEffective = showActions && !readOnlyBorrowed;
   const swipeMarkRead = showActionsEffective && article.status === "todo";
-  const swipeComment = Boolean(readOnlyBorrowed && article.status === "done" && swipeCommentOnly);
-  const swipe = useSwipeCardFace(swipeMarkRead || swipeComment, 76);
+  const followTodoPlanSwipe = Boolean(
+    readOnlyBorrowed && swipeCommentOnly && article.status === "todo" && followPlanActions,
+  );
+  const swipeCommentSolo = Boolean(
+    readOnlyBorrowed &&
+      swipeCommentOnly &&
+      (article.status === "done" || (article.status === "todo" && !followPlanActions)),
+  );
+  const swipeFaceEnabled = swipeMarkRead || swipeCommentSolo || followTodoPlanSwipe;
+  const swipeRevealPx = followTodoPlanSwipe ? FOLLOW_TODO_PLAN_SWIPE_REVEAL_PX : 76;
+  const swipe = useSwipeCardFace(swipeFaceEnabled, swipeRevealPx);
 
   const [dueDate, setDueDate] = useState(article.dueDate);
   const [theme, setTheme] = useState(article.theme);
@@ -673,7 +692,7 @@ export function ArticleCard({
         <ArticleSummaryFooter summary={article.summary} />
       )}
 
-      {readOnlyBorrowed && article.status === "done" && socialComments.length > 0 ? (
+      {readOnlyBorrowed && socialComments.length > 0 ? (
         <div className="article-social-comments" style={{ marginTop: 10 }}>
           {socialComments.map((c) => (
             <div key={c.id} className={`article-social-comment${c.parentId ? " is-reply" : ""}`}>
@@ -1047,12 +1066,58 @@ export function ArticleCard({
         )
       : null;
 
-  if (swipeMarkRead || swipeComment) {
+  if (swipeFaceEnabled) {
     return (
       <>
         <div className="article-swipe-host">
-          <div className="article-swipe-underlay" aria-hidden>
-            {swipeComment ? (
+          <div
+            className={
+              followTodoPlanSwipe ? "article-swipe-underlay article-swipe-underlay--triple" : "article-swipe-underlay"
+            }
+            aria-hidden
+          >
+            {followTodoPlanSwipe && followPlanActions ? (
+              <>
+                <button
+                  type="button"
+                  className="article-swipe-comment-circle"
+                  disabled={followPlanActions.busy}
+                  onClick={() => {
+                    swipe.resetOffset();
+                    setSocialReplyTo(null);
+                    setSocialDraft("");
+                    setSocialCommentOpen(true);
+                  }}
+                  aria-label="评论"
+                >
+                  评论
+                </button>
+                <button
+                  type="button"
+                  className="article-swipe-read-circle"
+                  disabled={followPlanActions.busy}
+                  onClick={() => {
+                    swipe.resetOffset();
+                    void followPlanActions.onAddDone();
+                  }}
+                  aria-label="加入我的已读"
+                >
+                  已读
+                </button>
+                <button
+                  type="button"
+                  className="article-swipe-todo-circle"
+                  disabled={followPlanActions.busy}
+                  onClick={() => {
+                    swipe.resetOffset();
+                    void followPlanActions.onAddTodo();
+                  }}
+                  aria-label="加入我的待读"
+                >
+                  待读
+                </button>
+              </>
+            ) : swipeCommentSolo ? (
               <button
                 type="button"
                 className="article-swipe-read-circle"
@@ -1079,6 +1144,7 @@ export function ArticleCard({
             onTouchMove={swipe.onTouchMove}
             onTouchEnd={swipe.onTouchEnd}
             onMouseDown={swipe.onMouseDown}
+            onClickCapture={swipe.onClickCapture}
           >
             {cardMiddle}
           </article>

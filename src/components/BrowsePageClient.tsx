@@ -1306,7 +1306,10 @@ export default function BrowsePageClient() {
 
       <div className="browse-hits">
         {isFollowTab && followTargetUserId ? (
-          <BrowseFollowFeed followedUserId={followTargetUserId} />
+          <BrowseFollowFeed
+            followedUserId={followTargetUserId}
+            followPlanThemeName={followRows.find((r) => r.followedId === followTargetUserId)?.label ?? ""}
+          />
         ) : (
           <>
             {!loadingTopics && activeId && !isFollowTab && hitsForUi.length === 0 && !refreshing && !autoPulling ? (
