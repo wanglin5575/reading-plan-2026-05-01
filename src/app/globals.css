@@ -661,6 +661,161 @@ a:active { opacity: 0.7; }
   font-size: var(--fs-title);
 }
 
+/* 随览「添加」弹窗：Tab 为扁平插卡 */
+.browse-add-modal-tabs--chips {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.browse-add-chip {
+  flex: 1;
+  min-width: 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--fs-body);
+  font-weight: var(--fw-medium);
+  cursor: pointer;
+  text-align: center;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease,
+    color 0.15s ease;
+}
+
+.browse-add-chip:hover {
+  border-color: color-mix(in srgb, var(--ink) 18%, var(--border));
+  color: var(--ink);
+}
+
+.browse-add-chip.is-active {
+  background: var(--card);
+  border-color: var(--brand);
+  color: var(--brand);
+  font-weight: var(--fw-semibold);
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--brand) 14%, transparent);
+}
+
+.browse-follow-search-results {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.browse-follow-pick-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--ink);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease;
+}
+
+.browse-follow-pick-row:hover {
+  border-color: color-mix(in srgb, var(--ink) 14%, var(--border));
+}
+
+.browse-follow-pick-row.is-selected {
+  border-color: var(--brand);
+  background: var(--brand-soft);
+}
+
+.browse-follow-cb {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+  border-radius: 4px;
+  border: 2px solid var(--border);
+  background: var(--card);
+  position: relative;
+  box-sizing: border-box;
+}
+
+.browse-follow-pick-row.is-selected .browse-follow-cb {
+  border-color: var(--brand);
+  background: var(--brand);
+}
+
+.browse-follow-pick-row.is-selected .browse-follow-cb::after {
+  content: "";
+  position: absolute;
+  left: 5px;
+  top: 1px;
+  width: 4px;
+  height: 9px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+.browse-follow-pick-main {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.browse-follow-pick-line {
+  font-size: var(--fs-body);
+  line-height: var(--lh-snug);
+  word-break: break-word;
+}
+
+.browse-follow-pick-display {
+  font-weight: var(--fw-medium);
+}
+
+.browse-follow-pick-nick {
+  font-weight: 400;
+}
+
+.browse-follow-pick-uid {
+  font-size: var(--fs-micro);
+  word-break: break-all;
+  line-height: 1.35;
+}
+
+.profile-ro-block {
+  margin-bottom: 4px;
+}
+
+.profile-ro-label {
+  font-size: var(--fs-small);
+  color: var(--muted);
+  margin-bottom: 4px;
+  line-height: var(--lh-snug);
+}
+
+.profile-ro-text {
+  font-size: var(--fs-body);
+  color: var(--ink);
+  word-break: break-all;
+  line-height: var(--lh-snug);
+  padding: 8px 0 10px;
+  border-bottom: 1px solid var(--border);
+}
+
 .browse-header-row {
   margin-bottom: 10px;
 }

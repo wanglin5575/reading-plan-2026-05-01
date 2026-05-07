@@ -1157,17 +1157,21 @@ export default function BrowsePageClient() {
             aria-labelledby="browse-add-modal-title"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="browse-add-modal-tabs">
+            <div className="browse-add-modal-tabs browse-add-modal-tabs--chips" role="tablist" aria-label="添加方式">
               <button
                 type="button"
-                className={addModalTab === "topic" ? "browse-add-tab active" : "browse-add-tab"}
+                role="tab"
+                aria-selected={addModalTab === "topic"}
+                className={`browse-add-chip${addModalTab === "topic" ? " is-active" : ""}`}
                 onClick={() => setAddModalTab("topic")}
               >
                 添加主题
               </button>
               <button
                 type="button"
-                className={addModalTab === "follow" ? "browse-add-tab active" : "browse-add-tab"}
+                role="tab"
+                aria-selected={addModalTab === "follow"}
+                className={`browse-add-chip${addModalTab === "follow" ? " is-active" : ""}`}
                 onClick={() => setAddModalTab("follow")}
               >
                 关注用户
@@ -1227,18 +1231,31 @@ export default function BrowsePageClient() {
                   />
                   {followResults.length > 0 ? (
                     <ul className="browse-follow-search-results">
-                      {followResults.map((u) => (
-                        <li key={u.userId}>
-                          <button
-                            type="button"
-                            className={`browse-follow-pick${followPickId === u.userId ? " is-on" : ""}`}
-                            onClick={() => setFollowPickId(u.userId)}
-                          >
-                            {u.display}
-                            {u.nickname ? ` · ${u.nickname}` : ""}
-                          </button>
-                        </li>
-                      ))}
+                      {followResults.map((u) => {
+                        const selected = followPickId === u.userId;
+                        return (
+                          <li key={u.userId}>
+                            <button
+                              type="button"
+                              role="checkbox"
+                              aria-checked={selected}
+                              className={`browse-follow-pick-row${selected ? " is-selected" : ""}`}
+                              onClick={() => setFollowPickId((prev) => (prev === u.userId ? null : u.userId))}
+                            >
+                              <span className="browse-follow-cb" aria-hidden />
+                              <span className="browse-follow-pick-main">
+                                <span className="browse-follow-pick-line">
+                                  <span className="browse-follow-pick-display">{u.display}</span>
+                                  {u.nickname ? (
+                                    <span className="browse-follow-pick-nick muted-link"> · {u.nickname}</span>
+                                  ) : null}
+                                </span>
+                                <span className="browse-follow-pick-uid muted-link">{u.userId}</span>
+                              </span>
+                            </button>
+                          </li>
+                        );
+                      })}
                     </ul>
                   ) : followSearch.trim().length >= 2 ? (
                     <p className="muted-link">无此用户（尚未注册或关键词不匹配）</p>

@@ -486,14 +486,14 @@ export function AccountAvatarMenu({
           <form onSubmit={(e) => void onSaveProfile(e)}>
             <div className="modal-sheet-body row">
               {profileLoad ? <p className="muted-link">加载中…</p> : null}
-              <label className="muted-link" htmlFor="prof-uid">
-                UID
-              </label>
-              <input id="prof-uid" className="input" value={profileUid} readOnly />
-              <label className="muted-link" htmlFor="prof-email-ro">
-                {vipName ? "账号名称" : "邮箱"}
-              </label>
-              <input id="prof-email-ro" className="input" value={vipName ?? profileEmailField} readOnly />
+              <div className="profile-ro-block">
+                <div className="profile-ro-label">UID</div>
+                <div className="profile-ro-text">{profileUid || "—"}</div>
+              </div>
+              <div className="profile-ro-block">
+                <div className="profile-ro-label">{vipName ? "账号名称" : "邮箱"}</div>
+                <div className="profile-ro-text">{(vipName ?? profileEmailField) || "—"}</div>
+              </div>
               <label className="muted-link" htmlFor="prof-nick">
                 昵称
               </label>
