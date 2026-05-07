@@ -7,7 +7,7 @@ import { todayIso, shiftDays } from "@/lib/plan";
 import type { Article } from "@/lib/types";
 import { getRouteHandlerUser, getRouteHandlerUserId } from "@/lib/auth/api";
 import { isAuthEnabled } from "@/lib/auth";
-import { normalizeKeyPoints, validateReadDigest } from "@/lib/read-digest";
+import { normalizeKeyPointsSlots, validateReadDigest } from "@/lib/read-digest";
 
 export const dynamic = "force-dynamic";
 
@@ -87,19 +87,19 @@ export async function POST(req: Request) {
 
   let digest: { readOneLiner: string; readKeyPoints: string[]; readAction: string } | null = null;
   if (quickDone) {
-    const points = normalizeKeyPoints(payload.readKeyPoints);
+    const points = normalizeKeyPointsSlots(payload.readKeyPoints);
     const one = typeof payload.readOneLiner === "string" ? payload.readOneLiner.trim() : "";
     const action = typeof payload.readAction === "string" ? payload.readAction.trim() : "";
-    if (!validateReadDigest(one, action, points)) {
+    if (!validateReadDigest(one, action)) {
       return NextResponse.json(
         {
           error: "read_digest_required",
-          message: "随览加入已读需填写：一句话总结、3 条重要观点（每条非空）、1 个行动项。",
+          message: "随览加入已读需填写：一句话总结、1 个行动项（重要观点选填）。",
         },
         { status: 400 },
       );
     }
-    digest = { readOneLiner: one, readKeyPoints: points!, readAction: action };
+    digest = { readOneLiner: one, readKeyPoints: points, readAction: action };
   }
 
   const article: Article = {

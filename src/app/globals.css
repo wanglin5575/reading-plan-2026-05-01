@@ -2531,6 +2531,15 @@ a.account-menu-item--link:hover {
   display: block;
 }
 
+/* 读后笔记弹窗：一句话总结多行自适应高度（由 JS 同步 height） */
+.input.textarea-input.article-digest-oneliner-textarea {
+  min-height: 44px;
+  max-height: 320px;
+  overflow-y: auto;
+  resize: none;
+  box-sizing: border-box;
+}
+
 .input-password-wrap {
   position: relative;
   width: 100%;

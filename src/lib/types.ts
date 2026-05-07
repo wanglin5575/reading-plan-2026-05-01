@@ -27,9 +27,9 @@ export interface Article {
   addedAt: string;
   dueDate: string;
   completedAt: string | null;
-  /** 标记已读时必填：一句话总结 */
+  /** 标记已读时必填：一句话总结（可多行） */
   readOneLiner: string;
-  /** 标记已读时必填：3 条重要观点 */
+  /** 标记已读时选填：最多 3 条重要观点（持久化为 3 个槽位，可空串） */
   readKeyPoints: string[];
   /** 标记已读时必填：1 个行动项 */
   readAction: string;

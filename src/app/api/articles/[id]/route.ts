@@ -3,7 +3,7 @@ import { deleteArticle, getArticle, updateArticle } from "@/lib/db";
 import type { Article } from "@/lib/types";
 import { getRouteHandlerUserId } from "@/lib/auth/api";
 import { isAuthEnabled } from "@/lib/auth";
-import { normalizeKeyPoints, validateReadDigest } from "@/lib/read-digest";
+import { normalizeKeyPointsSlots, validateReadDigest } from "@/lib/read-digest";
 
 export const dynamic = "force-dynamic";
 
@@ -57,32 +57,26 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   } else if (body.status === "done") {
     const mergedOne = body.readOneLiner ?? article.readOneLiner;
     const mergedAction = body.readAction ?? article.readAction;
-    let mergedPoints = normalizeKeyPoints(body.readKeyPoints);
-    if (!mergedPoints) mergedPoints = normalizeKeyPoints(article.readKeyPoints);
-    if (!validateReadDigest(mergedOne, mergedAction, mergedPoints)) {
+    const mergedPoints = normalizeKeyPointsSlots(
+      body.readKeyPoints !== undefined ? body.readKeyPoints : article.readKeyPoints,
+    );
+    if (!validateReadDigest(mergedOne, mergedAction)) {
       return NextResponse.json(
         {
           error: "read_digest_required",
-          message: "标记已读需填写：一句话总结、3 条重要观点（每条非空）、1 个行动项。",
+          message: "标记已读需填写：一句话总结、1 个行动项（重要观点选填）。",
         },
         { status: 400 },
       );
     }
-    applyDigest(article, mergedOne!, mergedPoints!, mergedAction!);
+    applyDigest(article, mergedOne!, mergedPoints, mergedAction!);
     article.status = "done";
     article.completedAt = new Date().toISOString();
   } else if (article.status === "done") {
     if (typeof body.readOneLiner === "string") article.readOneLiner = body.readOneLiner.trim();
     if (typeof body.readAction === "string") article.readAction = body.readAction.trim();
     if (body.readKeyPoints !== undefined) {
-      const pts = normalizeKeyPoints(body.readKeyPoints);
-      if (!pts) {
-        return NextResponse.json(
-          { error: "read_key_points_invalid", message: "重要观点需恰好填写 3 条且均非空。" },
-          { status: 400 },
-        );
-      }
-      article.readKeyPoints = pts;
+      article.readKeyPoints = normalizeKeyPointsSlots(body.readKeyPoints);
     }
   }
 

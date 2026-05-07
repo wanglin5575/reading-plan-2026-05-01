@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useTransition, useState, useCallback, useRef, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useTransition, useState, useCallback, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { type Article, isIntensiveRead } from "@/lib/types";
@@ -349,6 +349,19 @@ export function ArticleCard({
     JSON.stringify(article.readKeyPoints || []),
   ]);
 
+  const digestOneLinerRef = useRef<HTMLTextAreaElement>(null);
+  const adjustDigestOneLinerHeight = useCallback(() => {
+    const el = digestOneLinerRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(320, Math.max(44, el.scrollHeight))}px`;
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!digestOpen) return;
+    adjustDigestOneLinerHeight();
+  }, [digestOpen, readOneLiner, adjustDigestOneLinerHeight]);
+
   const closeMeta = useCallback(() => setMetaOpen(false), []);
   const closeDigest = useCallback(() => setDigestOpen(false), []);
   const closeMore = useCallback(() => {
@@ -471,11 +484,8 @@ export function ArticleCard({
   function validateDigest(): boolean {
     const one = readOneLiner.trim();
     const action = readAction.trim();
-    const p1 = kp1.trim();
-    const p2 = kp2.trim();
-    const p3 = kp3.trim();
-    if (!one || !action || !p1 || !p2 || !p3) {
-      alert("请填写：一句话总结、3 条重要观点（每条非空）、1 个行动项。");
+    if (!one || !action) {
+      alert("请填写：一句话总结、1 个行动项（重要观点选填）。");
       return false;
     }
     return true;
@@ -523,10 +533,7 @@ export function ArticleCard({
   }
 
   const digestComplete =
-    article.status === "done" &&
-    article.readOneLiner?.trim() &&
-    article.readAction?.trim() &&
-    (Array.isArray(article.readKeyPoints) ? article.readKeyPoints : []).filter((p) => String(p).trim()).length === 3;
+    article.status === "done" && Boolean(article.readOneLiner?.trim()) && Boolean(article.readAction?.trim());
 
   const cardTop = (
     <div className="article-card-top">
@@ -558,6 +565,7 @@ export function ArticleCard({
 
   const hasUsableSummary = Boolean(article.summary && article.summary !== "(暂无摘要)");
   const showSummaryInBody = hasUsableSummary && !collapseOriginalSummary;
+  const readAfterKpProse = joinKeyPointsProse(article.readKeyPoints);
 
   const cardMiddle = (
     <>
@@ -610,9 +618,6 @@ export function ArticleCard({
               <span className="article-card-read-field-label article-card-read-field-label-todo">todo</span>
               <span className="article-card-read-action-value">{article.readAction.trim()}</span>
             </p>
-            {article.readOneLiner?.trim() ? (
-              <p className="article-card-read-oneliner">{article.readOneLiner.trim()}</p>
-            ) : null}
             <div className="article-card-keypoints-block">
               <div className="article-card-read-field-label article-card-keypoints-heading">重要观点</div>
               <div className="article-card-keypoints-lines">
@@ -623,6 +628,9 @@ export function ArticleCard({
                 ))}
               </div>
             </div>
+            {article.readOneLiner?.trim() ? (
+              <p className="article-card-read-oneliner">{article.readOneLiner.trim()}</p>
+            ) : null}
           </div>
         ) : (
           <p className="muted-link">可从 ⋯ 补全读后笔记。</p>
@@ -632,8 +640,9 @@ export function ArticleCard({
         !collapseOriginalSummary &&
         (digestComplete ? (
           <div className="read-after-stack">
+            <div className="article-card-read-field-label article-card-keypoints-heading">重要观点</div>
+            {readAfterKpProse ? <p className="read-after-points">{readAfterKpProse}</p> : null}
             <p className="summary">{article.readOneLiner}</p>
-            <p className="read-after-points">{joinKeyPointsProse(article.readKeyPoints)}</p>
             <p className="read-after-points">{article.readAction}</p>
           </div>
         ) : (
@@ -750,24 +759,44 @@ export function ArticleCard({
     >
       <div className="modal-sheet" role="dialog" aria-modal="true" aria-labelledby="article-digest-modal-title" onClick={(e) => e.stopPropagation()}>
         <div className="modal-sheet-header">
-          <h2 id="article-digest-modal-title">{digestMode === "markDone" ? "标记已读（必填）" : "编辑读后笔记"}</h2>
+          <h2 id="article-digest-modal-title">{digestMode === "markDone" ? "标记已读" : "编辑读后笔记"}</h2>
           <button type="button" className="modal-sheet-close" onClick={closeDigest} aria-label="关闭">
             ×
           </button>
         </div>
         <div className="modal-sheet-body">
           <div className="row">
-            <label className="muted-link">一句话总结</label>
-            <input
-              className="input"
+            <label className="muted-link" htmlFor="article-digest-oneliner">
+              一句话总结
+            </label>
+            <textarea
+              id="article-digest-oneliner"
+              ref={digestOneLinerRef}
+              className="input textarea-input article-digest-oneliner-textarea"
+              rows={1}
               value={readOneLiner}
               onChange={(e) => setReadOneLiner(e.target.value)}
-              placeholder="用一句话概括你从文中带走的核心信息"
+              placeholder="用一两句话概括你从文中带走的核心信息（支持多行）"
             />
-            <label className="muted-link">3 个重要观点</label>
-            <input className="input" value={kp1} onChange={(e) => setKp1(e.target.value)} placeholder="观点 1" />
-            <input className="input" value={kp2} onChange={(e) => setKp2(e.target.value)} placeholder="观点 2" />
-            <input className="input" value={kp3} onChange={(e) => setKp3(e.target.value)} placeholder="观点 3" />
+            <label className="muted-link">3 个重要观点（选填）</label>
+            <input
+              className="input"
+              value={kp1}
+              onChange={(e) => setKp1(e.target.value)}
+              placeholder="选填：第 1 条观点，可留空"
+            />
+            <input
+              className="input"
+              value={kp2}
+              onChange={(e) => setKp2(e.target.value)}
+              placeholder="选填：第 2 条观点，可留空"
+            />
+            <input
+              className="input"
+              value={kp3}
+              onChange={(e) => setKp3(e.target.value)}
+              placeholder="选填：第 3 条观点，可留空"
+            />
             <label className="muted-link">1 个行动项</label>
             <input
               className="input"

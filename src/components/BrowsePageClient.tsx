@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { BrowseAiRejectedItem, BrowseHit, BrowseTopic } from "@/lib/types";
 import {
@@ -134,6 +134,13 @@ export default function BrowsePageClient() {
   const [rdK2, setRdK2] = useState("");
   const [rdK3, setRdK3] = useState("");
   const [rdAction, setRdAction] = useState("");
+  const browseRdOneRef = useRef<HTMLTextAreaElement>(null);
+  const adjustBrowseRdOneHeight = useCallback(() => {
+    const el = browseRdOneRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(320, Math.max(44, el.scrollHeight))}px`;
+  }, []);
   const [sortBy, setSortBy] = useState<BrowseSortMode>("published");
   const [sortMenuOpen, setSortMenuOpen] = useState(false);
   const [aiRejectedOpen, setAiRejectedOpen] = useState(false);
@@ -144,6 +151,11 @@ export default function BrowsePageClient() {
   const activeIdRef = useRef<string | null>(null);
   const autoPullRafRef = useRef<number | null>(null);
   const autoPullBusyRef = useRef(false);
+  useLayoutEffect(() => {
+    if (!markDoneOpen) return;
+    adjustBrowseRdOneHeight();
+  }, [markDoneOpen, rdOne, adjustBrowseRdOneHeight]);
+
   useEffect(() => {
     activeIdRef.current = activeId;
     setAutoPulling(false);
@@ -762,8 +774,8 @@ export default function BrowsePageClient() {
     const one = rdOne.trim();
     const action = rdAction.trim();
     const points = [rdK1.trim(), rdK2.trim(), rdK3.trim()];
-    if (!one || !action || points.some((p) => !p)) {
-      setMsg("请填写完整读后笔记：一句话总结、3 条观点、1 个行动项。");
+    if (!one || !action) {
+      setMsg("请填写：一句话总结、1 个行动项（重要观点选填）。");
       return;
     }
     setBusyUrl(hit.url);
@@ -1342,7 +1354,7 @@ export default function BrowsePageClient() {
                 onClick={(e) => e.stopPropagation()}
               >
                 <div className="modal-sheet-header">
-                  <h2 id="browse-mark-done-title">加入已读（必填读后笔记）</h2>
+                  <h2 id="browse-mark-done-title">加入已读</h2>
                   <button
                     type="button"
                     className="modal-sheet-close"
@@ -1361,37 +1373,39 @@ export default function BrowsePageClient() {
                     <label className="muted-link" htmlFor="browse-rd-one">
                       一句话总结
                     </label>
-                    <input
+                    <textarea
                       id="browse-rd-one"
-                      className="input"
+                      ref={browseRdOneRef}
+                      className="input textarea-input article-digest-oneliner-textarea"
+                      rows={1}
                       value={rdOne}
                       onChange={(e) => setRdOne(e.target.value)}
-                      placeholder="用一句话概括你从文中带走的核心信息"
+                      placeholder="用一两句话概括你从文中带走的核心信息（支持多行）"
                       disabled={busyUrl !== null}
                     />
                     <label className="muted-link" htmlFor="browse-rd-k1">
-                      3 个重要观点
+                      3 个重要观点（选填）
                     </label>
                     <input
                       id="browse-rd-k1"
                       className="input"
                       value={rdK1}
                       onChange={(e) => setRdK1(e.target.value)}
-                      placeholder="观点 1"
+                      placeholder="选填：第 1 条观点，可留空"
                       disabled={busyUrl !== null}
                     />
                     <input
                       className="input"
                       value={rdK2}
                       onChange={(e) => setRdK2(e.target.value)}
-                      placeholder="观点 2"
+                      placeholder="选填：第 2 条观点，可留空"
                       disabled={busyUrl !== null}
                     />
                     <input
                       className="input"
                       value={rdK3}
                       onChange={(e) => setRdK3(e.target.value)}
-                      placeholder="观点 3"
+                      placeholder="选填：第 3 条观点，可留空"
                       disabled={busyUrl !== null}
                     />
                     <label className="muted-link" htmlFor="browse-rd-action">
