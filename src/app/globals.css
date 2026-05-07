@@ -2605,6 +2605,16 @@ a.account-menu-item--link:hover {
   border: 1px solid var(--border);
 }
 
+/* 粉丝弹窗：回关按钮宽度为视口 1/4（晚于 .btn 的 width:100%） */
+.btn.fan-follow-back-btn {
+  width: 25vw;
+  min-width: 56px;
+  flex-shrink: 0;
+  padding: 8px 10px;
+  font-size: var(--fs-small);
+  box-sizing: border-box;
+}
+
 .row {
   display: grid;
   grid-template-columns: 1fr;

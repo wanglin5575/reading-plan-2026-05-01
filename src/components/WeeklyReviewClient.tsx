@@ -141,6 +141,12 @@ export default function WeeklyReviewClient({
     };
   }, [articles, weekArticles, weekStart]);
 
+  /** 历史所有「已读」文章估算时长之和 */
+  const cumulativeDoneMinutes = useMemo(
+    () => articles.filter((a) => a.status === "done").reduce((s, a) => s + a.estimatedMinutes, 0),
+    [articles],
+  );
+
   const kpiResolved = useMemo(() => {
     return (
       kpiExtras ?? {
@@ -224,11 +230,12 @@ export default function WeeklyReviewClient({
             <div className="kpi-sub muted-link">本周 {kpiWeek.totalRead} 篇</div>
           </div>
           <div className="kpi">
-            <div className="label">本周阅读时长</div>
+            <div className="label">累计阅读时长</div>
             <div className="value">
-              {kpiWeek.totalMinutes}
+              {cumulativeDoneMinutes}
               <span className="text-unit">分钟</span>
             </div>
+            <div className="kpi-sub muted-link">本周 {kpiWeek.totalMinutes} 分钟</div>
           </div>
           <div className="kpi">
             <div className="label">较上一周</div>

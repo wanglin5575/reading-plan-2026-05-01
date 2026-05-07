@@ -442,7 +442,7 @@ export function AccountAvatarMenu({
                   ) : (
                     <button
                       type="button"
-                      className="btn secondary"
+                      className="btn secondary fan-follow-back-btn"
                       disabled={fanActionBusy}
                       onClick={() => void onFollowBack(f.followerId)}
                     >
