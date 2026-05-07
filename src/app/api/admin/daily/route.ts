@@ -27,7 +27,8 @@ export async function GET(req: Request) {
   const from = addDays(to, -(days - 1));
 
   const isAdmin = isAdminEmail(session.email);
-  const filterUserId = isAdmin ? null : session.id;
+  const scopeSelf = searchParams.get("scope") === "self";
+  const filterUserId = isAdmin && !scopeSelf ? null : session.id;
 
   const series = await getAdminDailySeries({ fromDay: from, toDay: to, filterUserId });
   return NextResponse.json({ from, to, series });

@@ -1,10 +1,15 @@
 import { cookies } from "next/headers";
 import {
+  isActivePreviewSessionCookie,
   isPreviewSessionAllowed,
   PREVIEW_SESSION_COOKIE,
-  PREVIEW_SESSION_VALUE,
+  PREVIEW_UI_FOLLOWED_EMAIL,
+  PREVIEW_UI_FOLLOWED_ID,
+  PREVIEW_UI_FOLLOWER_EMAIL,
+  PREVIEW_UI_FOLLOWER_ID,
   PREVIEW_UI_USER_EMAIL,
   PREVIEW_UI_USER_ID,
+  previewPersonaFromCookieValue,
 } from "@/lib/preview-session";
 /**
  * 开发环境：读取「UI 演示登录」Cookie。
@@ -19,10 +24,20 @@ export async function tryReadPreviewUiSessionUser(): Promise<{
   if (!isPreviewSessionAllowed()) return null;
   try {
     const jar = await cookies();
-    if (jar.get(PREVIEW_SESSION_COOKIE)?.value !== PREVIEW_SESSION_VALUE) return null;
+    const raw = jar.get(PREVIEW_SESSION_COOKIE)?.value;
+    if (!isActivePreviewSessionCookie(raw)) return null;
+    const persona = previewPersonaFromCookieValue(raw);
+    const id =
+      persona === "follower" ? PREVIEW_UI_FOLLOWER_ID : persona === "followed" ? PREVIEW_UI_FOLLOWED_ID : PREVIEW_UI_USER_ID;
+    const email =
+      persona === "follower"
+        ? PREVIEW_UI_FOLLOWER_EMAIL
+        : persona === "followed"
+          ? PREVIEW_UI_FOLLOWED_EMAIL
+          : PREVIEW_UI_USER_EMAIL;
     return {
-      id: PREVIEW_UI_USER_ID,
-      email: PREVIEW_UI_USER_EMAIL,
+      id,
+      email,
       createdAt: null,
       isVip: false,
     };

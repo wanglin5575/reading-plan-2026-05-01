@@ -10,6 +10,20 @@ import { createBrowserSupabaseClient } from "@/lib/supabase/client";
 import { PasswordInputWithToggle } from "@/components/PasswordInputWithToggle";
 import { TokenUsageViewerModal } from "@/components/TokenUsageViewerModal";
 import { LS_ADMIN_REGISTRY_ACK_AT } from "@/lib/admin-registry-badge";
+import { isValidNickname } from "@/lib/random-nickname";
+
+function vipSyntheticAccountName(email: string): string | null {
+  const m = email.trim().toLowerCase().match(/^vip_([a-z0-9._-]+)@vip\.local$/);
+  return m?.[1] ?? null;
+}
+
+type FanRowUi = {
+  followerId: string;
+  nickname: string;
+  emailHint: string;
+  createdAt: string;
+  isFollowingBack?: boolean;
+};
 
 function ThreeDotsIcon({ className }: { className?: string }) {
   return (
@@ -42,12 +56,15 @@ export function AccountAvatarMenu({
   menuTrigger = "dots",
   /** 仅设计预览页：菜单默认展开 */
   defaultMenuOpen = false,
+  fanUnreadCount = 0,
 }: {
   email: string;
   isAdmin?: boolean;
   /** 「我的」复盘页用小人图标；其它页用竖三点 */
   menuTrigger?: "dots" | "avatar";
   defaultMenuOpen?: boolean;
+  /** 新增粉丝未读数（服务端） */
+  fanUnreadCount?: number;
 }) {
   const router = useRouter();
   const [mounted, setMounted] = useState(false);
@@ -60,9 +77,22 @@ export function AccountAvatarMenu({
   const [newPassword2, setNewPassword2] = useState("");
   const [showRegistryDot, setShowRegistryDot] = useState(false);
   const [showVipPwDot, setShowVipPwDot] = useState(false);
+  const [fansOpen, setFansOpen] = useState(false);
+  const [fansRows, setFansRows] = useState<FanRowUi[]>([]);
+  const [fansLoading, setFansLoading] = useState(false);
+  const [fansErr, setFansErr] = useState<string | null>(null);
+  const [fanActionBusy, setFanActionBusy] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [profileUid, setProfileUid] = useState("");
+  const [profileEmailField, setProfileEmailField] = useState("");
+  const [profileNick, setProfileNick] = useState("");
+  const [profileLoad, setProfileLoad] = useState(false);
+  const [profileBusy, setProfileBusy] = useState(false);
+  const [profileMsg, setProfileMsg] = useState<string | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
 
   const isVipUser = email.trim().toLowerCase().endsWith("@vip.local");
+  const showFanDot = fanUnreadCount > 0;
 
   useEffect(() => setMounted(true), []);
 
@@ -140,13 +170,107 @@ export function AccountAvatarMenu({
   }, [menuOpen, closeMenu]);
 
   useEffect(() => {
-    if (!pwOpen) return;
+    if (!pwOpen && !fansOpen && !profileOpen) return;
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
       document.body.style.overflow = prev;
     };
-  }, [pwOpen]);
+  }, [pwOpen, fansOpen, profileOpen]);
+
+  async function openFansModal() {
+    closeMenu();
+    setFansOpen(true);
+    setFansErr(null);
+    setFansLoading(true);
+    try {
+      await fetch("/api/me/fans", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "ack_seen" }),
+      });
+      router.refresh();
+      const r = await fetch("/api/me/fans", { cache: "no-store" });
+      const d = (await r.json().catch(() => ({}))) as { error?: string; fans?: FanRowUi[] };
+      if (!r.ok) throw new Error(d.error || "加载失败");
+      setFansRows(d.fans ?? []);
+    } catch (e: unknown) {
+      setFansErr(e instanceof Error ? e.message : "加载失败");
+    } finally {
+      setFansLoading(false);
+    }
+  }
+
+  async function onFollowBack(followerId: string) {
+    setFanActionBusy(true);
+    setFansErr(null);
+    try {
+      const r = await fetch("/api/me/fans", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "follow_back", followerId }),
+      });
+      const d = (await r.json().catch(() => ({}))) as { error?: string };
+      if (!r.ok) throw new Error(d.error || "操作失败");
+      const r2 = await fetch("/api/me/fans", { cache: "no-store" });
+      const d2 = (await r2.json().catch(() => ({}))) as { fans?: FanRowUi[] };
+      if (r2.ok) setFansRows(d2.fans ?? []);
+      router.refresh();
+    } catch (e: unknown) {
+      setFansErr(e instanceof Error ? e.message : "操作失败");
+    } finally {
+      setFanActionBusy(false);
+    }
+  }
+
+  async function openProfileModal() {
+    closeMenu();
+    setProfileOpen(true);
+    setProfileMsg(null);
+    setProfileLoad(true);
+    try {
+      const r = await fetch("/api/me/profile", { cache: "no-store" });
+      const d = (await r.json().catch(() => ({}))) as { error?: string; userId?: string; email?: string; nickname?: string };
+      if (!r.ok) throw new Error(d.error || "加载失败");
+      setProfileUid(d.userId ?? "");
+      setProfileEmailField(d.email ?? email);
+      setProfileNick(d.nickname ?? "");
+    } catch (e: unknown) {
+      setProfileMsg(e instanceof Error ? e.message : "加载失败");
+    } finally {
+      setProfileLoad(false);
+    }
+  }
+
+  async function onSaveProfile(e: React.FormEvent) {
+    e.preventDefault();
+    setProfileMsg(null);
+    if (!isValidNickname(profileNick)) {
+      setProfileMsg("昵称需 2～14 单位（中文一字算 2，英文数字算 1），且不能为空");
+      return;
+    }
+    setProfileBusy(true);
+    try {
+      const r = await fetch("/api/me/profile", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ nickname: profileNick.trim() }),
+      });
+      const d = (await r.json().catch(() => ({}))) as { error?: string; nickname?: string };
+      if (!r.ok) {
+        if (d.error === "nickname_taken") throw new Error("该昵称已被注册");
+        if (d.error === "invalid_nickname") throw new Error("昵称格式不符合要求");
+        throw new Error(d.error || "保存失败");
+      }
+      if (d.nickname) setProfileNick(d.nickname);
+      setProfileOpen(false);
+      router.refresh();
+    } catch (err: unknown) {
+      setProfileMsg(err instanceof Error ? err.message : "保存失败");
+    } finally {
+      setProfileBusy(false);
+    }
+  }
 
   async function onLogout() {
     closeMenu();
@@ -270,13 +394,139 @@ export function AccountAvatarMenu({
       </div>
     );
 
+  const vipName = vipSyntheticAccountName(profileEmailField);
+
+  const fansModal =
+    mounted &&
+    fansOpen && (
+      <div
+        className="modal-backdrop"
+        role="presentation"
+        onClick={(e) => e.target === e.currentTarget && !fanActionBusy && setFansOpen(false)}
+      >
+        <div
+          className="modal-sheet"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="fans-title"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="modal-sheet-header">
+            <h2 id="fans-title">我的粉丝</h2>
+            <button
+              type="button"
+              className="modal-sheet-close"
+              onClick={() => !fanActionBusy && setFansOpen(false)}
+              aria-label="关闭"
+            >
+              ×
+            </button>
+          </div>
+          <div className="modal-sheet-body">
+            {fansLoading ? <p className="muted-link">加载中…</p> : null}
+            {fansErr ? <p className="me-msg">{fansErr}</p> : null}
+            {!fansLoading && !fansErr && fansRows.length === 0 ? <p className="muted-link">暂无粉丝</p> : null}
+            <ul className="fan-list-plain">
+              {fansRows.map((f) => (
+                <li key={f.followerId} className="fan-row">
+                  <div className="fan-row-main">
+                    <div className="fan-nick">{f.nickname}</div>
+                    {f.emailHint ? (
+                      <div className="muted-link fan-row-hint">
+                        {f.emailHint}
+                      </div>
+                    ) : null}
+                  </div>
+                  {f.isFollowingBack ? (
+                    <span className="muted-link fan-row-hint">已互关</span>
+                  ) : (
+                    <button
+                      type="button"
+                      className="btn secondary"
+                      disabled={fanActionBusy}
+                      onClick={() => void onFollowBack(f.followerId)}
+                    >
+                      回关
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      </div>
+    );
+
+  const profileModal =
+    mounted &&
+    profileOpen && (
+      <div
+        className="modal-backdrop"
+        role="presentation"
+        onClick={(e) => e.target === e.currentTarget && !profileBusy && setProfileOpen(false)}
+      >
+        <div
+          className="modal-sheet"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="profile-edit-title"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="modal-sheet-header">
+            <h2 id="profile-edit-title">修改账号信息</h2>
+            <button
+              type="button"
+              className="modal-sheet-close"
+              onClick={() => !profileBusy && setProfileOpen(false)}
+              aria-label="关闭"
+            >
+              ×
+            </button>
+          </div>
+          <form onSubmit={(e) => void onSaveProfile(e)}>
+            <div className="modal-sheet-body row">
+              {profileLoad ? <p className="muted-link">加载中…</p> : null}
+              <label className="muted-link" htmlFor="prof-uid">
+                UID
+              </label>
+              <input id="prof-uid" className="input" value={profileUid} readOnly />
+              <label className="muted-link" htmlFor="prof-email-ro">
+                {vipName ? "账号名称" : "邮箱"}
+              </label>
+              <input id="prof-email-ro" className="input" value={vipName ?? profileEmailField} readOnly />
+              <label className="muted-link" htmlFor="prof-nick">
+                昵称
+              </label>
+              <input
+                id="prof-nick"
+                className="input"
+                value={profileNick}
+                onChange={(e) => setProfileNick(e.target.value)}
+                disabled={profileBusy || profileLoad}
+                autoComplete="nickname"
+              />
+              {profileMsg ? <p className="me-msg">{profileMsg}</p> : null}
+            </div>
+            <div className="modal-sheet-footer">
+              <button className="btn secondary" type="submit" disabled={profileBusy || profileLoad}>
+                {profileBusy ? "保存中…" : "保存"}
+              </button>
+              <button className="btn secondary" type="button" disabled={profileBusy} onClick={() => setProfileOpen(false)}>
+                取消
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    );
+
   return (
     <>
       <div className="account-menu-wrap" ref={wrapRef}>
         <button
           type="button"
           className={`account-avatar-btn${menuTrigger === "dots" ? " account-menu-kebab" : ""}`}
-          aria-label={showRegistryDot || showVipPwDot ? "账号菜单（有提醒）" : "账号菜单"}
+          aria-label={showRegistryDot || showVipPwDot || showFanDot ? "账号菜单（有提醒）" : "账号菜单"}
           aria-expanded={menuOpen}
           aria-haspopup="true"
           disabled={busy}
@@ -287,13 +537,22 @@ export function AccountAvatarMenu({
           ) : (
             <ThreeDotsIcon className="account-avatar-icon" />
           )}
-          {showRegistryDot || showVipPwDot ? <span className="account-avatar-registry-dot" aria-hidden /> : null}
+          {showRegistryDot || showVipPwDot || showFanDot ? (
+            <span className="account-avatar-registry-dot" aria-hidden />
+          ) : null}
         </button>
         {menuOpen && (
           <div className="account-menu-popover" role="menu">
             <p className="account-menu-email" role="presentation">
               {email}
             </p>
+            <button type="button" className="account-menu-item account-menu-item--with-badge" role="menuitem" onClick={() => void openFansModal()}>
+              <span className="account-menu-item-label">查看粉丝</span>
+              {showFanDot ? <span className="account-menu-fan-dot" aria-hidden /> : null}
+            </button>
+            <button type="button" className="account-menu-item" role="menuitem" onClick={() => void openProfileModal()}>
+              修改账号信息
+            </button>
             {isAdmin ? (
               <Link href="/admin" className="account-menu-item account-menu-item--link" role="menuitem" onClick={closeMenu}>
                 管理后台
@@ -326,6 +585,8 @@ export function AccountAvatarMenu({
         )}
       </div>
       {modal && createPortal(modal, document.body)}
+      {fansModal && createPortal(fansModal, document.body)}
+      {profileModal && createPortal(profileModal, document.body)}
       <TokenUsageViewerModal
         open={tokenUsageOpen}
         onClose={() => setTokenUsageOpen(false)}

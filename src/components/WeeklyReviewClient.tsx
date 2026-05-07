@@ -10,6 +10,7 @@ import {
   filterDoneOnDay,
   buildPeriodReviewFromArticles,
 } from "@/lib/plan";
+import { formatUsd } from "@/lib/admin-usage-format";
 import { ArticleCard, ArticleTitleLink } from "./ArticleCard";
 import { MonthCalendarPicker } from "./MonthCalendarPicker";
 import { buildArticlePreviewSource } from "@/lib/article-preview-source";
@@ -101,10 +102,12 @@ export default function WeeklyReviewClient({
   articles,
   initialWeekStart,
   initialDay,
+  kpiExtras,
 }: {
   articles: Article[];
   initialWeekStart: string;
   initialDay: string;
+  kpiExtras?: { historyDoneCount: number; totalTokenUsd: number; weekTokenUsd: number };
 }) {
   const [viewMode, setViewMode] = useState<ViewMode>("week");
   const [weekStart, setWeekStart] = useState(initialWeekStart);
@@ -137,6 +140,16 @@ export default function WeeklyReviewClient({
       deltaMinutes: curMin - prevMin,
     };
   }, [articles, weekArticles, weekStart]);
+
+  const kpiResolved = useMemo(() => {
+    return (
+      kpiExtras ?? {
+        historyDoneCount: articles.filter((a) => a.status === "done").length,
+        totalTokenUsd: 0,
+        weekTokenUsd: 0,
+      }
+    );
+  }, [kpiExtras, articles]);
 
   const kpiDay = useMemo(() => {
     const totalMinutes = dayArticles.reduce((s, a) => s + a.estimatedMinutes, 0);
@@ -203,30 +216,33 @@ export default function WeeklyReviewClient({
       {viewMode === "week" ? (
         <section className="kpi-row">
           <div className="kpi">
-            <div className="label">该周读完</div>
+            <div className="label">历史累计已读</div>
             <div className="value">
-              {kpiWeek.totalRead}
+              {kpiResolved.historyDoneCount}
               <span className="text-unit">篇</span>
             </div>
+            <div className="kpi-sub muted-link">本周 {kpiWeek.totalRead} 篇</div>
           </div>
           <div className="kpi">
-            <div className="label">阅读时长</div>
+            <div className="label">本周阅读时长</div>
             <div className="value">
               {kpiWeek.totalMinutes}
               <span className="text-unit">分钟</span>
             </div>
           </div>
           <div className="kpi">
-            <div className="label">较上一周篇数</div>
+            <div className="label">较上一周</div>
             <div className="value">
               <DeltaBadge value={kpiWeek.deltaArticles} unit="篇" />
             </div>
+            <div className="kpi-sub muted-link">
+              时长 <DeltaBadge value={kpiWeek.deltaMinutes} unit="分钟" />
+            </div>
           </div>
           <div className="kpi">
-            <div className="label">较上一周时长</div>
-            <div className="value">
-              <DeltaBadge value={kpiWeek.deltaMinutes} unit="分钟" />
-            </div>
+            <div className="label">累计 Token 估算</div>
+            <div className="value">{formatUsd(kpiResolved.totalTokenUsd)}</div>
+            <div className="kpi-sub muted-link">本周 {formatUsd(kpiResolved.weekTokenUsd)}</div>
           </div>
         </section>
       ) : (

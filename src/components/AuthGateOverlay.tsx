@@ -26,6 +26,8 @@ function isDesignPreviewPath(path: string) {
   if (path === "/browse-rejected-preview" || path.startsWith("/browse-rejected-preview/")) return true;
   if (path === "/demo-authed-site-preview" || path.startsWith("/demo-authed-site-preview/")) return true;
   if (path === "/add-authed-preview" || path.startsWith("/add-authed-preview/")) return true;
+  if (path === "/preview-social-follower" || path.startsWith("/preview-social-follower/")) return true;
+  if (path === "/preview-social-followed" || path.startsWith("/preview-social-followed/")) return true;
   return false;
 }
 

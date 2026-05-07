@@ -46,7 +46,7 @@ export function TokenUsageViewerModal({
       setLoading(true);
       setOverviewErr(null);
       try {
-        const r = await fetch("/api/admin/overview", { cache: "no-store" });
+        const r = await fetch("/api/admin/overview?usageSelfOnly=1", { cache: "no-store" });
         const d = (await r.json()) as AdminOverviewPayload & { error?: string };
         if (!r.ok) throw new Error(d.error || "加载失败");
         if (!cancelled) setOverview(d);
@@ -72,7 +72,7 @@ export function TokenUsageViewerModal({
     (async () => {
       setDailyErr(null);
       try {
-        const r = await fetch(`/api/admin/daily?days=${trendRangeDays}`, { cache: "no-store" });
+        const r = await fetch(`/api/admin/daily?days=${trendRangeDays}&scope=self`, { cache: "no-store" });
         const d = (await r.json()) as { series?: AdminDailyChartPoint[]; error?: string };
         if (!r.ok) throw new Error(d.error || "加载失败");
         if (!cancelled) setDailySeries(d.series ?? []);
@@ -124,13 +124,11 @@ export function TokenUsageViewerModal({
           {!loading && !overviewErr && overview ? (
             <>
               <p className="admin-hint muted-link" style={{ marginTop: 0 }}>
-                {viewerIsAdmin
-                  ? "与「会员与用量」一致：按账号汇总；下方趋势图仅展示 Token 消耗曲线。"
-                  : "按自然日汇总你的用量；下方趋势图仅展示 Token 消耗曲线。"}
+                仅展示当前登录账号的 Token 用量；下方为你在所选区间内的每日消耗（无全局注册曲线）。
               </p>
               <div className="admin-kpi-row" style={{ marginBottom: 12 }}>
                 <div className="admin-kpi-card">
-                  <span className="admin-kpi-label">{viewerIsAdmin ? "列表合计 Token" : "我的 AI Token 消耗"}</span>
+                  <span className="admin-kpi-label">我的 AI Token 消耗</span>
                   <span className="admin-kpi-value">{formatTok(overview.totalTokens)}</span>
                   <span className="admin-kpi-sub">估算金额 {formatUsd(overview.totalCostUsd)}</span>
                 </div>
@@ -146,11 +144,7 @@ export function TokenUsageViewerModal({
               {rows.length === 0 ? (
                 <p className="muted-link">暂无用量数据。</p>
               ) : (
-                <MemberTokenUsageTable
-                  usageRows={rows}
-                  layout={viewerIsAdmin ? "modal-admin-all" : "modal-self-daily"}
-                  interactive={false}
-                />
+                <MemberTokenUsageTable usageRows={rows} layout="modal-self-daily" interactive={false} />
               )}
             </>
           ) : null}

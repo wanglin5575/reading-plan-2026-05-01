@@ -7,20 +7,23 @@ import { listAllSupabaseAuthUsers } from "@/lib/supabase/admin-users";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(req: Request) {
   const session = await getRouteHandlerUser();
   if (!session?.id || !session.email) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
   const viewerIsAdmin = isAdminEmail(session.email);
-  const authUsers = viewerIsAdmin ? await listAllSupabaseAuthUsers() : [];
+  const usageSelfOnly = new URL(req.url).searchParams.get("usageSelfOnly") === "1";
+  const authUsers =
+    viewerIsAdmin && !usageSelfOnly ? await listAllSupabaseAuthUsers() : [];
 
   const overview = await buildAdminOverview({
     authUsers,
     viewerUserId: session.id,
     viewerEmail: session.email,
     viewerIsAdmin,
+    usageSelfOnly,
   });
 
   return NextResponse.json({

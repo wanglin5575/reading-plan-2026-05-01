@@ -24,6 +24,7 @@ export function WeeklyAccountEntry({
   isAdmin,
   menuTrigger = "dots",
   defaultMenuOpen,
+  fanUnreadCount = 0,
 }: {
   email: string | null;
   /** 管理员：注册红点、入口「管理后台」；非管理员无后台入口，使用「查看token消耗」 */
@@ -31,10 +32,18 @@ export function WeeklyAccountEntry({
   menuTrigger?: "dots" | "avatar";
   /** 仅预览页：头像菜单默认展开 */
   defaultMenuOpen?: boolean;
+  /** 自上次查看粉丝以来新增粉丝数（服务端计算） */
+  fanUnreadCount?: number;
 }) {
   if (email)
     return (
-      <AccountAvatarMenu email={email} isAdmin={isAdmin} menuTrigger={menuTrigger} defaultMenuOpen={defaultMenuOpen ?? false} />
+      <AccountAvatarMenu
+        email={email}
+        isAdmin={isAdmin}
+        menuTrigger={menuTrigger}
+        defaultMenuOpen={defaultMenuOpen ?? false}
+        fanUnreadCount={fanUnreadCount}
+      />
     );
   return (
     <Link href="/me" className="account-avatar-btn account-avatar-btn--link" aria-label="登录或注册" prefetch>

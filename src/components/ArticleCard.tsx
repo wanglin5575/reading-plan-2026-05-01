@@ -13,11 +13,27 @@ import { getReadPreviewUiCache, setReadPreviewUiCache } from "@/lib/read-preview
 import { readPreviewSourceFromApiPayload, type ReadPreviewSource } from "@/lib/read-preview-source";
 import { buildArticlePreviewSource } from "@/lib/article-preview-source";
 
+export type ArticleSocialComment = {
+  id: string;
+  authorId: string;
+  authorNickname: string;
+  parentId: string | null;
+  body: string;
+  createdAt: string;
+};
+
 interface Props {
   article: Article;
   showActions?: boolean;
   /** 为 true 时：原抓取摘要移到卡片底部，单行_gray 小字，可点开 >> 展开 */
   collapseOriginalSummary?: boolean;
+  /** 随览查看他人书库：隐藏编辑/删除 */
+  readOnlyBorrowed?: boolean;
+  /** 与 readOnlyBorrowed、已读配合：左滑仅露出「评论」 */
+  swipeCommentOnly?: boolean;
+  articleOwnerIdForSocial?: string;
+  socialComments?: ArticleSocialComment[];
+  onSocialCommentPosted?: () => void;
 }
 
 type DigestMode = "markDone" | "edit";
@@ -256,7 +272,16 @@ export function ArticleTitleLink({
   );
 }
 
-export function ArticleCard({ article, showActions = true, collapseOriginalSummary = false }: Props) {
+export function ArticleCard({
+  article,
+  showActions = true,
+  collapseOriginalSummary = false,
+  readOnlyBorrowed = false,
+  swipeCommentOnly = false,
+  articleOwnerIdForSocial,
+  socialComments = [],
+  onSocialCommentPosted,
+}: Props) {
   const router = useRouter();
   const [, startTransition] = useTransition();
   const [mounted, setMounted] = useState(false);
@@ -268,12 +293,17 @@ export function ArticleCard({ article, showActions = true, collapseOriginalSumma
   const [morePos, setMorePos] = useState<{ top: number; left: number } | null>(null);
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [summaryDraft, setSummaryDraft] = useState(article.summary || "");
+  const [socialCommentOpen, setSocialCommentOpen] = useState(false);
+  const [socialDraft, setSocialDraft] = useState("");
+  const [socialReplyTo, setSocialReplyTo] = useState<string | null>(null);
 
   const moreBtnRef = useRef<HTMLButtonElement>(null);
   const morePopRef = useRef<HTMLDivElement>(null);
 
-  const swipeEnabled = showActions && article.status === "todo";
-  const swipe = useSwipeCardFace(swipeEnabled, 76);
+  const showActionsEffective = showActions && !readOnlyBorrowed;
+  const swipeMarkRead = showActionsEffective && article.status === "todo";
+  const swipeComment = Boolean(readOnlyBorrowed && article.status === "done" && swipeCommentOnly);
+  const swipe = useSwipeCardFace(swipeMarkRead || swipeComment, 76);
 
   const [dueDate, setDueDate] = useState(article.dueDate);
   const [theme, setTheme] = useState(article.theme);
@@ -328,8 +358,8 @@ export function ArticleCard({ article, showActions = true, collapseOriginalSumma
   const closeSummary = useCallback(() => setSummaryOpen(false), []);
 
   useEffect(() => {
-    if (metaOpen || digestOpen || moreOpen || summaryOpen) swipe.resetOffset();
-  }, [metaOpen, digestOpen, moreOpen, summaryOpen, swipe.resetOffset]);
+    if (metaOpen || digestOpen || moreOpen || summaryOpen || socialCommentOpen) swipe.resetOffset();
+  }, [metaOpen, digestOpen, moreOpen, summaryOpen, socialCommentOpen, swipe.resetOffset]);
 
   useEffect(() => {
     if (!moreOpen) return;
@@ -508,7 +538,7 @@ export function ArticleCard({ article, showActions = true, collapseOriginalSumma
         </span>
         <span>{article.estimatedMinutes} 分钟</span>
       </div>
-      {showActions && (
+      {showActionsEffective && (
         <div className="article-card-more-wrap">
           <button
             ref={moreBtnRef}
@@ -613,6 +643,32 @@ export function ArticleCard({ article, showActions = true, collapseOriginalSumma
       {collapseOriginalSummary && hasUsableSummary && (
         <ArticleSummaryFooter summary={article.summary} />
       )}
+
+      {readOnlyBorrowed && article.status === "done" && socialComments.length > 0 ? (
+        <div className="article-social-comments" style={{ marginTop: 10 }}>
+          {socialComments.map((c) => (
+            <div key={c.id} className={`article-social-comment${c.parentId ? " is-reply" : ""}`}>
+              <div className="article-social-comment-meta muted-link">
+                <strong>{c.authorNickname}</strong>
+                <span> · {new Date(c.createdAt).toLocaleString("zh-CN")}</span>
+              </div>
+              <p className="article-social-comment-body">{c.body}</p>
+              <button
+                type="button"
+                className="btn secondary"
+                style={{ padding: "2px 8px", fontSize: "var(--fs-small)", marginTop: 4 }}
+                onClick={() => {
+                  setSocialReplyTo(c.id);
+                  setSocialDraft("");
+                  setSocialCommentOpen(true);
+                }}
+              >
+                回复
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : null}
     </>
   );
 
@@ -783,8 +839,68 @@ export function ArticleCard({ article, showActions = true, collapseOriginalSumma
     </div>
   );
 
+  async function submitSocialComment() {
+    const body = socialDraft.trim();
+    if (!body || !articleOwnerIdForSocial) return;
+    setBusy(true);
+    try {
+      const r = await fetch("/api/social/comments", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          articleId: article.id,
+          articleOwnerId: articleOwnerIdForSocial,
+          parentId: socialReplyTo,
+          body,
+        }),
+      });
+      const d = (await r.json().catch(() => ({}))) as { error?: string };
+      if (!r.ok) throw new Error(d.error || "发送失败");
+      setSocialCommentOpen(false);
+      setSocialDraft("");
+      setSocialReplyTo(null);
+      onSocialCommentPosted?.();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "发送失败");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const socialCommentModal =
+    mounted && socialCommentOpen ? (
+      <div
+        className="modal-backdrop"
+        role="presentation"
+        onClick={(e) => e.target === e.currentTarget && !busy && setSocialCommentOpen(false)}
+      >
+        <div className="modal-sheet" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-sheet-header">
+            <h2>{socialReplyTo ? "回复评论" : "发表评论"}</h2>
+            <button type="button" className="modal-sheet-close" onClick={() => !busy && setSocialCommentOpen(false)}>
+              ×
+            </button>
+          </div>
+          <div className="modal-sheet-body">
+            <textarea
+              className="input textarea-input"
+              rows={4}
+              value={socialDraft}
+              onChange={(e) => setSocialDraft(e.target.value)}
+              placeholder="写下你的想法…"
+            />
+          </div>
+          <div className="modal-sheet-footer">
+            <button className="btn secondary" type="button" disabled={busy} onClick={() => void submitSocialComment()}>
+              发送
+            </button>
+          </div>
+        </div>
+      </div>
+    ) : null;
+
   const moreMenu =
-    mounted && showActions && moreOpen && morePos
+    mounted && showActionsEffective && moreOpen && morePos
       ? createPortal(
           <div
             ref={morePopRef}
@@ -866,14 +982,30 @@ export function ArticleCard({ article, showActions = true, collapseOriginalSumma
         )
       : null;
 
-  if (swipeEnabled) {
+  if (swipeMarkRead || swipeComment) {
     return (
       <>
         <div className="article-swipe-host">
           <div className="article-swipe-underlay" aria-hidden>
-            <button type="button" className="article-swipe-read-circle" onClick={openMarkReadFromSwipe} aria-label="标记已读">
-              已读
-            </button>
+            {swipeComment ? (
+              <button
+                type="button"
+                className="article-swipe-read-circle"
+                onClick={() => {
+                  swipe.resetOffset();
+                  setSocialReplyTo(null);
+                  setSocialDraft("");
+                  setSocialCommentOpen(true);
+                }}
+                aria-label="评论"
+              >
+                评论
+              </button>
+            ) : (
+              <button type="button" className="article-swipe-read-circle" onClick={openMarkReadFromSwipe} aria-label="标记已读">
+                已读
+              </button>
+            )}
           </div>
           <article
             className="article-card article-swipe-face"
@@ -890,6 +1022,7 @@ export function ArticleCard({ article, showActions = true, collapseOriginalSumma
         {metaModal && createPortal(metaModal, document.body)}
         {digestModal && createPortal(digestModal, document.body)}
         {summaryModal && createPortal(summaryModal, document.body)}
+        {socialCommentModal && createPortal(socialCommentModal, document.body)}
       </>
     );
   }
@@ -903,6 +1036,7 @@ export function ArticleCard({ article, showActions = true, collapseOriginalSumma
       {metaModal && createPortal(metaModal, document.body)}
       {digestModal && createPortal(digestModal, document.body)}
       {summaryModal && createPortal(summaryModal, document.body)}
+      {socialCommentModal && createPortal(socialCommentModal, document.body)}
     </>
   );
 }

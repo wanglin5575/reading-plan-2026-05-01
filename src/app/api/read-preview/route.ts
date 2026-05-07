@@ -5,10 +5,12 @@ import { fallbackReadModalBody } from "@/lib/read-modal-fallback";
 import { getRouteHandlerUser } from "@/lib/auth/api";
 import {
   getAiGenerationCache,
+  getAiGenerationCacheByUrlKey,
   isDatabaseConfigured,
   recordTokenUsage,
   upsertAiGenerationCache,
 } from "@/lib/db";
+import { normalizeArticleUrlKey } from "@/lib/url-key";
 
 export const dynamic = "force-dynamic";
 
@@ -47,6 +49,7 @@ export async function POST(req: Request) {
 
   const session = await getRouteHandlerUser();
   const readModalHash = readModalInputHash(title, url, sourceText);
+  const urlKey = normalizeArticleUrlKey(url);
   if (isDatabaseConfigured()) {
     const row = await getAiGenerationCache(session?.id ?? null, "read_modal_v1", readModalHash);
     const hit = typeof row?.text === "string" ? row.text.trim() : "";
@@ -57,6 +60,18 @@ export async function POST(req: Request) {
         ai: true,
         source: "server_cache" as const,
       });
+    }
+    if (urlKey) {
+      const byUrl = await getAiGenerationCacheByUrlKey("read_modal_v1", urlKey);
+      const hitUrl = typeof byUrl?.text === "string" ? byUrl.text.trim() : "";
+      if (hitUrl) {
+        return NextResponse.json({
+          text: hitUrl,
+          fallback: false,
+          ai: true,
+          source: "server_cache" as const,
+        });
+      }
     }
   }
 
@@ -76,6 +91,7 @@ export async function POST(req: Request) {
               totalTokens: ai.usage.totalTokens,
             }
           : undefined,
+        urlKey || null,
       );
     }
     if (ai.usage && ai.usage.totalTokens > 0 && session) {

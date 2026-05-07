@@ -3,6 +3,7 @@ node_modules/
 out/
 .env
 .env.local
+.env.scan
 scripts/configure-supabase-smtp.env
 .DS_Store
 *.tsbuildinfo

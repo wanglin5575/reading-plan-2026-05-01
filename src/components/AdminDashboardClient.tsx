@@ -31,7 +31,7 @@ type SliceRow = {
   costUsd: number;
 };
 
-type VipAccount = { id: string; username: string; enabled: boolean; createdAt: string };
+type VipAccount = { id: string; username: string; enabled: boolean; createdAt: string; mustChangePassword: boolean };
 
 export default function AdminDashboardClient({
   isAdmin,
@@ -233,7 +233,10 @@ export default function AdminDashboardClient({
         typeof crypto !== "undefined" && crypto.randomUUID
           ? crypto.randomUUID()
           : `preview-${Date.now()}`;
-      setVipList((list) => [...list, { id, username: u, enabled: true, createdAt: new Date().toISOString() }]);
+      setVipList((list) => [
+        ...list,
+        { id, username: u, enabled: true, createdAt: new Date().toISOString(), mustChangePassword: true },
+      ]);
       setVipUser("");
       setVipPass("");
       setVipCreateErr(null);
@@ -568,6 +571,7 @@ export default function AdminDashboardClient({
                 <tr>
                   <th>用户名</th>
                   <th>状态</th>
+                  <th>密码</th>
                   <th>创建时间</th>
                   <th>操作</th>
                 </tr>
@@ -581,37 +585,43 @@ export default function AdminDashboardClient({
                         {v.enabled ? "启用" : "停用"}
                       </span>
                     </td>
+                    <td>
+                      <span className="muted-link">{v.mustChangePassword ? "初始密码" : "已修改"}</span>
+                    </td>
                     <td>{new Date(v.createdAt).toLocaleString("zh-CN")}</td>
                     <td>
-                      <div className="admin-vip-actions">
-                        <button
-                          type="button"
-                          className="btn secondary admin-vip-btn"
-                          disabled={vipBusy}
-                          onClick={() => void patchVip(v.id, { enabled: !v.enabled })}
-                        >
-                          {v.enabled ? "停用" : "启用"}
-                        </button>
-                        <button
-                          type="button"
-                          className="btn secondary admin-vip-btn"
-                          disabled={vipBusy}
-                          onClick={() => {
-                            const pw = prompt("新密码（至少 6 位）");
-                            if (pw && pw.length >= 6) void patchVip(v.id, { password: pw });
-                          }}
-                        >
-                          重置密码
-                        </button>
-                        <button
-                          type="button"
-                          className="btn danger admin-vip-btn"
-                          disabled={vipBusy}
-                          onClick={() => void removeVip(v.id)}
-                        >
-                          删除
-                        </button>
-                      </div>
+                      <details className="admin-vip-ops-dd">
+                        <summary className="admin-vip-ops-summary">操作</summary>
+                        <div className="admin-vip-ops-menu">
+                          <button
+                            type="button"
+                            className="admin-vip-ops-item"
+                            disabled={vipBusy}
+                            onClick={() => void patchVip(v.id, { enabled: !v.enabled })}
+                          >
+                            {v.enabled ? "停用" : "启用"}
+                          </button>
+                          <button
+                            type="button"
+                            className="admin-vip-ops-item"
+                            disabled={vipBusy}
+                            onClick={() => {
+                              const pw = prompt("新密码（至少 6 位）");
+                              if (pw && pw.length >= 6) void patchVip(v.id, { password: pw });
+                            }}
+                          >
+                            重置密码
+                          </button>
+                          <button
+                            type="button"
+                            className="admin-vip-ops-item danger"
+                            disabled={vipBusy}
+                            onClick={() => void removeVip(v.id)}
+                          >
+                            删除
+                          </button>
+                        </div>
+                      </details>
                     </td>
                   </tr>
                 ))}

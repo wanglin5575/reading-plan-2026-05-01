@@ -4,6 +4,7 @@ import {
   isPreviewSessionAllowed,
   sanitizePreviewRedirectPath,
   setPreviewSessionCookie,
+  type PreviewUiPersona,
 } from "@/lib/preview-session";
 
 export const dynamic = "force-dynamic";
@@ -17,7 +18,10 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "preview_authed_only_in_development" }, { status: 403 });
   }
   const path = sanitizePreviewRedirectPath(req.nextUrl.searchParams.get("path") ?? "/");
+  const roleRaw = req.nextUrl.searchParams.get("role")?.trim().toLowerCase() ?? "";
+  const persona: PreviewUiPersona =
+    roleRaw === "followed" ? "followed" : roleRaw === "follower" ? "follower" : "default";
   const res = NextResponse.redirect(buildPreviewRedirectUrl(req, path));
-  setPreviewSessionCookie(res);
+  setPreviewSessionCookie(res, persona);
   return res;
 }

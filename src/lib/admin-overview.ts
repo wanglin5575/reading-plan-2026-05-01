@@ -70,13 +70,19 @@ export async function buildAdminOverview(params: {
   viewerUserId: string;
   viewerEmail: string;
   viewerIsAdmin: boolean;
+  /** 为 true 时（如 Token 消耗弹窗）：仅返回当前查看者本人的用量明细与汇总 */
+  usageSelfOnly?: boolean;
 }): Promise<AdminOverviewPayload> {
+  const usageSelfOnly = Boolean(params.usageSelfOnly);
+  const loadAdminLists = params.viewerIsAdmin && !usageSelfOnly;
+  const needSelfDays = !params.viewerIsAdmin || usageSelfOnly;
+
   const [registry, usageAgg, global, vipAccounts, selfDays] = await Promise.all([
-    params.viewerIsAdmin ? listAllRegistryUsers() : Promise.resolve([] as RegistryUserRow[]),
+    loadAdminLists ? listAllRegistryUsers() : Promise.resolve([] as RegistryUserRow[]),
     sumTokenUsageAggregatedByUser(),
     sumTokenUsageGlobal(),
-    params.viewerIsAdmin ? listVipAccounts() : Promise.resolve([] as VipAccountPublic[]),
-    params.viewerIsAdmin ? Promise.resolve([]) : sumTokenUsageDaysForUser(params.viewerUserId),
+    loadAdminLists ? listVipAccounts() : Promise.resolve([] as VipAccountPublic[]),
+    needSelfDays ? sumTokenUsageDaysForUser(params.viewerUserId) : Promise.resolve([]),
   ]);
 
   const authSource: AdminOverviewPayload["authSource"] =
@@ -121,7 +127,19 @@ export async function buildAdminOverview(params: {
 
   let usageRows: AdminUsageRow[] = [];
 
-  if (params.viewerIsAdmin) {
+  if (usageSelfOnly || !params.viewerIsAdmin) {
+    usageRows = selfDays.map((d) => ({
+      userId: params.viewerUserId,
+      email: params.viewerEmail,
+      registeredAt: regMap.get(params.viewerUserId) ?? "",
+      usageDay: d.day,
+      promptTokens: d.promptTokens,
+      completionTokens: d.completionTokens,
+      cachedPromptTokens: d.cachedPromptTokens,
+      totalTokens: d.totalTokens,
+      costUsd: d.costUsd,
+    }));
+  } else if (params.viewerIsAdmin) {
     const allUserIds = new Set<string>();
     for (const u of params.authUsers) allUserIds.add(u.id);
     for (const r of registry) allUserIds.add(r.userId);
@@ -143,28 +161,16 @@ export async function buildAdminOverview(params: {
       };
     });
     usageRows.sort((a, b) => a.email.localeCompare(b.email, "zh"));
-  } else {
-    usageRows = selfDays.map((d) => ({
-      userId: params.viewerUserId,
-      email: accLabel(params.viewerUserId),
-      registeredAt: regMap.get(params.viewerUserId) ?? "",
-      usageDay: d.day,
-      promptTokens: d.promptTokens,
-      completionTokens: d.completionTokens,
-      cachedPromptTokens: d.cachedPromptTokens,
-      totalTokens: d.totalTokens,
-      costUsd: d.costUsd,
-    }));
   }
 
   let memberCount = 1;
-  if (params.viewerIsAdmin) {
+  if (params.viewerIsAdmin && !usageSelfOnly) {
     memberCount = new Set(usageRows.map((r) => r.userId)).size;
   }
 
   let totalTokens = global.totalTokens;
   let totalCostUsd = global.totalCostUsd;
-  if (!params.viewerIsAdmin) {
+  if (!params.viewerIsAdmin || usageSelfOnly) {
     const mine = await sumTokenUsageForSingleUser(params.viewerUserId);
     totalTokens = mine?.totalTokens ?? 0;
     totalCostUsd = mine?.totalCostUsd ?? 0;

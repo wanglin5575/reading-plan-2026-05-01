@@ -2,6 +2,7 @@ import { Pool } from "pg";
 import { randomUUID } from "node:crypto";
 import { isAuthEnabled } from "./auth";
 import type { Article, BrowseAiRejectedItem, BrowseTopic } from "./types";
+import { generateRandomNickname, isValidNickname } from "@/lib/random-nickname";
 import { estimateUsdForPromptCompletion, estimateUsdForPromptCompletionWithCache } from "@/lib/token-pricing";
 import type { MediaKind } from "./media-kind";
 import type { BrowseTopicFeed, BrowseStoredHit } from "./browse-storage";
@@ -241,6 +242,48 @@ async function ensureSchema(): Promise<void> {
         );
         CREATE INDEX IF NOT EXISTS idx_ai_gen_cache_updated ON ai_generation_cache (updated_at);
       `);
+      await p.query(`
+        ALTER TABLE ai_generation_cache ADD COLUMN IF NOT EXISTS url_key TEXT;
+      `);
+      await p.query(`
+        CREATE INDEX IF NOT EXISTS idx_ai_gen_kind_url ON ai_generation_cache (kind, url_key)
+        WHERE url_key IS NOT NULL AND length(trim(url_key)) > 0;
+      `);
+      await p.query(`
+        CREATE TABLE IF NOT EXISTS user_profiles (
+          user_id TEXT PRIMARY KEY,
+          nickname TEXT NOT NULL UNIQUE,
+          last_fans_seen_at TIMESTAMPTZ,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+      `);
+      await p.query(`
+        CREATE TABLE IF NOT EXISTS user_follows (
+          id TEXT PRIMARY KEY,
+          follower_id TEXT NOT NULL,
+          followed_id TEXT NOT NULL,
+          label TEXT NOT NULL DEFAULT '',
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          UNIQUE (follower_id, followed_id)
+        );
+      `);
+      await p.query(`CREATE INDEX IF NOT EXISTS idx_user_follows_follower ON user_follows (follower_id);`);
+      await p.query(`CREATE INDEX IF NOT EXISTS idx_user_follows_followed ON user_follows (followed_id);`);
+      await p.query(`
+        CREATE TABLE IF NOT EXISTS article_social_comments (
+          id TEXT PRIMARY KEY,
+          article_id TEXT NOT NULL,
+          article_owner_id TEXT NOT NULL,
+          author_id TEXT NOT NULL,
+          parent_id TEXT,
+          body TEXT NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+      `);
+      await p.query(`
+        CREATE INDEX IF NOT EXISTS idx_article_social_comments_article
+        ON article_social_comments (article_id, article_owner_id);
+      `);
       await migrateTokenUsageLogAggregated(p);
       await seedDemoIfEmpty(p);
     })().catch((err) => {
@@ -278,7 +321,7 @@ async function migrateTokenUsageLogAggregated(p: Pool): Promise<void> {
           (LEAST(2147483647, SUM(prompt_tokens::bigint)))::integer AS prompt_tokens,
           (LEAST(2147483647, SUM(completion_tokens::bigint)))::integer AS completion_tokens,
           (LEAST(2147483647, SUM(total_tokens::bigint)))::integer AS total_tokens,
-          (LEAST(2147483647, SUM((3 * GREATEST(0, prompt_tokens))::bigint)))::integer AS cached_prompt_tokens,
+          (LEAST(2147483647, SUM((5 * GREATEST(0, prompt_tokens))::bigint)))::integer AS cached_prompt_tokens,
           MIN(created_at) AS created_at
         FROM token_usage_log
         GROUP BY user_id,
@@ -308,6 +351,15 @@ async function migrateTokenUsageLogAggregated(p: Pool): Promise<void> {
     await refreshTokenUsageLogDerivedColumns(p);
     await p.query(`INSERT INTO _reading_plan_schema_patches (key) VALUES ($1)`, ["token_usage_cache_cost_v2"]);
   }
+
+  const { rows: patchedV5 } = await p.query(
+    `SELECT 1 FROM _reading_plan_schema_patches WHERE key = $1 LIMIT 1`,
+    ["token_usage_cache_cost_v5"],
+  );
+  if (patchedV5.length === 0) {
+    await refreshTokenUsageLogDerivedColumns(p);
+    await p.query(`INSERT INTO _reading_plan_schema_patches (key) VALUES ($1)`, ["token_usage_cache_cost_v5"]);
+  }
 }
 
 async function refreshTokenUsageLogDerivedColumns(p: Pool): Promise<void> {
@@ -315,7 +367,7 @@ async function refreshTokenUsageLogDerivedColumns(p: Pool): Promise<void> {
     `SELECT id, prompt_tokens AS pt, completion_tokens AS ct FROM token_usage_log`,
   );
   for (const r of rows) {
-    const cp = 3 * Math.max(0, r.pt);
+    const cp = 5 * Math.max(0, r.pt);
     const cost = estimateUsdForPromptCompletionWithCache(r.pt, r.ct, cp);
     await p.query(
       `UPDATE token_usage_log SET cached_prompt_tokens = $2, cost_usd = $3::numeric WHERE id = $1`,
@@ -805,17 +857,20 @@ export async function upsertAiGenerationCache(
   inputHash: string,
   resultJson: Record<string, unknown>,
   usage?: { promptTokens: number; completionTokens: number; totalTokens: number },
+  urlKey?: string | null,
 ): Promise<void> {
   try {
     const p = getPoolOrNull();
     if (!p) return;
     await ensureSchema();
+    const uk = urlKey?.trim() ? urlKey.trim().slice(0, 2048) : null;
     await p.query(
       `INSERT INTO ai_generation_cache (
-         user_id, kind, input_hash, result_json,
+         user_id, kind, input_hash, url_key, result_json,
          prompt_tokens, completion_tokens, total_tokens, updated_at
-       ) VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, NOW())
+       ) VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, NOW())
        ON CONFLICT (user_id, kind, input_hash) DO UPDATE SET
+         url_key = COALESCE(EXCLUDED.url_key, ai_generation_cache.url_key),
          result_json = EXCLUDED.result_json,
          prompt_tokens = EXCLUDED.prompt_tokens,
          completion_tokens = EXCLUDED.completion_tokens,
@@ -825,6 +880,7 @@ export async function upsertAiGenerationCache(
         aiCacheOwnerKey(userId),
         kind.slice(0, AI_CACHE_KIND_MAX),
         inputHash.slice(0, AI_CACHE_HASH_MAX),
+        uk,
         JSON.stringify(resultJson),
         usage?.promptTokens ?? 0,
         usage?.completionTokens ?? 0,
@@ -833,6 +889,34 @@ export async function upsertAiGenerationCache(
     );
   } catch (e) {
     console.error("[db] upsertAiGenerationCache failed:", e);
+  }
+}
+
+/** 按规范化 URL 复用 AI 结果（跨标题/正文截取差异），优先最新一条 */
+export async function getAiGenerationCacheByUrlKey(
+  kind: string,
+  urlKey: string,
+): Promise<Record<string, unknown> | null> {
+  try {
+    const p = getPoolOrNull();
+    if (!p) return null;
+    await ensureSchema();
+    const k = kind.slice(0, AI_CACHE_KIND_MAX);
+    const u = urlKey.trim().slice(0, 2048);
+    if (!u) return null;
+    const { rows } = await p.query<{ result_json: unknown }>(
+      `SELECT result_json FROM ai_generation_cache
+       WHERE kind = $1 AND url_key = $2
+       ORDER BY updated_at DESC NULLS LAST
+       LIMIT 1`,
+      [k, u],
+    );
+    const r = rows[0]?.result_json;
+    if (!r || typeof r !== "object" || Array.isArray(r)) return null;
+    return r as Record<string, unknown>;
+  } catch (e) {
+    console.error("[db] getAiGenerationCacheByUrlKey failed:", e);
+    return null;
   }
 }
 
@@ -1083,7 +1167,7 @@ export async function recordTokenUsage(params: {
     await ensureSchema();
     const pt = Math.max(0, Math.round(params.promptTokens));
     const ct = Math.max(0, Math.round(params.completionTokens));
-    const cached = 3 * pt;
+    const cached = 5 * pt;
     const cost = estimateUsdForPromptCompletionWithCache(pt, ct, cached);
     await p.query(
       `INSERT INTO token_usage_log (id, user_id, source, prompt_tokens, completion_tokens, total_tokens, cached_prompt_tokens, cost_usd)
@@ -1507,14 +1591,13 @@ export async function sumTokenUsageForSingleUser(userId: string): Promise<
   if (!p) return null;
   await ensureSchema();
   const { rows } = await p.query<{ p: string; o: string; t: string; cp: string; cost: string }>(
-    `SELECT SUM(prompt_tokens)::text AS p,
-            SUM(completion_tokens)::text AS o,
-            SUM(total_tokens)::text AS t,
-            SUM(cached_prompt_tokens)::text AS cp,
-            SUM(cost_usd)::text AS cost
+    `SELECT COALESCE(SUM(prompt_tokens), 0)::text AS p,
+            COALESCE(SUM(completion_tokens), 0)::text AS o,
+            COALESCE(SUM(total_tokens), 0)::text AS t,
+            COALESCE(SUM(cached_prompt_tokens), 0)::text AS cp,
+            COALESCE(SUM(cost_usd), 0)::text AS cost
      FROM token_usage_log
-     WHERE user_id = $1
-     GROUP BY user_id`,
+     WHERE user_id = $1`,
     [userId],
   );
   const r = rows[0];
@@ -1699,4 +1782,337 @@ export async function deleteVipAccountRow(id: string): Promise<void> {
   if (!p) throw new Error("db_not_configured");
   await ensureSchema();
   await p.query(`DELETE FROM vip_accounts WHERE id = $1::uuid`, [id]);
+}
+
+export type UserProfilePublic = {
+  userId: string;
+  nickname: string;
+  lastFansSeenAt: string | null;
+};
+
+export async function getUserProfile(userId: string): Promise<UserProfilePublic | null> {
+  const p = getPoolOrNull();
+  if (!p) return null;
+  await ensureSchema();
+  const uid = userId.trim();
+  if (!uid) return null;
+  const { rows } = await p.query<{ user_id: string; nickname: string; last_fans_seen_at: Date | string | null }>(
+    `SELECT user_id, nickname, last_fans_seen_at FROM user_profiles WHERE user_id = $1 LIMIT 1`,
+    [uid],
+  );
+  const r = rows[0];
+  if (!r) return null;
+  return {
+    userId: r.user_id,
+    nickname: r.nickname,
+    lastFansSeenAt:
+      r.last_fans_seen_at instanceof Date
+        ? r.last_fans_seen_at.toISOString()
+        : r.last_fans_seen_at
+          ? String(r.last_fans_seen_at)
+          : null,
+  };
+}
+
+export async function ensureUserProfile(userId: string): Promise<UserProfilePublic> {
+  const p = getPoolOrNull();
+  if (!p) {
+    return { userId: userId.trim(), nickname: generateRandomNickname(), lastFansSeenAt: null };
+  }
+  await ensureSchema();
+  const uid = userId.trim();
+  if (!uid) return { userId: "", nickname: generateRandomNickname(), lastFansSeenAt: null };
+
+  const existing = await getUserProfile(uid);
+  if (existing) return existing;
+
+  for (let i = 0; i < 24; i++) {
+    const nick = generateRandomNickname();
+    try {
+      await p.query(`INSERT INTO user_profiles (user_id, nickname) VALUES ($1, $2)`, [uid, nick]);
+      return { userId: uid, nickname: nick, lastFansSeenAt: null };
+    } catch {
+      /* nickname collision */
+    }
+  }
+  const fallback = `${generateRandomNickname().slice(0, 3)}${uid.replace(/-/g, "").slice(0, 5)}`;
+  try {
+    await p.query(`INSERT INTO user_profiles (user_id, nickname) VALUES ($1, $2)`, [uid, fallback.slice(0, 14)]);
+  } catch {
+    /* ignore */
+  }
+  return (await getUserProfile(uid)) ?? { userId: uid, nickname: fallback.slice(0, 14), lastFansSeenAt: null };
+}
+
+export async function updateUserNickname(
+  userId: string,
+  nickname: string,
+): Promise<"ok" | "taken" | "invalid"> {
+  if (!isValidNickname(nickname)) return "invalid";
+  const p = getPoolOrNull();
+  if (!p) return "invalid";
+  await ensureSchema();
+  const uid = userId.trim();
+  const n = nickname.trim();
+  await ensureUserProfile(uid);
+  try {
+    await p.query(`UPDATE user_profiles SET nickname = $2 WHERE user_id = $1`, [uid, n]);
+    return "ok";
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : "";
+    if (/unique|duplicate/i.test(msg)) return "taken";
+    throw e;
+  }
+}
+
+export type FollowRow = {
+  id: string;
+  followerId: string;
+  followedId: string;
+  label: string;
+  createdAt: string;
+};
+
+export async function listFollowsByFollower(followerId: string): Promise<FollowRow[]> {
+  const p = getPoolOrNull();
+  if (!p) return [];
+  await ensureSchema();
+  const { rows } = await p.query<{
+    id: string;
+    follower_id: string;
+    followed_id: string;
+    label: string;
+    created_at: Date | string;
+  }>(
+    `SELECT id, follower_id, followed_id, label, created_at FROM user_follows
+     WHERE follower_id = $1 ORDER BY created_at DESC`,
+    [followerId.trim()],
+  );
+  return rows.map((r) => ({
+    id: r.id,
+    followerId: r.follower_id,
+    followedId: r.followed_id,
+    label: r.label,
+    createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
+  }));
+}
+
+export async function createFollow(
+  followerId: string,
+  followedId: string,
+  label: string,
+): Promise<"ok" | "self" | "exists"> {
+  const a = followerId.trim();
+  const b = followedId.trim();
+  if (!a || !b || a === b) return "self";
+  const p = getPoolOrNull();
+  if (!p) throw new Error("db_not_configured");
+  await ensureSchema();
+  try {
+    await p.query(
+      `INSERT INTO user_follows (id, follower_id, followed_id, label) VALUES ($1, $2, $3, $4)`,
+      [randomUUID(), a, b, label.trim().slice(0, 120)],
+    );
+    return "ok";
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : "";
+    if (/unique|duplicate/i.test(msg)) return "exists";
+    throw e;
+  }
+}
+
+export async function deleteFollow(followerId: string, followedId: string): Promise<void> {
+  const p = getPoolOrNull();
+  if (!p) throw new Error("db_not_configured");
+  await ensureSchema();
+  await p.query(`DELETE FROM user_follows WHERE follower_id = $1 AND followed_id = $2`, [
+    followerId.trim(),
+    followedId.trim(),
+  ]);
+}
+
+export type FanRow = {
+  followerId: string;
+  nickname: string;
+  emailHint: string;
+  createdAt: string;
+};
+
+export async function listFansForUser(followedId: string): Promise<FanRow[]> {
+  const p = getPoolOrNull();
+  if (!p) return [];
+  await ensureSchema();
+  const uid = followedId.trim();
+  const { rows } = await p.query<{
+    follower_id: string;
+    created_at: Date | string;
+    nickname: string | null;
+    email: string | null;
+  }>(
+    `SELECT f.follower_id, f.created_at, p.nickname, r.email
+     FROM user_follows f
+     LEFT JOIN user_profiles p ON p.user_id = f.follower_id
+     LEFT JOIN app_user_registry r ON r.user_id = f.follower_id
+     WHERE f.followed_id = $1
+     ORDER BY f.created_at DESC`,
+    [uid],
+  );
+  return rows.map((r) => ({
+    followerId: r.follower_id,
+    nickname: r.nickname?.trim() || "未设置昵称",
+    emailHint: r.email?.trim() || "",
+    createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
+  }));
+}
+
+export async function countFansSince(followedId: string, sinceIso: string | null): Promise<number> {
+  const p = getPoolOrNull();
+  if (!p) return 0;
+  await ensureSchema();
+  const since = sinceIso ?? "1970-01-01T00:00:00.000Z";
+  const { rows } = await p.query<{ c: string }>(
+    `SELECT COUNT(*)::text AS c FROM user_follows
+     WHERE followed_id = $1 AND created_at > $2::timestamptz`,
+    [followedId.trim(), since],
+  );
+  return parseInt(rows[0]?.c ?? "0", 10) || 0;
+}
+
+export async function markFansSeen(userId: string): Promise<void> {
+  const p = getPoolOrNull();
+  if (!p) return;
+  await ensureSchema();
+  await p.query(`UPDATE user_profiles SET last_fans_seen_at = NOW() WHERE user_id = $1`, [userId.trim()]);
+}
+
+export type SearchableUser = { userId: string; display: string; nickname: string | null };
+
+export async function searchUsersToFollow(query: string, excludeUserId: string): Promise<SearchableUser[]> {
+  const p = getPoolOrNull();
+  if (!p) return [];
+  await ensureSchema();
+  const q = query.trim();
+  if (q.length < 2) return [];
+  const like = `%${q}%`;
+  const ex = excludeUserId.trim();
+
+  const { rows: regRows } = await p.query<{ user_id: string; email: string; nickname: string | null }>(
+    `SELECT r.user_id, r.email, p.nickname
+     FROM app_user_registry r
+     LEFT JOIN user_profiles p ON p.user_id = r.user_id
+     WHERE r.user_id <> $1 AND r.email ILIKE $2
+     LIMIT 12`,
+    [ex, like],
+  );
+
+  const { rows: nickRows } = await p.query<{ user_id: string; email: string; nickname: string }>(
+    `SELECT r.user_id, r.email, p.nickname
+     FROM user_profiles p
+     INNER JOIN app_user_registry r ON r.user_id = p.user_id
+     WHERE p.user_id <> $1 AND p.nickname ILIKE $2
+     LIMIT 12`,
+    [ex, like],
+  );
+
+  const { rows: vipRows } = await p.query<{ id: string; username: string; nickname: string | null }>(
+    `SELECT v.id::text AS id, v.username, p.nickname
+     FROM vip_accounts v
+     LEFT JOIN user_profiles p ON p.user_id = v.id::text
+     WHERE v.enabled AND v.id::text <> $1 AND v.username ILIKE $2
+     LIMIT 12`,
+    [ex, like],
+  );
+
+  const out: SearchableUser[] = [];
+  const seen = new Set<string>();
+  const push = (userId: string, display: string, nickname: string | null) => {
+    if (seen.has(userId)) return;
+    seen.add(userId);
+    out.push({ userId, display, nickname });
+  };
+
+  for (const r of regRows) {
+    push(r.user_id, r.email, r.nickname);
+  }
+  for (const r of nickRows) {
+    push(r.user_id, r.email, r.nickname);
+  }
+  for (const v of vipRows) {
+    push(v.id, `${v.username}（VIP）`, v.nickname);
+  }
+  return out.slice(0, 20);
+}
+
+export type SocialCommentRow = {
+  id: string;
+  articleId: string;
+  articleOwnerId: string;
+  authorId: string;
+  authorNickname: string;
+  parentId: string | null;
+  body: string;
+  createdAt: string;
+};
+
+export async function listSocialComments(articleId: string, articleOwnerId: string): Promise<SocialCommentRow[]> {
+  const p = getPoolOrNull();
+  if (!p) return [];
+  await ensureSchema();
+  const { rows } = await p.query<{
+    id: string;
+    article_id: string;
+    article_owner_id: string;
+    author_id: string;
+    parent_id: string | null;
+    body: string;
+    created_at: Date | string;
+    nickname: string | null;
+  }>(
+    `SELECT c.id, c.article_id, c.article_owner_id, c.author_id, c.parent_id, c.body, c.created_at,
+            p.nickname
+     FROM article_social_comments c
+     LEFT JOIN user_profiles p ON p.user_id = c.author_id
+     WHERE c.article_id = $1 AND c.article_owner_id = $2
+     ORDER BY c.created_at ASC`,
+    [articleId.trim(), articleOwnerId.trim()],
+  );
+  return rows.map((r) => ({
+    id: r.id,
+    articleId: r.article_id,
+    articleOwnerId: r.article_owner_id,
+    authorId: r.author_id,
+    authorNickname: r.nickname?.trim() || "用户",
+    parentId: r.parent_id,
+    body: r.body,
+    createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
+  }));
+}
+
+export async function insertSocialComment(params: {
+  articleId: string;
+  articleOwnerId: string;
+  authorId: string;
+  parentId?: string | null;
+  body: string;
+}): Promise<SocialCommentRow | null> {
+  const p = getPoolOrNull();
+  if (!p) return null;
+  await ensureSchema();
+  const id = randomUUID();
+  const body = params.body.trim().slice(0, 2000);
+  if (!body) return null;
+  await p.query(
+    `INSERT INTO article_social_comments (id, article_id, article_owner_id, author_id, parent_id, body)
+     VALUES ($1, $2, $3, $4, $5, $6)`,
+    [
+      id,
+      params.articleId.trim(),
+      params.articleOwnerId.trim(),
+      params.authorId.trim(),
+      params.parentId?.trim() || null,
+      body,
+    ],
+  );
+  const list = await listSocialComments(params.articleId, params.articleOwnerId);
+  return list.find((x) => x.id === id) ?? null;
 }

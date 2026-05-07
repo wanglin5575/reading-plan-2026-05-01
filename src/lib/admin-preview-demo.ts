@@ -8,7 +8,13 @@ export type AdminDailyPreviewPoint = {
   costUsd: number;
 };
 
-export type AdminVipPreviewRow = { id: string; username: string; enabled: boolean; createdAt: string };
+export type AdminVipPreviewRow = {
+  id: string;
+  username: string;
+  enabled: boolean;
+  createdAt: string;
+  mustChangePassword: boolean;
+};
 
 export type AdminDetailPreviewSlice = {
   day: string;
@@ -45,7 +51,7 @@ export function buildPreviewDailyForRange(days: number): AdminDailyPreviewPoint[
     const totalTokens = 200 + ((reverseIdx * 37) % 900);
     const pt = Math.floor(totalTokens * 0.72);
     const ct = totalTokens - pt;
-    const cp = 3 * pt;
+    const cp = 5 * pt;
     out.push({
       day,
       newUsers,
@@ -66,7 +72,7 @@ export function buildPreviewDetailSeriesForRange(days: number): AdminDetailPrevi
     const reverseIdx = n - 1 - i;
     const pt = 800 + reverseIdx * 120;
     const ct = 200 + reverseIdx * 40;
-    const cp = 3 * pt;
+    const cp = 5 * pt;
     const totalTokens = pt + ct;
     out.push({
       day,
@@ -88,7 +94,7 @@ function usageRow(
   pt: number,
   ct: number,
 ): AdminUsageRow {
-  const cp = 3 * pt;
+  const cp = 5 * pt;
   return {
     userId,
     email,
@@ -151,12 +157,14 @@ export function buildAdminDashboardPreviewData(): AdminDashboardPreviewData {
       username: "demo_vip",
       enabled: true,
       createdAt: new Date(Date.now() - 86400000 * 3).toISOString(),
+      mustChangePassword: true,
     },
     {
       id: "00000000-0000-4000-8000-00000000c302",
       username: "archived_demo",
       enabled: false,
       createdAt: new Date(Date.now() - 86400000 * 60).toISOString(),
+      mustChangePassword: false,
     },
   ];
 

@@ -25,7 +25,9 @@ import { publicationSourceLabelFromUrl } from "@/lib/browse-rejected-meta";
 import { filterBrowseHitsByPublishedAge, effectiveMaxPublishedAgeDays } from "@/lib/browse-recency";
 import { BROWSE_DEFAULT_MAX_PUBLISHED_AGE_DAYS } from "@/lib/browse-defaults";
 import { BrowseHitCard } from "@/components/BrowseHitCard";
+import { BrowseFollowFeed } from "@/components/BrowseFollowFeed";
 import { createBrowseUiDemoHit, isBrowseUiDemoHit } from "@/lib/browse-demo-preview";
+import { normalizeArticleUrlKey } from "@/lib/url-key";
 
 const KW_PREVIEW_MAX = 4;
 
@@ -103,6 +105,17 @@ export default function BrowsePageClient() {
   const [loadingTopics, setLoadingTopics] = useState(true);
   const [msg, setMsg] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);
+  const [addModalTab, setAddModalTab] = useState<"topic" | "follow">("topic");
+  const [followRows, setFollowRows] = useState<{ id: string; followedId: string; label: string }[]>([]);
+  const [followSearch, setFollowSearch] = useState("");
+  const [followResults, setFollowResults] = useState<{ userId: string; display: string; nickname: string | null }[]>(
+    [],
+  );
+  const [followPickId, setFollowPickId] = useState<string | null>(null);
+  const [followLabel, setFollowLabel] = useState("");
+  const [followBusy, setFollowBusy] = useState(false);
+  const [followMsg, setFollowMsg] = useState<string | null>(null);
+  const [libraryUrlKeys, setLibraryUrlKeys] = useState<Set<string>>(() => new Set());
   const [newName, setNewName] = useState("");
   const [newKw, setNewKw] = useState("");
   const [editTopic, setEditTopic] = useState<BrowseTopic | null>(null);
@@ -206,6 +219,62 @@ export default function BrowsePageClient() {
     void loadTopics();
   }, [loadTopics]);
 
+  const reloadFollows = useCallback(async () => {
+    try {
+      const r = await fetch("/api/social/follows", { cache: "no-store" });
+      if (!r.ok) return;
+      const d = (await r.json()) as { follows?: { id: string; followedId: string; label: string }[] };
+      setFollowRows(d.follows ?? []);
+    } catch {
+      /* 未登录等 */
+    }
+  }, []);
+
+  useEffect(() => {
+    void reloadFollows();
+  }, [reloadFollows]);
+
+  const reloadLibraryUrls = useCallback(async () => {
+    try {
+      const r = await fetch("/api/articles", { cache: "no-store" });
+      if (!r.ok) return;
+      const d = (await r.json()) as { articles?: { url: string }[] };
+      const next = new Set<string>();
+      for (const a of d.articles ?? []) {
+        const k = normalizeArticleUrlKey(a.url);
+        if (k) next.add(k);
+      }
+      setLibraryUrlKeys(next);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  useEffect(() => {
+    void reloadLibraryUrls();
+  }, [reloadLibraryUrls]);
+
+  useEffect(() => {
+    const q = followSearch.trim();
+    if (q.length < 2) {
+      setFollowResults([]);
+      return;
+    }
+    const t = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const r = await fetch(`/api/social/search?q=${encodeURIComponent(q)}`, { cache: "no-store" });
+          if (!r.ok) return;
+          const d = (await r.json()) as { users?: { userId: string; display: string; nickname: string | null }[] };
+          setFollowResults(d.users ?? []);
+        } catch {
+          setFollowResults([]);
+        }
+      })();
+    }, 320);
+    return () => window.clearTimeout(t);
+  }, [followSearch]);
+
   useEffect(() => {
     setMounted(true);
     const v = typeof window !== "undefined" ? localStorage.getItem(BROWSE_SORT_LS_KEY) : null;
@@ -288,6 +357,11 @@ export default function BrowsePageClient() {
       setAiRejectedList([]);
       return;
     }
+    if (activeId.startsWith("__follow__")) {
+      setHits([]);
+      setAiRejectedList([]);
+      return;
+    }
     void syncFeedWithServer(activeId);
   }, [activeId, syncFeedWithServer]);
 
@@ -301,7 +375,12 @@ export default function BrowsePageClient() {
     return () => document.removeEventListener("visibilitychange", onVis);
   }, [syncFeedWithServer]);
 
-  const executeTopicNetworkRefresh = useCallback(async (topicId: string) => {
+  const executeTopicNetworkRefresh = useCallback(async (topicId: string): Promise<{
+    merged: BrowseTopicFeed;
+    hitCount: number;
+    skippedKnown: number;
+  } | null> => {
+    if (topicId.startsWith("__follow__")) return null;
     const store = loadBrowseStorage();
     const feed = store.topics[topicId] ?? { lastRefreshAt: null, items: [], aiRejected: [] };
     const isBootstrap = feed.lastRefreshAt == null;
@@ -355,11 +434,13 @@ export default function BrowsePageClient() {
 
   const runRefresh = useCallback(
     async (topicId: string) => {
-      if (!topicId || refreshingRef.current) return;
+      if (!topicId || topicId.startsWith("__follow__") || refreshingRef.current) return;
       setRefreshing(true);
       setMsg(null);
       try {
-        const { merged, hitCount, skippedKnown } = await executeTopicNetworkRefresh(topicId);
+        const pack = await executeTopicNetworkRefresh(topicId);
+        if (!pack) return;
+        const { merged, hitCount, skippedKnown } = pack;
         if (activeIdRef.current === topicId) {
           setHits(merged.items);
         }
@@ -413,7 +494,7 @@ export default function BrowsePageClient() {
 
   const startEmptyRefreshWithPull = useCallback(
     (topicId: string) => {
-      if (!topicId || refreshingRef.current || autoPullBusyRef.current) return;
+      if (!topicId || topicId.startsWith("__follow__") || refreshingRef.current || autoPullBusyRef.current) return;
       autoPullBusyRef.current = true;
       setAutoPulling(true);
       const duration = 280;
@@ -529,6 +610,7 @@ export default function BrowsePageClient() {
       const d = (await r.json()) as { topic?: BrowseTopic; error?: string };
       if (!r.ok) throw new Error(d.error || "添加失败");
       setFormOpen(false);
+      setAddModalTab("topic");
       setNewName("");
       setNewKw("");
       await loadTopics();
@@ -637,6 +719,10 @@ export default function BrowsePageClient() {
     setMarkDoneHit(null);
   }
 
+  const isFollowTab = Boolean(activeId?.startsWith("__follow__"));
+  const followTargetUserId = isFollowTab && activeId ? activeId.slice("__follow__".length) : null;
+  const activeTopicEntity = !isFollowTab ? topics.find((t) => t.id === activeId) : undefined;
+
   async function addHitToPlanTodo(hit: BrowseStoredHit) {
     if (busyUrl) return;
     if (isBrowseUiDemoHit(hit)) {
@@ -652,12 +738,13 @@ export default function BrowsePageClient() {
         body: JSON.stringify({
           url: hit.url,
           quickDone: false,
-          browseTopicName: active?.name ?? "",
+          browseTopicName: activeTopicEntity?.name ?? "",
         }),
       });
       const d = (await r.json()) as { error?: string; message?: string };
       if (!r.ok) throw new Error(d.message || d.error || "添加失败");
       setMsg("已加入待读");
+      await reloadLibraryUrls();
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "添加失败");
     } finally {
@@ -688,7 +775,7 @@ export default function BrowsePageClient() {
         body: JSON.stringify({
           url: hit.url,
           quickDone: true,
-          browseTopicName: active?.name ?? "",
+          browseTopicName: activeTopicEntity?.name ?? "",
           readOneLiner: one,
           readKeyPoints: points,
           readAction: action,
@@ -699,6 +786,7 @@ export default function BrowsePageClient() {
       setMsg("已加入已读");
       setMarkDoneOpen(false);
       setMarkDoneHit(null);
+      await reloadLibraryUrls();
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "添加失败");
     } finally {
@@ -706,16 +794,46 @@ export default function BrowsePageClient() {
     }
   }
 
-  const active = topics.find((t) => t.id === activeId);
+  async function onAddFollowSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    const uid = followPickId;
+    if (!uid) {
+      setFollowMsg("请先搜索并选择一位已注册用户");
+      return;
+    }
+    setFollowBusy(true);
+    setFollowMsg(null);
+    try {
+      const r = await fetch("/api/social/follows", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ followedUserId: uid, label: followLabel.trim() || "关注" }),
+      });
+      const d = (await r.json()) as { error?: string };
+      if (!r.ok) throw new Error(d.error || "关注失败");
+      setFormOpen(false);
+      setFollowPickId(null);
+      setFollowLabel("");
+      setFollowSearch("");
+      setFollowResults([]);
+      setAddModalTab("topic");
+      await reloadFollows();
+      setActiveId(`__follow__${uid}`);
+    } catch (err) {
+      setFollowMsg(err instanceof Error ? err.message : "失败");
+    } finally {
+      setFollowBusy(false);
+    }
+  }
 
   const kwDisplayText = useMemo(() => {
-    const kws = active?.keywords ?? [];
+    const kws = activeTopicEntity?.keywords ?? [];
     if (kws.length === 0) return "";
     if (kwExpanded || kws.length <= KW_PREVIEW_MAX) return kws.join(" · ");
     return `${kws.slice(0, KW_PREVIEW_MAX).join(" · ")} ···`;
-  }, [active?.keywords, kwExpanded]);
+  }, [activeTopicEntity?.keywords, kwExpanded]);
 
-  const kwNeedsExpand = (active?.keywords.length ?? 0) > KW_PREVIEW_MAX;
+  const kwNeedsExpand = (activeTopicEntity?.keywords.length ?? 0) > KW_PREVIEW_MAX;
 
   const rejectedGrouped = useMemo(() => {
     const sorted = [...aiRejectedList].sort(
@@ -733,15 +851,20 @@ export default function BrowsePageClient() {
 
   const sortedHits = useMemo(() => {
     const s = sortBrowseItemsForDisplay(hits, sortBy);
-    return filterBrowseHitsByPublishedAge(s, effectiveMaxPublishedAgeDays(active ?? undefined));
-  }, [hits, sortBy, active]);
+    return filterBrowseHitsByPublishedAge(s, effectiveMaxPublishedAgeDays(activeTopicEntity ?? undefined));
+  }, [hits, sortBy, activeTopicEntity]);
+
+  const sortedHitsLibFiltered = useMemo(() => {
+    if (libraryUrlKeys.size === 0) return sortedHits;
+    return sortedHits.filter((h) => !libraryUrlKeys.has(normalizeArticleUrlKey(h.url)));
+  }, [sortedHits, libraryUrlKeys]);
 
   /** 生产构建不包含开发示例（NODE_ENV 在客户端打包时固化）；无主题时不插入示例卡片 */
   const hitsForUi = useMemo(() => {
-    if (!activeId || topics.length === 0) return sortedHits;
-    if (process.env.NODE_ENV === "production") return sortedHits;
-    return [createBrowseUiDemoHit(active?.name ?? "示例主题"), ...sortedHits];
-  }, [sortedHits, active?.name, activeId, topics.length]);
+    if (!activeId || topics.length === 0) return sortedHitsLibFiltered;
+    if (isFollowTab || process.env.NODE_ENV === "production") return sortedHitsLibFiltered;
+    return [createBrowseUiDemoHit(activeTopicEntity?.name ?? "示例主题"), ...sortedHitsLibFiltered];
+  }, [sortedHitsLibFiltered, activeTopicEntity?.name, activeId, topics.length, isFollowTab]);
 
   const showPullVisual = pullPx > 4 || refreshing;
   const pullProgress = refreshing ? 1 : Math.min(1, pullPx / 48);
@@ -802,11 +925,25 @@ export default function BrowsePageClient() {
                 onLongPress={openEditTopic}
               />
             ))}
+            {followRows.map((f) => (
+              <button
+                key={f.id}
+                type="button"
+                className={`browse-topic-tab ${activeId === `__follow__${f.followedId}` ? "active" : ""}`}
+                onClick={() => setActiveId(`__follow__${f.followedId}`)}
+              >
+                {f.label?.trim() || "关注"}
+              </button>
+            ))}
             <button
               type="button"
               className="browse-topic-tab browse-topic-tab-add"
-              aria-label="添加主题"
-              onClick={() => setFormOpen(true)}
+              aria-label="添加主题或关注"
+              onClick={() => {
+                setAddModalTab("topic");
+                setFollowMsg(null);
+                setFormOpen(true);
+              }}
             >
               +
             </button>
@@ -841,7 +978,7 @@ export default function BrowsePageClient() {
         </div>
       ) : null}
 
-      {active && (
+      {activeTopicEntity && !isFollowTab && (
         <div className="browse-kw-row">
           <div
             className="muted-link browse-kw-line browse-kw-main"
@@ -1005,73 +1142,171 @@ export default function BrowsePageClient() {
       )}
 
       {formOpen && (
-        <div className="card browse-form-card">
-          <h2>添加主题</h2>
-          <form className="row" onSubmit={onAddTopic}>
-            <label className="muted-link" htmlFor="browse-new-name">
-              主题名称
-            </label>
-            <input
-              id="browse-new-name"
-              className="input"
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              placeholder="如：大模型评测"
-            />
-            <label className="muted-link" htmlFor="browse-new-kw">
-              关键词（与主题为且，多项为或；逗号分隔）
-            </label>
-            <input
-              id="browse-new-kw"
-              className="input"
-              value={newKw}
-              onChange={(e) => setNewKw(e.target.value)}
-              placeholder="benchmark, evaluation, 论文（中英文逗号均可）"
-            />
-            <div className="browse-form-actions">
-              <button className="btn" type="submit">
-                保存
+        <div
+          className="browse-modal-backdrop"
+          role="presentation"
+          onClick={() => {
+            setFormOpen(false);
+            setFollowMsg(null);
+          }}
+        >
+          <div
+            className="card browse-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="browse-add-modal-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="browse-add-modal-tabs">
+              <button
+                type="button"
+                className={addModalTab === "topic" ? "browse-add-tab active" : "browse-add-tab"}
+                onClick={() => setAddModalTab("topic")}
+              >
+                添加主题
               </button>
-              <button type="button" className="btn secondary" onClick={() => setFormOpen(false)}>
-                取消
+              <button
+                type="button"
+                className={addModalTab === "follow" ? "browse-add-tab active" : "browse-add-tab"}
+                onClick={() => setAddModalTab("follow")}
+              >
+                关注用户
               </button>
             </div>
-          </form>
+            {addModalTab === "topic" ? (
+              <>
+                <h2 id="browse-add-modal-title">添加主题</h2>
+                <form className="row" onSubmit={onAddTopic}>
+                  <label className="muted-link" htmlFor="browse-new-name">
+                    主题名称
+                  </label>
+                  <input
+                    id="browse-new-name"
+                    className="input"
+                    value={newName}
+                    onChange={(e) => setNewName(e.target.value)}
+                    placeholder="如：大模型评测"
+                  />
+                  <label className="muted-link" htmlFor="browse-new-kw">
+                    关键词（与主题为且，多项为或；逗号分隔）
+                  </label>
+                  <input
+                    id="browse-new-kw"
+                    className="input"
+                    value={newKw}
+                    onChange={(e) => setNewKw(e.target.value)}
+                    placeholder="benchmark, evaluation, 论文（中英文逗号均可）"
+                  />
+                  <div className="browse-form-actions">
+                    <button className="btn" type="submit">
+                      保存
+                    </button>
+                    <button type="button" className="btn secondary" onClick={() => setFormOpen(false)}>
+                      取消
+                    </button>
+                  </div>
+                </form>
+              </>
+            ) : (
+              <>
+                <h2 id="browse-add-modal-title">关注用户</h2>
+                <p className="muted-link" style={{ fontSize: "var(--fs-small)" }}>
+                  搜索已注册用户的邮箱或昵称；未在系统中注册的用户无法关注。
+                </p>
+                <form className="row" onSubmit={onAddFollowSubmit}>
+                  <label className="muted-link" htmlFor="browse-follow-search">
+                    搜索
+                  </label>
+                  <input
+                    id="browse-follow-search"
+                    className="input"
+                    value={followSearch}
+                    onChange={(e) => setFollowSearch(e.target.value)}
+                    placeholder="邮箱或昵称，至少 2 个字符"
+                    autoComplete="off"
+                  />
+                  {followResults.length > 0 ? (
+                    <ul className="browse-follow-search-results">
+                      {followResults.map((u) => (
+                        <li key={u.userId}>
+                          <button
+                            type="button"
+                            className={`browse-follow-pick${followPickId === u.userId ? " is-on" : ""}`}
+                            onClick={() => setFollowPickId(u.userId)}
+                          >
+                            {u.display}
+                            {u.nickname ? ` · ${u.nickname}` : ""}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : followSearch.trim().length >= 2 ? (
+                    <p className="muted-link">无此用户（尚未注册或关键词不匹配）</p>
+                  ) : null}
+                  <label className="muted-link" htmlFor="browse-follow-label">
+                    备注名称（显示在随览标签上）
+                  </label>
+                  <input
+                    id="browse-follow-label"
+                    className="input"
+                    value={followLabel}
+                    onChange={(e) => setFollowLabel(e.target.value)}
+                    placeholder="如：大牛的待读"
+                  />
+                  {followMsg ? <p className="me-msg">{followMsg}</p> : null}
+                  <div className="browse-form-actions">
+                    <button className="btn" type="submit" disabled={followBusy}>
+                      {followBusy ? "提交中…" : "关注"}
+                    </button>
+                    <button type="button" className="btn secondary" onClick={() => setFormOpen(false)}>
+                      取消
+                    </button>
+                  </div>
+                </form>
+              </>
+            )}
+          </div>
         </div>
       )}
 
       <div className="browse-hits">
-        {!loadingTopics && activeId && hitsForUi.length === 0 && !refreshing && !autoPulling ? (
-          <div className="browse-empty-center">
-            <button
-              type="button"
-              className="browse-empty-refresh-btn"
-              aria-label="下拉刷新列表"
-              onClick={() => {
-                if (!activeId) return;
-                startEmptyRefreshWithPull(activeId);
-              }}
-            >
-              <span className="browse-empty-refresh-icon" aria-hidden>
-                ↻
-              </span>
-            </button>
-          </div>
-        ) : null}
-        {hitsForUi.map((h) => (
-          <BrowseHitCard
-            key={isBrowseUiDemoHit(h) ? "__browse_ui_demo__" : h.url}
-            hit={h}
-            topicId={activeId ?? ""}
-            topicName={active?.name ?? "—"}
-            busy={busyUrl === h.url}
-            demo={isBrowseUiDemoHit(h)}
-            onAddTodo={() => addHitToPlanTodo(h)}
-            onAddDone={async () => {
-              openBrowseMarkDone(h);
-            }}
-          />
-        ))}
+        {isFollowTab && followTargetUserId ? (
+          <BrowseFollowFeed followedUserId={followTargetUserId} />
+        ) : (
+          <>
+            {!loadingTopics && activeId && !isFollowTab && hitsForUi.length === 0 && !refreshing && !autoPulling ? (
+              <div className="browse-empty-center">
+                <button
+                  type="button"
+                  className="browse-empty-refresh-btn"
+                  aria-label="下拉刷新列表"
+                  onClick={() => {
+                    if (!activeId || activeId.startsWith("__follow__")) return;
+                    startEmptyRefreshWithPull(activeId);
+                  }}
+                >
+                  <span className="browse-empty-refresh-icon" aria-hidden>
+                    ↻
+                  </span>
+                </button>
+              </div>
+            ) : null}
+            {hitsForUi.map((h) => (
+              <BrowseHitCard
+                key={isBrowseUiDemoHit(h) ? "__browse_ui_demo__" : h.url}
+                hit={h}
+                topicId={activeId ?? ""}
+                topicName={activeTopicEntity?.name ?? "—"}
+                busy={busyUrl === h.url}
+                demo={isBrowseUiDemoHit(h)}
+                onAddTodo={() => addHitToPlanTodo(h)}
+                onAddDone={async () => {
+                  openBrowseMarkDone(h);
+                }}
+              />
+            ))}
+          </>
+        )}
       </div>
       {mounted && markDoneOpen && markDoneHit
         ? createPortal(

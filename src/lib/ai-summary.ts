@@ -9,9 +9,11 @@ import { normalizePublishedToIso } from "@/lib/browse-published";
 import { enrichArticleInputHash } from "@/lib/ai-cache-hash";
 import {
   getAiGenerationCache,
+  getAiGenerationCacheByUrlKey,
   isDatabaseConfigured,
   upsertAiGenerationCache,
 } from "@/lib/db";
+import { normalizeArticleUrlKey } from "@/lib/url-key";
 
 function trimEnv(...keys: string[]): string | undefined {
   for (const k of keys) {
@@ -207,11 +209,20 @@ export async function enrichArticleWithAi(params: {
     publishedIsoHint,
   });
 
+  const urlKey = normalizeArticleUrlKey(params.url);
+
   if (isDatabaseConfigured()) {
     const cached = await getAiGenerationCache(params.cacheUserId ?? null, kind, inputHash);
     if (cached) {
       const enrichment = parseCachedEnrichment(cached, Boolean(params.browseQualify));
       if (enrichment) return { enrichment, usage: null };
+    }
+    if (urlKey) {
+      const byUrl = await getAiGenerationCacheByUrlKey(kind, urlKey);
+      if (byUrl) {
+        const enrichment = parseCachedEnrichment(byUrl, Boolean(params.browseQualify));
+        if (enrichment) return { enrichment, usage: null };
+      }
     }
   }
 
@@ -349,6 +360,7 @@ ${bodyText || "(正文为空)"}`;
             totalTokens: usage.totalTokens,
           }
         : undefined,
+      urlKey || null,
     );
   }
 
