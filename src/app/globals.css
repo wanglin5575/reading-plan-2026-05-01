@@ -453,6 +453,18 @@ a:active { opacity: 0.7; }
   font-weight: 600;
   color: var(--muted);
 }
+
+/* 添加页：部分浏览器下 type=date 不按 100% 拉伸，包裹层保证与链接输入同宽 */
+.add-form-date-wrap {
+  width: 100%;
+  min-width: 0;
+}
+
+.add-form-date-wrap .input[type="date"] {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+}
 .read-submit-card {
   margin-top: 10px;
 }

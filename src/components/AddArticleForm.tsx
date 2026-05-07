@@ -69,13 +69,15 @@ export function AddArticleForm() {
             required
           />
           <label className="muted-link">期望完成阅读时间</label>
-          <input
-            className="input"
-            type="date"
-            value={dueDate}
-            onChange={(e) => setDueDate(e.target.value)}
-            aria-label="期望完成阅读时间"
-          />
+          <div className="add-form-date-wrap">
+            <input
+              className="input"
+              type="date"
+              value={dueDate}
+              onChange={(e) => setDueDate(e.target.value)}
+              aria-label="期望完成阅读时间"
+            />
+          </div>
           <div className="featured-wrap">
             <div className="muted-link featured-choice-label" id="add-featured-label">
               是否标记为重点精读
