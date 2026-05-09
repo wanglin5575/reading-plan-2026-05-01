@@ -178,6 +178,73 @@ export function getDomain(urlString: string): string {
   }
 }
 
+export type ArticleClassificationFields = Pick<
+  Article,
+  | "title"
+  | "domain"
+  | "theme"
+  | "summary"
+  | "language"
+  | "charCount"
+  | "wordCount"
+  | "estimatedMinutes"
+  | "recommendedDepth"
+  | "knowledgeTags"
+  | "rawExcerpt"
+  | "mediaType"
+  | "titleZh"
+  | "author"
+  | "publishedAt"
+>;
+
+/** 无 LLM：规则摘要 + 主题；AI 链路异常时的降级（仍可有可用摘要，便于稍后在卡片里「AI 生成摘要」重试） */
+export function buildArticleClassificationFallback(
+  url: string,
+  rawTitle: string,
+  rawBody: string,
+  opts?: {
+    mediaKind?: MediaKind;
+    durationSeconds?: number | null;
+    scrapeAuthor?: string;
+    publishedIsoHint?: string | null;
+  },
+): ArticleClassificationFields {
+  const title = (rawTitle || url).trim().slice(0, 200);
+  const body = rawBody || "";
+  const lang = detectLanguage(`${title} ${body}`);
+  const charCount = countChars(body);
+  const wordCount = countWords(body);
+  const theme = classifyTheme(title, body, url);
+  const summaryFromBody = makeSummary(body);
+  const summaryZh = summaryFromBody
+    ? truncateZh(summaryFromBody, SUMMARY_MAX_CHARS)
+    : "(暂无摘要)";
+  const scrapeAuthor = (opts?.scrapeAuthor || "").trim();
+  const authorOut = scrapeAuthor || "未知作者";
+  const publishedAt = publishedIsoToYmd(opts?.publishedIsoHint ?? null);
+  const est = estimateReadingMinutesCalibrated(title, body, summaryZh, lang, {
+    mediaKind: opts?.mediaKind,
+    durationSeconds: opts?.durationSeconds,
+  });
+  return {
+    title,
+    titleZh: "",
+    domain: getDomain(url),
+    theme,
+    summary: summaryZh || "(暂无摘要)",
+    language: lang,
+    charCount,
+    wordCount,
+    estimatedMinutes: est,
+    recommendedDepth: recommendDepth(Math.max(charCount, countChars(title) * 2), theme),
+    knowledgeTags: extractKnowledgeTags(title, body),
+    rawExcerpt: body.slice(0, 500),
+    mediaType: opts?.mediaKind ?? "article",
+    author: authorOut,
+    publishedAt,
+  };
+}
+
 export async function buildArticleClassification(
   url: string,
   rawTitle: string,
@@ -191,26 +258,7 @@ export async function buildArticleClassification(
     /** 书库：与文章归属用户一致，用于云端复用 AI 结果 */
     cacheUserId?: string | null;
   },
-): Promise<
-  Pick<
-    Article,
-    | "title"
-    | "domain"
-    | "theme"
-    | "summary"
-    | "language"
-    | "charCount"
-    | "wordCount"
-    | "estimatedMinutes"
-    | "recommendedDepth"
-    | "knowledgeTags"
-    | "rawExcerpt"
-    | "mediaType"
-    | "titleZh"
-    | "author"
-    | "publishedAt"
-  >
-> {
+): Promise<ArticleClassificationFields> {
   const title = (rawTitle || url).trim().slice(0, 200);
   const body = rawBody || "";
   const lang = detectLanguage(`${title} ${body}`);

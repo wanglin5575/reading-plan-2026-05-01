@@ -9,7 +9,7 @@ import { MEDIA_KIND_LABEL } from "@/lib/media-kind";
 import { formatPublishedTimeZh } from "@/lib/browse-attribution";
 import { ArticleReadPreviewModal } from "@/components/ArticleReadPreviewModal";
 import { fallbackReadModalBody } from "@/lib/read-modal-fallback";
-import { getReadPreviewUiCache, setReadPreviewUiCache } from "@/lib/read-preview-ui-cache";
+import { clearReadPreviewUiCache, getReadPreviewUiCache, setReadPreviewUiCache } from "@/lib/read-preview-ui-cache";
 import { readPreviewSourceFromApiPayload, type ReadPreviewSource } from "@/lib/read-preview-source";
 import { buildArticlePreviewSource } from "@/lib/article-preview-source";
 import { RecommendToUserModal, useMyFollowsForRecommend } from "@/components/RecommendToUserModal";
@@ -109,6 +109,7 @@ export function ArticleTitleLink({
   const [body, setBody] = useState("");
   const [showFallback, setShowFallback] = useState(false);
   const [previewSource, setPreviewSource] = useState<ReadPreviewSource | null>(null);
+  const [skipReadPreviewClientCache, setSkipReadPreviewClientCache] = useState(false);
 
   useEffect(() => setMounted(true), []);
 
@@ -126,24 +127,29 @@ export function ArticleTitleLink({
     if (!previewOpen) {
       setPreviewSource(null);
       setLoading(false);
+      setSkipReadPreviewClientCache(false);
       return;
     }
     let cancelled = false;
 
-    const cached = getReadPreviewUiCache(previewCacheNamespaceId, previewTitle, url, previewSourceText);
-    if (cached) {
-      setBody(cached.text);
-      setShowFallback(cached.showFallback);
-      setLoading(false);
-      setPreviewSource("client_cache");
-      return () => {
-        cancelled = true;
-      };
+    if (!skipReadPreviewClientCache) {
+      const cached = getReadPreviewUiCache(previewCacheNamespaceId, previewTitle, url, previewSourceText);
+      if (cached) {
+        setBody(cached.text);
+        setShowFallback(cached.showFallback);
+        setLoading(false);
+        setPreviewSource("client_cache");
+        return () => {
+          cancelled = true;
+        };
+      }
     }
 
     setPreviewSource(null);
     setLoading(true);
-    setBody("");
+    if (!skipReadPreviewClientCache) {
+      setBody("");
+    }
     setShowFallback(false);
     void fetch("/api/read-preview", {
       method: "POST",
@@ -152,6 +158,7 @@ export function ArticleTitleLink({
         title: previewTitle,
         url,
         sourceText: previewSourceText,
+        forceRefresh: skipReadPreviewClientCache,
       }),
     })
       .then(async (r) => {
@@ -196,12 +203,20 @@ export function ArticleTitleLink({
         setReadPreviewUiCache(previewCacheNamespaceId, previewTitle, url, previewSourceText, fb, true, "fallback");
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+          setSkipReadPreviewClientCache(false);
+        }
       });
     return () => {
       cancelled = true;
     };
-  }, [previewOpen, previewCacheNamespaceId, previewTitle, url, previewSourceText]);
+  }, [previewOpen, previewCacheNamespaceId, previewTitle, url, previewSourceText, skipReadPreviewClientCache]);
+
+  function requestReadPreviewForceAi() {
+    clearReadPreviewUiCache(previewCacheNamespaceId, previewTitle, url, previewSourceText);
+    setSkipReadPreviewClientCache(true);
+  }
 
   const clearTimer = () => {
     if (timerRef.current) {
@@ -273,6 +288,13 @@ export function ArticleTitleLink({
           previewSource={previewSource}
           bodyText={body}
           showFallbackNote={showFallback}
+          showForceAiSummaryLink={
+            !loading &&
+            (previewSource === "client_cache" ||
+              previewSource === "server_cache" ||
+              showFallback)
+          }
+          onForceAiSummary={requestReadPreviewForceAi}
         />
       ) : null}
     </>
@@ -301,6 +323,8 @@ export function ArticleCard({
   const [morePos, setMorePos] = useState<{ top: number; left: number } | null>(null);
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [summaryDraft, setSummaryDraft] = useState(article.summary || "");
+  const [summaryAiBusy, setSummaryAiBusy] = useState(false);
+  const [summaryAiErr, setSummaryAiErr] = useState<string | null>(null);
   const [socialCommentOpen, setSocialCommentOpen] = useState(false);
   const [socialDraft, setSocialDraft] = useState("");
   const [socialReplyTo, setSocialReplyTo] = useState<string | null>(null);
@@ -403,7 +427,10 @@ export function ArticleCard({
     setMoreOpen(false);
     setMorePos(null);
   }, []);
-  const closeSummary = useCallback(() => setSummaryOpen(false), []);
+  const closeSummary = useCallback(() => {
+    setSummaryOpen(false);
+    setSummaryAiErr(null);
+  }, []);
 
   useEffect(() => {
     if (metaOpen || digestOpen || moreOpen || summaryOpen || socialCommentOpen || recommendOpen) swipe.resetOffset();
@@ -457,13 +484,15 @@ export function ArticleCard({
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         if (digestOpen) closeDigest();
-        else if (summaryOpen) closeSummary();
-        else closeMeta();
+        else if (summaryOpen && !summaryAiBusy) closeSummary();
+        else if (summaryOpen) {
+          /* AI 进行中避免误触关闭 */
+        } else closeMeta();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [metaOpen, digestOpen, summaryOpen, closeMeta, closeDigest, closeSummary]);
+  }, [metaOpen, digestOpen, summaryOpen, summaryAiBusy, closeMeta, closeDigest, closeSummary]);
 
   function toggleMore(e: React.MouseEvent) {
     e.stopPropagation();
@@ -535,6 +564,30 @@ export function ArticleCard({
     if (ok) {
       closeSummary();
       closeMore();
+    }
+  }
+
+  async function runAiRegenerateSummary() {
+    setSummaryAiErr(null);
+    setSummaryAiBusy(true);
+    try {
+      const r = await fetch(`/api/articles/${article.id}/refresh`, { method: "POST" });
+      const d = (await r.json().catch(() => ({}))) as { article?: Article; error?: string; message?: string };
+      if (!r.ok) throw new Error(d.message || d.error || "AI 生成失败");
+      const u = d.article;
+      if (!u) throw new Error("未返回文章数据");
+      setSummaryDraft(u.summary || "");
+      setTitleEdit(u.title);
+      setTitleZhEdit(u.titleZh || "");
+      setTheme(u.theme);
+      setAuthor(u.author || "");
+      setDueDate(u.dueDate);
+      setIntensiveRead(isIntensiveRead(u));
+      startTransition(() => router.refresh());
+    } catch (e) {
+      setSummaryAiErr(e instanceof Error ? e.message : "生成失败");
+    } finally {
+      setSummaryAiBusy(false);
     }
   }
 
@@ -920,7 +973,7 @@ export function ArticleCard({
     <div
       className="modal-backdrop"
       role="presentation"
-      onClick={(e) => e.target === e.currentTarget && closeSummary()}
+      onClick={(e) => e.target === e.currentTarget && !summaryAiBusy && closeSummary()}
     >
       <div
         className="modal-sheet"
@@ -931,7 +984,7 @@ export function ArticleCard({
       >
         <div className="modal-sheet-header">
           <h2 id="article-summary-modal-title">修改文章摘要</h2>
-          <button type="button" className="modal-sheet-close" onClick={closeSummary} aria-label="关闭">
+          <button type="button" className="modal-sheet-close" onClick={() => !summaryAiBusy && closeSummary()} aria-label="关闭">
             ×
           </button>
         </div>
@@ -945,14 +998,27 @@ export function ArticleCard({
               onChange={(e) => setSummaryDraft(e.target.value)}
               placeholder="手动校对或改写自动摘要…"
               aria-label="文章摘要"
+              disabled={busy || summaryAiBusy}
             />
           </div>
+          <p className="muted-link" style={{ fontSize: "var(--fs-small)", margin: "10px 0 8px" }}>
+            「AI生成摘要」会重新抓取原文并用 AI 生成摘要、主题等信息（与添加文章时一致）；成功后填入上方，你可再编辑后点保存。
+          </p>
+          {summaryAiErr ? <p className="me-msg">{summaryAiErr}</p> : null}
+          <button
+            type="button"
+            className="btn secondary"
+            disabled={busy || summaryAiBusy}
+            onClick={() => void runAiRegenerateSummary()}
+          >
+            {summaryAiBusy ? "AI 生成中…" : "AI生成摘要"}
+          </button>
         </div>
         <div className="modal-sheet-footer">
-          <button className="btn secondary" type="button" disabled={busy} onClick={saveSummaryEdit}>
+          <button className="btn secondary" type="button" disabled={busy || summaryAiBusy} onClick={saveSummaryEdit}>
             保存
           </button>
-          <button className="btn secondary" type="button" disabled={busy} onClick={closeSummary}>
+          <button className="btn secondary" type="button" disabled={busy || summaryAiBusy} onClick={closeSummary}>
             取消
           </button>
         </div>
@@ -1035,6 +1101,7 @@ export function ArticleCard({
               role="menuitem"
               onClick={() => {
                 setSummaryDraft(article.summary || "");
+                setSummaryAiErr(null);
                 closeMore();
                 setSummaryOpen(true);
               }}
@@ -1233,7 +1300,7 @@ export function ArticleCard({
                 error={recommendErr}
                 follows={followsForRec}
                 onClose={() => !recommendBusy && setRecommendOpen(false)}
-                onPick={(id) => void submitRecommendToUser(id)}
+                onConfirm={(id) => void submitRecommendToUser(id)}
               />,
               document.body,
             )

@@ -18,6 +18,8 @@ export function ArticleReadPreviewModal({
   previewSource,
   bodyText,
   showFallbackNote,
+  showForceAiSummaryLink = false,
+  onForceAiSummary,
 }: {
   open: boolean;
   onClose: () => void;
@@ -29,6 +31,9 @@ export function ArticleReadPreviewModal({
   previewSource: ReadPreviewSource | null;
   bodyText: string;
   showFallbackNote: boolean;
+  /** 历史缓存 / 节选降级时显示「使用AI总结文章」 */
+  showForceAiSummaryLink?: boolean;
+  onForceAiSummary?: () => void;
 }) {
   useEffect(() => {
     if (!open) return;
@@ -53,6 +58,19 @@ export function ArticleReadPreviewModal({
   const loadingLine =
     loadPhase === "query" ? "查询AI生成结论" : "AI 正在生成摘要…";
   const readiness = previewSource ? readPreviewReadinessNote(previewSource) : null;
+  const forceLink =
+    showForceAiSummaryLink && typeof onForceAiSummary === "function" ? (
+      <>
+        {" "}
+        <button
+          type="button"
+          className="article-read-preview-force-ai-link"
+          onClick={() => onForceAiSummary()}
+        >
+          使用AI总结文章
+        </button>
+      </>
+    ) : null;
 
   return createPortal(
     <div
@@ -98,10 +116,16 @@ export function ArticleReadPreviewModal({
           ) : (
             <>
               {showFallbackNote ? (
-                <p className="article-read-preview-fallback-note muted-link">当前展示为节选摘要（AI 暂不可用或未配置）。</p>
+                <p className="article-read-preview-fallback-note muted-link">
+                  当前展示为节选摘要（AI 暂不可用或未配置）。
+                  {forceLink}
+                </p>
               ) : null}
               {!showFallbackNote && readiness ? (
-                <p className="article-read-preview-readiness-note muted-link">{readiness}</p>
+                <p className="article-read-preview-readiness-note muted-link">
+                  {readiness}
+                  {forceLink}
+                </p>
               ) : null}
               <div className="article-read-preview-prose">{bodyText}</div>
             </>

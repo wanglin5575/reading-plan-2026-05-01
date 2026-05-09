@@ -17,12 +17,13 @@ export const dynamic = "force-dynamic";
 const MAX_SOURCE = 80000;
 
 export async function POST(req: Request) {
-  let payload: { title?: string; url?: string; sourceText?: string };
+  let payload: { title?: string; url?: string; sourceText?: string; forceRefresh?: boolean };
   try {
     payload = await req.json();
   } catch {
     return NextResponse.json({ error: "invalid_json" }, { status: 400 });
   }
+  const forceRefresh = Boolean(payload.forceRefresh);
 
   const title = payload.title?.trim() || "无标题";
   const url = payload.url?.trim() || "";
@@ -50,7 +51,7 @@ export async function POST(req: Request) {
   const session = await getRouteHandlerUser();
   const readModalHash = readModalInputHash(title, url, sourceText);
   const urlKey = normalizeArticleUrlKey(url);
-  if (isDatabaseConfigured()) {
+  if (!forceRefresh && isDatabaseConfigured()) {
     const row = await getAiGenerationCache(session?.id ?? null, "read_modal_v1", readModalHash);
     const hit = typeof row?.text === "string" ? row.text.trim() : "";
     if (hit) {

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
 import { insertArticle, listArticlesForUser, recordTokenUsage, upsertUserRegistry } from "@/lib/db";
-import { buildArticleClassification } from "@/lib/classify";
+import { buildArticleClassification, buildArticleClassificationFallback } from "@/lib/classify";
 import { scrapeUrl, type ScrapeResult } from "@/lib/scrape";
 import type { MediaKind } from "@/lib/media-kind";
 import { todayIso, shiftDays } from "@/lib/plan";
@@ -135,13 +135,12 @@ export async function POST(req: Request) {
     });
   } catch (e) {
     console.error("[articles POST] AI classification", e);
-    return NextResponse.json(
-      {
-        error: "ai_failed",
-        message: e instanceof Error ? e.message : "AI 生成摘要或分类失败，可稍后重试",
-      },
-      { status: 503 },
-    );
+    classification = buildArticleClassificationFallback(parsed.toString(), scraped.title, scraped.body, {
+      mediaKind: scraped.mediaKind,
+      durationSeconds: scraped.durationSeconds,
+      scrapeAuthor: scraped.author?.trim() || "",
+      publishedIsoHint: scraped.publishedIsoHint,
+    });
   }
 
   const markIntensive = Boolean(payload.featured);

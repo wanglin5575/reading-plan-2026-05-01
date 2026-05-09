@@ -24,25 +24,47 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
   const article = await getArticle(id, ownerId ?? null);
   if (!article) return NextResponse.json({ error: "not_found" }, { status: 404 });
 
-  const scraped = await scrapeUrl(article.url);
-  const cls = await buildArticleClassification(article.url, scraped.title, scraped.body, {
-    mediaKind: scraped.mediaKind,
-    durationSeconds: scraped.durationSeconds,
-    scrapeAuthor: scraped.author?.trim() || "",
-    publishedIsoHint: scraped.publishedIsoHint,
-    cacheUserId: ownerId,
-    onAiUsage: (usage) => {
-      if (usage && usage.totalTokens > 0 && session) {
-        void recordTokenUsage({
-          userId: session.id,
-          source: "article_classify",
-          promptTokens: usage.promptTokens,
-          completionTokens: usage.completionTokens,
-          totalTokens: usage.totalTokens,
-        });
-      }
-    },
-  });
+  let scraped;
+  try {
+    scraped = await scrapeUrl(article.url);
+  } catch (e) {
+    console.error("[articles refresh] scrape", e);
+    return NextResponse.json(
+      { error: "scrape_failed", message: e instanceof Error ? e.message : "网页抓取失败" },
+      { status: 502 },
+    );
+  }
+
+  let cls;
+  try {
+    cls = await buildArticleClassification(article.url, scraped.title, scraped.body, {
+      mediaKind: scraped.mediaKind,
+      durationSeconds: scraped.durationSeconds,
+      scrapeAuthor: scraped.author?.trim() || "",
+      publishedIsoHint: scraped.publishedIsoHint,
+      cacheUserId: ownerId,
+      onAiUsage: (usage) => {
+        if (usage && usage.totalTokens > 0 && session) {
+          void recordTokenUsage({
+            userId: session.id,
+            source: "article_classify",
+            promptTokens: usage.promptTokens,
+            completionTokens: usage.completionTokens,
+            totalTokens: usage.totalTokens,
+          });
+        }
+      },
+    });
+  } catch (e) {
+    console.error("[articles refresh] AI classification", e);
+    return NextResponse.json(
+      {
+        error: "ai_failed",
+        message: e instanceof Error ? e.message : "AI 生成摘要或分类失败，请稍后重试",
+      },
+      { status: 503 },
+    );
+  }
 
   const updated = { ...article, ...cls };
   try {

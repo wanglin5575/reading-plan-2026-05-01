@@ -58,3 +58,14 @@ export function setReadPreviewUiCache(
     else break;
   }
 }
+
+/** 强制重新走模型前清除本页会话缓存，避免仍命中 client_cache */
+export function clearReadPreviewUiCache(
+  namespaceId: string,
+  title: string,
+  url: string,
+  sourceText: string,
+): void {
+  const fp = readPreviewInputFingerprint(title, url, sourceText);
+  store.delete(`${namespaceId}::${fp}`);
+}

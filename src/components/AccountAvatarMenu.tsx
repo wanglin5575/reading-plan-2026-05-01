@@ -98,13 +98,19 @@ function FollowingLabelEditor({
   initialLabel,
   nickname,
   busy,
+  unfollowBusy,
+  unfollowGloballyBusy,
   onSave,
+  onUnfollow,
 }: {
   followedId: string;
   initialLabel: string;
   nickname: string;
   busy: boolean;
+  unfollowBusy: boolean;
+  unfollowGloballyBusy: boolean;
   onSave: (followedId: string, label: string) => void;
+  onUnfollow: (followedId: string) => void;
 }) {
   const [v, setV] = useState(initialLabel);
   useEffect(() => setV(initialLabel), [initialLabel, followedId]);
@@ -120,13 +126,23 @@ function FollowingLabelEditor({
           className="input"
           value={v}
           onChange={(e) => setV(e.target.value)}
-          disabled={busy}
+          disabled={busy || unfollowBusy}
           placeholder="如：大牛的待读"
         />
       </div>
-      <button type="button" className="btn secondary" style={{ marginTop: 6 }} disabled={busy} onClick={() => onSave(followedId, v)}>
-        保存
-      </button>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 6 }}>
+        <button type="button" className="btn secondary" disabled={busy || unfollowBusy} onClick={() => onSave(followedId, v)}>
+          保存
+        </button>
+        <button
+          type="button"
+          className="btn danger"
+          disabled={busy || unfollowGloballyBusy}
+          onClick={() => onUnfollow(followedId)}
+        >
+          {unfollowBusy ? "取消中…" : "取消关注"}
+        </button>
+      </div>
     </div>
   );
 }
@@ -181,10 +197,12 @@ export function AccountAvatarMenu({
   const [fansErr, setFansErr] = useState<string | null>(null);
   const [fanActionBusy, setFanActionBusy] = useState(false);
   const [labelBusyId, setLabelBusyId] = useState<string | null>(null);
+  const [unfollowBusyId, setUnfollowBusyId] = useState<string | null>(null);
   const [recOpen, setRecOpen] = useState(false);
   const [recLoading, setRecLoading] = useState(false);
   const [recErr, setRecErr] = useState<string | null>(null);
   const [recRows, setRecRows] = useState<RecRowUi[]>([]);
+  const [recCancelBusyId, setRecCancelBusyId] = useState<string | null>(null);
   const [profileOpen, setProfileOpen] = useState(false);
   const [profileUid, setProfileUid] = useState("");
   const [profileEmailField, setProfileEmailField] = useState("");
@@ -327,6 +345,26 @@ export function AccountAvatarMenu({
     }
   }
 
+  async function cancelSentRecommendation(recId: string) {
+    setRecCancelBusyId(recId);
+    setRecErr(null);
+    try {
+      const r = await fetch("/api/social/recommend", {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ recommendationId: recId }),
+      });
+      const d = (await r.json().catch(() => ({}))) as { error?: string };
+      if (!r.ok) throw new Error(d.error || "取消失败");
+      setRecRows((rows) => rows.filter((x) => x.id !== recId));
+      router.refresh();
+    } catch (e: unknown) {
+      setRecErr(e instanceof Error ? e.message : "取消失败");
+    } finally {
+      setRecCancelBusyId(null);
+    }
+  }
+
   async function saveFanLabel(followerId: string, label: string) {
     setLabelBusyId(`fan:${followerId}`);
     setFansErr(null);
@@ -362,6 +400,27 @@ export function AccountAvatarMenu({
       setFansErr(e instanceof Error ? e.message : "保存失败");
     } finally {
       setLabelBusyId(null);
+    }
+  }
+
+  async function unfollowFollowing(followedId: string) {
+    setUnfollowBusyId(followedId);
+    setFansErr(null);
+    try {
+      const r = await fetch(`/api/social/follows?followedUserId=${encodeURIComponent(followedId)}`, {
+        method: "DELETE",
+      });
+      const d = (await r.json().catch(() => ({}))) as { error?: string };
+      if (!r.ok) throw new Error(d.error || "取消关注失败");
+      setFollowingRows((rows) => rows.filter((x) => x.followedId !== followedId));
+      setFansRows((rows) =>
+        rows.map((f) => (f.followerId === followedId ? { ...f, isFollowingBack: false } : f)),
+      );
+      router.refresh();
+    } catch (e: unknown) {
+      setFansErr(e instanceof Error ? e.message : "取消关注失败");
+    } finally {
+      setUnfollowBusyId(null);
     }
   }
 
@@ -569,7 +628,13 @@ export function AccountAvatarMenu({
       <div
         className="modal-backdrop"
         role="presentation"
-        onClick={(e) => e.target === e.currentTarget && !fanActionBusy && !labelBusyId && setSocialPeopleOpen(false)}
+        onClick={(e) =>
+          e.target === e.currentTarget &&
+          !fanActionBusy &&
+          !labelBusyId &&
+          !unfollowBusyId &&
+          setSocialPeopleOpen(false)
+        }
       >
         <div
           className="modal-sheet"
@@ -583,7 +648,7 @@ export function AccountAvatarMenu({
             <button
               type="button"
               className="modal-sheet-close"
-              onClick={() => !fanActionBusy && !labelBusyId && setSocialPeopleOpen(false)}
+              onClick={() => !fanActionBusy && !labelBusyId && !unfollowBusyId && setSocialPeopleOpen(false)}
               aria-label="关闭"
             >
               ×
@@ -657,7 +722,10 @@ export function AccountAvatarMenu({
                     initialLabel={f.label}
                     nickname={f.nickname}
                     busy={labelBusyId === `fol:${f.followedId}`}
+                    unfollowBusy={unfollowBusyId === f.followedId}
+                    unfollowGloballyBusy={unfollowBusyId !== null}
                     onSave={(id, lab) => void saveFollowingLabel(id, lab)}
+                    onUnfollow={(id) => void unfollowFollowing(id)}
                   />
                 ))
               : null}
@@ -672,12 +740,17 @@ export function AccountAvatarMenu({
       <div
         className="modal-backdrop"
         role="presentation"
-        onClick={(e) => e.target === e.currentTarget && !recLoading && setRecOpen(false)}
+        onClick={(e) => e.target === e.currentTarget && !recLoading && !recCancelBusyId && setRecOpen(false)}
       >
         <div className="modal-sheet" role="dialog" aria-modal="true" aria-labelledby="rec-title" onClick={(e) => e.stopPropagation()}>
           <div className="modal-sheet-header">
             <h2 id="rec-title">我的推荐</h2>
-            <button type="button" className="modal-sheet-close" onClick={() => !recLoading && setRecOpen(false)} aria-label="关闭">
+            <button
+              type="button"
+              className="modal-sheet-close"
+              onClick={() => !recLoading && !recCancelBusyId && setRecOpen(false)}
+              aria-label="关闭"
+            >
               ×
             </button>
           </div>
@@ -696,6 +769,15 @@ export function AccountAvatarMenu({
                     {r.url}
                   </a>
                 ) : null}
+                <button
+                  type="button"
+                  className="btn secondary"
+                  style={{ marginTop: 10 }}
+                  disabled={recCancelBusyId !== null}
+                  onClick={() => void cancelSentRecommendation(r.id)}
+                >
+                  {recCancelBusyId === r.id ? "取消中…" : "取消推荐"}
+                </button>
               </div>
             ))}
           </div>

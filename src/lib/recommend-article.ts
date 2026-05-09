@@ -6,7 +6,7 @@ import {
   insertRecommendationMeta,
   resolveRecommenderThemePrefix,
   userHasArticleUrl,
-  verifyFollows,
+  verifyMutualFollows,
 } from "@/lib/db";
 
 export async function recommendMyArticleToUser(params: {
@@ -16,8 +16,8 @@ export async function recommendMyArticleToUser(params: {
 }): Promise<{ ok: true; targetArticleId: string } | { ok: false; error: string }> {
   const { fromUserId, toUserId, source } = params;
   if (fromUserId.trim() === toUserId.trim()) return { ok: false, error: "不能推荐给自己" };
-  const okFollow = await verifyFollows(fromUserId, toUserId);
-  if (!okFollow) return { ok: false, error: "请先关注对方后，再使用「推荐 TA 读」" };
+  const okMutual = await verifyMutualFollows(fromUserId, toUserId);
+  if (!okMutual) return { ok: false, error: "仅互相关注的用户之间可使用推荐；请让对方关注你或先回关对方。" };
   const exists = await userHasArticleUrl(toUserId, source.url);
   if (exists) return { ok: false, error: "对方书库已有该链接" };
   const prefix = await resolveRecommenderThemePrefix(fromUserId, toUserId);

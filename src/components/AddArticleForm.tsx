@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import type { Article } from "@/lib/types";
 import { ArticleCard } from "@/components/ArticleCard";
@@ -31,13 +32,18 @@ export function AddArticleForm() {
   const [scrapePayload, setScrapePayload] = useState<unknown | null>(null);
   const [recommendToUserId, setRecommendToUserId] = useState("");
   const [followOptions, setFollowOptions] = useState<{ followedId: string; label: string; nickname: string }[]>([]);
-  const [aiFailed, setAiFailed] = useState(false);
+  const [recommendConfirmOpen, setRecommendConfirmOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     let c = false;
     void (async () => {
       try {
-        const r = await fetch("/api/social/follows", { cache: "no-store" });
+        const r = await fetch("/api/social/follows?mutual=1", { cache: "no-store" });
         const d = (await r.json()) as { follows?: { followedId: string; label: string; nickname: string }[] };
         if (!r.ok || c) return;
         setFollowOptions(
@@ -59,7 +65,6 @@ export function AddArticleForm() {
   async function runSubmitPipeline(opts: { skipScrape: boolean }) {
     setError(null);
     setSuccess(null);
-    setAiFailed(false);
     if (!url.trim()) return;
     setLoading(true);
     setLastAdded(null);
@@ -95,12 +100,6 @@ export function AddArticleForm() {
         message?: string;
         recommendNote?: string | null;
       };
-      if (res.status === 503 && data.error === "ai_failed") {
-        setAiFailed(true);
-        setError(data.message || "AI 生成失败，可点击「重新 AI 生成」重试（无需重新抓取网页）");
-        setActiveStep(1);
-        return;
-      }
       if (!res.ok) {
         throw new Error(data.message || data.error || "添加失败");
       }
@@ -121,18 +120,28 @@ export function AddArticleForm() {
     }
   }
 
+  function recommendTargetLabel(): string {
+    const id = recommendToUserId.trim();
+    if (!id) return "";
+    const f = followOptions.find((x) => x.followedId === id);
+    if (!f) return "该用户";
+    return f.label ? `${f.label}（${f.nickname}）` : f.nickname;
+  }
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (recommendToUserId.trim()) {
+      setRecommendConfirmOpen(true);
+      return;
+    }
     setScrapePayload(null);
     await runSubmitPipeline({ skipScrape: false });
   }
 
-  async function onRetryAi() {
-    if (!scrapePayload || !url.trim()) {
-      setError("请先重新提交链接以完成抓取");
-      return;
-    }
-    await runSubmitPipeline({ skipScrape: true });
+  async function confirmRecommendSubmit() {
+    setRecommendConfirmOpen(false);
+    setScrapePayload(null);
+    await runSubmitPipeline({ skipScrape: false });
   }
 
   return (
@@ -164,14 +173,14 @@ export function AddArticleForm() {
           {followOptions.length > 0 ? (
             <>
               <label className="muted-link" htmlFor="add-recommend-to">
-                同时推荐给（可选，需已关注对方）
+                同时推荐给（可选，需互相关注）
               </label>
               <select
                 id="add-recommend-to"
                 className="input add-form-select"
                 value={recommendToUserId}
                 onChange={(e) => setRecommendToUserId(e.target.value)}
-                aria-label="推荐给关注用户"
+                aria-label="推荐给互关用户"
               >
                 <option value="">不推荐给他人</option>
                 {followOptions.map((f) => (
@@ -214,11 +223,6 @@ export function AddArticleForm() {
           <button className="btn" type="submit" disabled={loading || isPending}>
             {loading ? "处理中…" : "添加阅读计划"}
           </button>
-          {aiFailed && scrapePayload ? (
-            <button type="button" className="btn secondary" disabled={loading} onClick={() => void onRetryAi()}>
-              重新 AI 生成
-            </button>
-          ) : null}
           {success && <div className="text-success-inline">{success}</div>}
           {error && <div className="error">{error}</div>}
         </div>
@@ -232,6 +236,50 @@ export function AddArticleForm() {
           <ArticleCard article={lastAdded} />
         </section>
       )}
+
+      {mounted && recommendConfirmOpen
+        ? createPortal(
+            <div
+              className="modal-backdrop"
+              role="presentation"
+              onClick={(e) => e.target === e.currentTarget && !loading && setRecommendConfirmOpen(false)}
+            >
+              <div
+                className="modal-sheet"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="add-rec-confirm-title"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="modal-sheet-header">
+                  <h2 id="add-rec-confirm-title">确认同时推荐</h2>
+                  <button
+                    type="button"
+                    className="modal-sheet-close"
+                    onClick={() => !loading && setRecommendConfirmOpen(false)}
+                    aria-label="关闭"
+                  >
+                    ×
+                  </button>
+                </div>
+                <div className="modal-sheet-body">
+                  <p className="muted-link" style={{ fontSize: "var(--fs-small)", margin: "0 0 12px" }}>
+                    将把当前链接加入你的书库，并同时推荐给「{recommendTargetLabel()}」。对方待读中会出现对应篇目。
+                  </p>
+                </div>
+                <div className="modal-sheet-footer">
+                  <button type="button" className="btn secondary" disabled={loading} onClick={() => setRecommendConfirmOpen(false)}>
+                    取消
+                  </button>
+                  <button type="button" className="btn" disabled={loading} onClick={() => void confirmRecommendSubmit()}>
+                    {loading ? "处理中…" : "确认添加并推荐"}
+                  </button>
+                </div>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
     </>
   );
 }

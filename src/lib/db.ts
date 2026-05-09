@@ -2195,6 +2195,24 @@ export async function verifyFollows(followerId: string, followedId: string): Pro
   return Number(rows[0]?.c ?? "0") > 0;
 }
 
+/** 双方互相关注（A→B 且 B→A） */
+export async function verifyMutualFollows(userA: string, userB: string): Promise<boolean> {
+  const p = getPoolOrNull();
+  if (!p) return false;
+  await ensureSchema();
+  const a = userA.trim();
+  const b = userB.trim();
+  if (!a || !b || a === b) return false;
+  const { rows } = await p.query<{ ok: boolean }>(
+    `SELECT (
+       EXISTS (SELECT 1 FROM user_follows WHERE follower_id = $1 AND followed_id = $2) AND
+       EXISTS (SELECT 1 FROM user_follows WHERE follower_id = $2 AND followed_id = $1)
+     ) AS ok`,
+    [a, b],
+  );
+  return Boolean(rows[0]?.ok);
+}
+
 /** 被推荐者视角下用于主题「xx推荐」的 xx：优先「我对 TA 的关注备注」、其次「我对粉丝的备注」、再昵称 */
 export async function resolveRecommenderThemePrefix(fromUserId: string, toUserId: string): Promise<string> {
   const p = getPoolOrNull();
@@ -2229,6 +2247,48 @@ export async function insertRecommendationMeta(fromUserId: string, toUserId: str
     `INSERT INTO article_recommendations (id, from_user_id, to_user_id, article_id) VALUES ($1, $2, $3, $4)`,
     [randomUUID(), fromUserId.trim(), toUserId.trim(), articleId.trim()],
   );
+}
+
+/** 推荐人撤回：删除推荐记录；若对方仍为待读则删除该篇及关联评论 */
+export async function cancelRecommendationBySender(
+  fromUserId: string,
+  recommendationId: string,
+): Promise<{ ok: true } | { ok: false; error: "not_found" | "db_not_configured" }> {
+  const pool = getPoolOrNull();
+  if (!pool) return { ok: false, error: "db_not_configured" };
+  await ensureSchema();
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const { rows } = await client.query<{ article_id: string; to_user_id: string }>(
+      `SELECT article_id, to_user_id FROM article_recommendations WHERE id = $1 AND from_user_id = $2`,
+      [recommendationId.trim(), fromUserId.trim()],
+    );
+    const meta = rows[0];
+    if (!meta) {
+      await client.query("ROLLBACK");
+      return { ok: false, error: "not_found" };
+    }
+    const { rows: ar } = await client.query<{ status: string }>(
+      `SELECT status FROM articles WHERE id = $1 AND user_id = $2`,
+      [meta.article_id, meta.to_user_id],
+    );
+    if (ar[0]?.status === "todo") {
+      await client.query(`DELETE FROM article_social_comments WHERE article_id = $1 AND article_owner_id = $2`, [
+        meta.article_id,
+        meta.to_user_id,
+      ]);
+      await client.query(`DELETE FROM articles WHERE id = $1 AND user_id = $2`, [meta.article_id, meta.to_user_id]);
+    }
+    await client.query(`DELETE FROM article_recommendations WHERE id = $1`, [recommendationId.trim()]);
+    await client.query("COMMIT");
+    return { ok: true };
+  } catch (e) {
+    await client.query("ROLLBACK");
+    throw e;
+  } finally {
+    client.release();
+  }
 }
 
 export type RecommendationSentRow = {
@@ -2302,6 +2362,38 @@ export async function listFollowingEnriched(followerId: string): Promise<Followi
   }>(
     `SELECT f.id, f.followed_id, f.label, f.created_at, p.nickname, r.email
      FROM user_follows f
+     LEFT JOIN user_profiles p ON p.user_id = f.followed_id
+     LEFT JOIN app_user_registry r ON r.user_id = f.followed_id
+     WHERE f.follower_id = $1
+     ORDER BY f.created_at DESC`,
+    [followerId.trim()],
+  );
+  return rows.map((r) => ({
+    id: r.id,
+    followedId: r.followed_id,
+    label: r.label?.trim() || "",
+    nickname: r.nickname?.trim() || "未设置昵称",
+    emailHint: r.email?.trim() || "",
+    createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
+  }));
+}
+
+/** 我关注的用户中，与对方互相关注的条目（用于推荐等） */
+export async function listMutualFollowingEnriched(followerId: string): Promise<FollowingRowUi[]> {
+  const p = getPoolOrNull();
+  if (!p) return [];
+  await ensureSchema();
+  const { rows } = await p.query<{
+    id: string;
+    followed_id: string;
+    label: string;
+    created_at: Date | string;
+    nickname: string | null;
+    email: string | null;
+  }>(
+    `SELECT f.id, f.followed_id, f.label, f.created_at, p.nickname, r.email
+     FROM user_follows f
+     INNER JOIN user_follows rev ON rev.follower_id = f.followed_id AND rev.followed_id = f.follower_id
      LEFT JOIN user_profiles p ON p.user_id = f.followed_id
      LEFT JOIN app_user_registry r ON r.user_id = f.followed_id
      WHERE f.follower_id = $1

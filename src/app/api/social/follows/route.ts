@@ -1,15 +1,17 @@
 import { NextResponse } from "next/server";
 import { getRouteHandlerUser } from "@/lib/auth/api";
-import { createFollow, deleteFollow, listFollowingEnriched, updateFollowLabel } from "@/lib/db";
+import { createFollow, deleteFollow, listFollowingEnriched, listMutualFollowingEnriched, updateFollowLabel } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(req: Request) {
   const session = await getRouteHandlerUser();
   if (!session?.id) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
-  const follows = await listFollowingEnriched(session.id);
+  const mutual = new URL(req.url).searchParams.get("mutual");
+  const mutualOnly = mutual === "1" || mutual === "true";
+  const follows = mutualOnly ? await listMutualFollowingEnriched(session.id) : await listFollowingEnriched(session.id);
   return NextResponse.json({ follows });
 }
 
