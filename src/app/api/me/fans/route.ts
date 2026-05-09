@@ -5,9 +5,11 @@ import {
   ensureUserProfile,
   getUserProfile,
   listFansForUser,
-  listFollowsByFollower,
+  listFollowingEnriched,
   createFollow,
   markFansSeen,
+  upsertFanLabel,
+  getFanLabel,
 } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
@@ -21,14 +23,18 @@ export async function GET() {
   const profile = await getUserProfile(session.id);
   const since = profile?.lastFansSeenAt ?? null;
   const newCount = await countFansSince(session.id, since);
-  const fans = await listFansForUser(session.id);
-  const myFollows = await listFollowsByFollower(session.id);
-  const followingSet = new Set(myFollows.map((f) => f.followedId));
-  return NextResponse.json({
-    fans: fans.map((f) => ({
+  const fansRaw = await listFansForUser(session.id);
+  const following = await listFollowingEnriched(session.id);
+  const followingSet = new Set(following.map((f) => f.followedId));
+  const fans = await Promise.all(
+    fansRaw.map(async (f) => ({
       ...f,
       isFollowingBack: followingSet.has(f.followerId),
+      myLabel: await getFanLabel(session.id, f.followerId),
     })),
+  );
+  return NextResponse.json({
+    fans,
     newFanCount: newCount,
     lastFansSeenAt: profile?.lastFansSeenAt ?? null,
   });
@@ -39,11 +45,16 @@ export async function POST(req: Request) {
   if (!session?.id) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
-  let body: { action?: string; followerId?: string };
+  let body: { action?: string; followerId?: string; label?: string };
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: "invalid_json" }, { status: 400 });
+  }
+  if (body.action === "set_fan_label" && body.followerId) {
+    const label = typeof body.label === "string" ? body.label.trim() : "";
+    await upsertFanLabel(session.id, body.followerId.trim(), label || "");
+    return NextResponse.json({ ok: true });
   }
   if (body.action === "ack_seen") {
     await markFansSeen(session.id);

@@ -284,6 +284,27 @@ async function ensureSchema(): Promise<void> {
         CREATE INDEX IF NOT EXISTS idx_article_social_comments_article
         ON article_social_comments (article_id, article_owner_id);
       `);
+      await p.query(`
+        CREATE TABLE IF NOT EXISTS user_fan_labels (
+          owner_id TEXT NOT NULL,
+          fan_user_id TEXT NOT NULL,
+          label TEXT NOT NULL DEFAULT '',
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          PRIMARY KEY (owner_id, fan_user_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_user_fan_labels_owner ON user_fan_labels (owner_id);
+      `);
+      await p.query(`
+        CREATE TABLE IF NOT EXISTS article_recommendations (
+          id TEXT PRIMARY KEY,
+          from_user_id TEXT NOT NULL,
+          to_user_id TEXT NOT NULL,
+          article_id TEXT NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        CREATE INDEX IF NOT EXISTS idx_article_rec_from ON article_recommendations (from_user_id);
+        CREATE INDEX IF NOT EXISTS idx_article_rec_to ON article_recommendations (to_user_id);
+      `);
       await migrateTokenUsageLogAggregated(p);
       await seedDemoIfEmpty(p);
     })().catch((err) => {
@@ -2115,4 +2136,184 @@ export async function insertSocialComment(params: {
   );
   const list = await listSocialComments(params.articleId, params.articleOwnerId);
   return list.find((x) => x.id === id) ?? null;
+}
+
+export async function updateFollowLabel(followerId: string, followedId: string, label: string): Promise<boolean> {
+  const p = getPoolOrNull();
+  if (!p) throw new Error("db_not_configured");
+  await ensureSchema();
+  const r = await p.query(`UPDATE user_follows SET label = $1 WHERE follower_id = $2 AND followed_id = $3`, [
+    label.trim().slice(0, 120),
+    followerId.trim(),
+    followedId.trim(),
+  ]);
+  return (r.rowCount ?? 0) > 0;
+}
+
+export async function upsertFanLabel(ownerId: string, fanUserId: string, label: string): Promise<void> {
+  const p = getPoolOrNull();
+  if (!p) throw new Error("db_not_configured");
+  await ensureSchema();
+  await p.query(
+    `INSERT INTO user_fan_labels (owner_id, fan_user_id, label, updated_at)
+     VALUES ($1, $2, $3, NOW())
+     ON CONFLICT (owner_id, fan_user_id) DO UPDATE SET label = EXCLUDED.label, updated_at = NOW()`,
+    [ownerId.trim(), fanUserId.trim(), label.trim().slice(0, 120)],
+  );
+}
+
+export async function getFanLabel(ownerId: string, fanUserId: string): Promise<string> {
+  const p = getPoolOrNull();
+  if (!p) return "";
+  await ensureSchema();
+  const { rows } = await p.query<{ label: string }>(
+    `SELECT label FROM user_fan_labels WHERE owner_id = $1 AND fan_user_id = $2 LIMIT 1`,
+    [ownerId.trim(), fanUserId.trim()],
+  );
+  return rows[0]?.label?.trim() ?? "";
+}
+
+export async function userHasArticleUrl(userId: string, urlNorm: string): Promise<boolean> {
+  const p = getPoolOrNull();
+  if (!p) return false;
+  await ensureSchema();
+  const { rows } = await p.query<{ c: string }>(
+    `SELECT COUNT(*)::text AS c FROM articles WHERE user_id = $1 AND url = $2`,
+    [userId.trim(), urlNorm.trim()],
+  );
+  return Number(rows[0]?.c ?? "0") > 0;
+}
+
+export async function verifyFollows(followerId: string, followedId: string): Promise<boolean> {
+  const p = getPoolOrNull();
+  if (!p) return false;
+  await ensureSchema();
+  const { rows } = await p.query<{ c: string }>(
+    `SELECT COUNT(*)::text AS c FROM user_follows WHERE follower_id = $1 AND followed_id = $2`,
+    [followerId.trim(), followedId.trim()],
+  );
+  return Number(rows[0]?.c ?? "0") > 0;
+}
+
+/** 被推荐者视角下用于主题「xx推荐」的 xx：优先「我对 TA 的关注备注」、其次「我对粉丝的备注」、再昵称 */
+export async function resolveRecommenderThemePrefix(fromUserId: string, toUserId: string): Promise<string> {
+  const p = getPoolOrNull();
+  if (!p) return "好友";
+  await ensureSchema();
+  const { rows: r1 } = await p.query<{ label: string }>(
+    `SELECT label FROM user_follows WHERE follower_id = $1 AND followed_id = $2 LIMIT 1`,
+    [toUserId.trim(), fromUserId.trim()],
+  );
+  const a = r1[0]?.label?.trim();
+  if (a) return a.slice(0, 24);
+  const { rows: r2 } = await p.query<{ label: string }>(
+    `SELECT label FROM user_fan_labels WHERE owner_id = $1 AND fan_user_id = $2 LIMIT 1`,
+    [toUserId.trim(), fromUserId.trim()],
+  );
+  const b = r2[0]?.label?.trim();
+  if (b) return b.slice(0, 24);
+  const { rows: r3 } = await p.query<{ nickname: string }>(
+    `SELECT nickname FROM user_profiles WHERE user_id = $1 LIMIT 1`,
+    [fromUserId.trim()],
+  );
+  const n = r3[0]?.nickname?.trim();
+  if (n) return n.slice(0, 24);
+  return "好友";
+}
+
+export async function insertRecommendationMeta(fromUserId: string, toUserId: string, articleId: string): Promise<void> {
+  const p = getPoolOrNull();
+  if (!p) throw new Error("db_not_configured");
+  await ensureSchema();
+  await p.query(
+    `INSERT INTO article_recommendations (id, from_user_id, to_user_id, article_id) VALUES ($1, $2, $3, $4)`,
+    [randomUUID(), fromUserId.trim(), toUserId.trim(), articleId.trim()],
+  );
+}
+
+export type RecommendationSentRow = {
+  id: string;
+  toUserId: string;
+  toNickname: string;
+  targetArticleId: string;
+  title: string;
+  url: string;
+  targetStatus: "todo" | "done";
+  createdAt: string;
+};
+
+export async function listRecommendationsSent(fromUserId: string): Promise<RecommendationSentRow[]> {
+  const p = getPoolOrNull();
+  if (!p) return [];
+  await ensureSchema();
+  const { rows } = await p.query<{
+    id: string;
+    to_user_id: string;
+    article_id: string;
+    created_at: Date | string;
+    title: string | null;
+    url: string | null;
+    status: string | null;
+    to_nick: string | null;
+  }>(
+    `SELECT r.id, r.to_user_id, r.article_id, r.created_at,
+            a.title, a.url, a.status,
+            p.nickname AS to_nick
+     FROM article_recommendations r
+     JOIN articles a ON a.id = r.article_id AND a.user_id = r.to_user_id
+     LEFT JOIN user_profiles p ON p.user_id = r.to_user_id
+     WHERE r.from_user_id = $1
+     ORDER BY r.created_at DESC
+     LIMIT 200`,
+    [fromUserId.trim()],
+  );
+  return rows.map((x) => ({
+    id: x.id,
+    toUserId: x.to_user_id,
+    toNickname: x.to_nick?.trim() || "未设置昵称",
+    targetArticleId: x.article_id,
+    title: x.title?.trim() || x.url || "（无标题）",
+    url: x.url?.trim() || "",
+    targetStatus: x.status === "done" ? "done" : "todo",
+    createdAt: x.created_at instanceof Date ? x.created_at.toISOString() : String(x.created_at),
+  }));
+}
+
+export type FollowingRowUi = {
+  id: string;
+  followedId: string;
+  label: string;
+  nickname: string;
+  emailHint: string;
+  createdAt: string;
+};
+
+export async function listFollowingEnriched(followerId: string): Promise<FollowingRowUi[]> {
+  const p = getPoolOrNull();
+  if (!p) return [];
+  await ensureSchema();
+  const { rows } = await p.query<{
+    id: string;
+    followed_id: string;
+    label: string;
+    created_at: Date | string;
+    nickname: string | null;
+    email: string | null;
+  }>(
+    `SELECT f.id, f.followed_id, f.label, f.created_at, p.nickname, r.email
+     FROM user_follows f
+     LEFT JOIN user_profiles p ON p.user_id = f.followed_id
+     LEFT JOIN app_user_registry r ON r.user_id = f.followed_id
+     WHERE f.follower_id = $1
+     ORDER BY f.created_at DESC`,
+    [followerId.trim()],
+  );
+  return rows.map((r) => ({
+    id: r.id,
+    followedId: r.followed_id,
+    label: r.label?.trim() || "",
+    nickname: r.nickname?.trim() || "未设置昵称",
+    emailHint: r.email?.trim() || "",
+    createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
+  }));
 }

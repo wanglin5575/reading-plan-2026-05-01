@@ -454,16 +454,216 @@ a:active { opacity: 0.7; }
   color: var(--muted);
 }
 
-/* 添加页：部分浏览器下 type=date 不按 100% 拉伸，包裹层保证与链接输入同宽 */
+/* 添加页：WebKit 下 date 控件固有 min-width 很大，需在栅格里允许轨道缩到 0（见 .row minmax） */
 .add-form-date-wrap {
   width: 100%;
+  max-width: 100%;
   min-width: 0;
+  box-sizing: border-box;
 }
 
 .add-form-date-wrap .input[type="date"] {
   display: block;
   width: 100%;
   max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+/* 与日期框一致：iOS 上 URL / 下拉避免撑破卡片 */
+.add-form-url-wrap {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.add-form-url-wrap .input[type="url"] {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.add-article-card {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.add-form-select {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  background: var(--card);
+  color: var(--ink);
+}
+
+.add-article-steps {
+  list-style: none;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.add-article-step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  font-size: var(--fs-small);
+  color: var(--muted);
+}
+
+.add-article-step.done {
+  color: var(--ok);
+}
+
+.add-article-step.active {
+  color: var(--ink);
+  font-weight: var(--fw-semibold);
+}
+
+.add-article-step-idx {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--fs-small);
+}
+
+.add-article-step.done .add-article-step-idx {
+  background: var(--ok);
+  border-color: var(--ok);
+  color: #fff;
+}
+
+.add-article-step.active .add-article-step-idx {
+  border-color: var(--brand);
+  color: var(--brand);
+}
+
+.add-article-step-pulse {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--brand);
+  margin-left: auto;
+  animation: add-step-pulse 1s ease-in-out infinite;
+}
+
+@keyframes add-step-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.9);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.recommend-pick-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.recommend-pick-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 10px;
+  margin-bottom: 8px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+  color: var(--ink);
+}
+
+.recommend-pick-row:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.recommend-pick-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.recommend-pick-name {
+  font-weight: var(--fw-semibold);
+}
+
+.recommend-pick-sub {
+  font-size: var(--fs-small);
+}
+
+.recommend-pick-chev {
+  flex-shrink: 0;
+  color: var(--muted);
+}
+
+.social-people-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.social-people-tab {
+  flex: 1;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  font: inherit;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: var(--fs-small);
+}
+
+.social-people-tab.is-active {
+  border-color: var(--brand);
+  color: var(--brand);
+  background: var(--brand-soft);
+}
+
+.social-label-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.social-label-row:last-child {
+  border-bottom: none;
+}
+
+.social-rec-item {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: var(--fs-body);
+}
+
+.social-rec-item:last-child {
+  border-bottom: none;
 }
 .read-submit-card {
   margin-top: 10px;
@@ -2662,11 +2862,14 @@ a.account-menu-item--link:hover {
 
 .row {
   display: grid;
-  grid-template-columns: 1fr;
+  /* minmax(0,1fr)：避免子项（尤其 type=date）min-content 过宽时撑破卡片；1fr 默认含 auto 下限 */
+  grid-template-columns: minmax(0, 1fr);
   gap: 8px;
 }
 
-.row.two { grid-template-columns: 1fr 1fr; }
+.row.two {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
 
 .featured-choice-label {
   margin-bottom: 6px;

@@ -23,6 +23,26 @@ type FanRowUi = {
   emailHint: string;
   createdAt: string;
   isFollowingBack?: boolean;
+  myLabel?: string;
+};
+
+type FollowingRowUi = {
+  id: string;
+  followedId: string;
+  label: string;
+  nickname: string;
+  emailHint: string;
+  createdAt: string;
+};
+
+type RecRowUi = {
+  id: string;
+  toUserId: string;
+  toNickname: string;
+  title: string;
+  url: string;
+  targetStatus: "todo" | "done";
+  createdAt: string;
 };
 
 function ThreeDotsIcon({ className }: { className?: string }) {
@@ -32,6 +52,82 @@ function ThreeDotsIcon({ className }: { className?: string }) {
       <circle cx="12" cy="12" r="2" fill="currentColor" />
       <circle cx="12" cy="19" r="2" fill="currentColor" />
     </svg>
+  );
+}
+
+function FanNoteEditor({
+  followerId,
+  initialLabel,
+  nickname,
+  busy,
+  onSave,
+}: {
+  followerId: string;
+  initialLabel: string;
+  nickname: string;
+  busy: boolean;
+  onSave: (followerId: string, label: string) => void;
+}) {
+  const [v, setV] = useState(initialLabel);
+  useEffect(() => setV(initialLabel), [initialLabel, followerId]);
+  return (
+    <div className="social-label-row">
+      <div className="fan-row-main">
+        <div className="fan-nick">{nickname}</div>
+        <label className="muted-link" style={{ fontSize: "var(--fs-small)" }} htmlFor={`fan-lab-${followerId}`}>
+          我的备注
+        </label>
+        <input
+          id={`fan-lab-${followerId}`}
+          className="input"
+          value={v}
+          onChange={(e) => setV(e.target.value)}
+          disabled={busy}
+          placeholder="给对方起的备注（选填）"
+        />
+      </div>
+      <button type="button" className="btn secondary" style={{ marginTop: 6 }} disabled={busy} onClick={() => onSave(followerId, v)}>
+        保存备注
+      </button>
+    </div>
+  );
+}
+
+function FollowingLabelEditor({
+  followedId,
+  initialLabel,
+  nickname,
+  busy,
+  onSave,
+}: {
+  followedId: string;
+  initialLabel: string;
+  nickname: string;
+  busy: boolean;
+  onSave: (followedId: string, label: string) => void;
+}) {
+  const [v, setV] = useState(initialLabel);
+  useEffect(() => setV(initialLabel), [initialLabel, followedId]);
+  return (
+    <div className="social-label-row">
+      <div className="fan-row-main">
+        <div className="fan-nick">{nickname}</div>
+        <label className="muted-link" style={{ fontSize: "var(--fs-small)" }} htmlFor={`fol-lab-${followedId}`}>
+          关注备注（随览标签等）
+        </label>
+        <input
+          id={`fol-lab-${followedId}`}
+          className="input"
+          value={v}
+          onChange={(e) => setV(e.target.value)}
+          disabled={busy}
+          placeholder="如：大牛的待读"
+        />
+      </div>
+      <button type="button" className="btn secondary" style={{ marginTop: 6 }} disabled={busy} onClick={() => onSave(followedId, v)}>
+        保存
+      </button>
+    </div>
   );
 }
 
@@ -77,11 +173,18 @@ export function AccountAvatarMenu({
   const [newPassword2, setNewPassword2] = useState("");
   const [showRegistryDot, setShowRegistryDot] = useState(false);
   const [showVipPwDot, setShowVipPwDot] = useState(false);
-  const [fansOpen, setFansOpen] = useState(false);
+  const [socialPeopleOpen, setSocialPeopleOpen] = useState(false);
+  const [socialTab, setSocialTab] = useState<"fans" | "following">("fans");
   const [fansRows, setFansRows] = useState<FanRowUi[]>([]);
+  const [followingRows, setFollowingRows] = useState<FollowingRowUi[]>([]);
   const [fansLoading, setFansLoading] = useState(false);
   const [fansErr, setFansErr] = useState<string | null>(null);
   const [fanActionBusy, setFanActionBusy] = useState(false);
+  const [labelBusyId, setLabelBusyId] = useState<string | null>(null);
+  const [recOpen, setRecOpen] = useState(false);
+  const [recLoading, setRecLoading] = useState(false);
+  const [recErr, setRecErr] = useState<string | null>(null);
+  const [recRows, setRecRows] = useState<RecRowUi[]>([]);
   const [profileOpen, setProfileOpen] = useState(false);
   const [profileUid, setProfileUid] = useState("");
   const [profileEmailField, setProfileEmailField] = useState("");
@@ -170,17 +273,18 @@ export function AccountAvatarMenu({
   }, [menuOpen, closeMenu]);
 
   useEffect(() => {
-    if (!pwOpen && !fansOpen && !profileOpen) return;
+    if (!pwOpen && !socialPeopleOpen && !profileOpen && !recOpen) return;
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
       document.body.style.overflow = prev;
     };
-  }, [pwOpen, fansOpen, profileOpen]);
+  }, [pwOpen, socialPeopleOpen, profileOpen, recOpen]);
 
-  async function openFansModal() {
+  async function openSocialPeopleModal() {
     closeMenu();
-    setFansOpen(true);
+    setSocialPeopleOpen(true);
+    setSocialTab("fans");
     setFansErr(null);
     setFansLoading(true);
     try {
@@ -191,13 +295,73 @@ export function AccountAvatarMenu({
       });
       router.refresh();
       const r = await fetch("/api/me/fans", { cache: "no-store" });
-      const d = (await r.json().catch(() => ({}))) as { error?: string; fans?: FanRowUi[] };
+      const d = (await r.json().catch(() => ({}))) as {
+        error?: string;
+        fans?: FanRowUi[];
+        following?: FollowingRowUi[];
+      };
       if (!r.ok) throw new Error(d.error || "加载失败");
       setFansRows(d.fans ?? []);
+      setFollowingRows(d.following ?? []);
     } catch (e: unknown) {
       setFansErr(e instanceof Error ? e.message : "加载失败");
     } finally {
       setFansLoading(false);
+    }
+  }
+
+  async function openRecommendationsModal() {
+    closeMenu();
+    setRecOpen(true);
+    setRecErr(null);
+    setRecLoading(true);
+    try {
+      const r = await fetch("/api/social/recommendations", { cache: "no-store" });
+      const d = (await r.json().catch(() => ({}))) as { error?: string; items?: RecRowUi[] };
+      if (!r.ok) throw new Error(d.error || "加载失败");
+      setRecRows(d.items ?? []);
+    } catch (e: unknown) {
+      setRecErr(e instanceof Error ? e.message : "加载失败");
+    } finally {
+      setRecLoading(false);
+    }
+  }
+
+  async function saveFanLabel(followerId: string, label: string) {
+    setLabelBusyId(`fan:${followerId}`);
+    setFansErr(null);
+    try {
+      const r = await fetch("/api/me/fans", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "set_fan_label", followerId, label }),
+      });
+      const d = (await r.json().catch(() => ({}))) as { error?: string };
+      if (!r.ok) throw new Error(d.error || "保存失败");
+      setFansRows((rows) => rows.map((x) => (x.followerId === followerId ? { ...x, myLabel: label.trim() } : x)));
+    } catch (e: unknown) {
+      setFansErr(e instanceof Error ? e.message : "保存失败");
+    } finally {
+      setLabelBusyId(null);
+    }
+  }
+
+  async function saveFollowingLabel(followedId: string, label: string) {
+    setLabelBusyId(`fol:${followedId}`);
+    setFansErr(null);
+    try {
+      const r = await fetch("/api/social/follows", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ followedUserId: followedId, label }),
+      });
+      const d = (await r.json().catch(() => ({}))) as { error?: string };
+      if (!r.ok) throw new Error(d.error || "保存失败");
+      setFollowingRows((rows) => rows.map((x) => (x.followedId === followedId ? { ...x, label: label.trim() } : x)));
+    } catch (e: unknown) {
+      setFansErr(e instanceof Error ? e.message : "保存失败");
+    } finally {
+      setLabelBusyId(null);
     }
   }
 
@@ -213,8 +377,11 @@ export function AccountAvatarMenu({
       const d = (await r.json().catch(() => ({}))) as { error?: string };
       if (!r.ok) throw new Error(d.error || "操作失败");
       const r2 = await fetch("/api/me/fans", { cache: "no-store" });
-      const d2 = (await r2.json().catch(() => ({}))) as { fans?: FanRowUi[] };
-      if (r2.ok) setFansRows(d2.fans ?? []);
+      const d2 = (await r2.json().catch(() => ({}))) as { fans?: FanRowUi[]; following?: FollowingRowUi[] };
+      if (r2.ok) {
+        setFansRows(d2.fans ?? []);
+        setFollowingRows(d2.following ?? []);
+      }
       router.refresh();
     } catch (e: unknown) {
       setFansErr(e instanceof Error ? e.message : "操作失败");
@@ -396,62 +563,141 @@ export function AccountAvatarMenu({
 
   const vipName = vipSyntheticAccountName(profileEmailField);
 
-  const fansModal =
+  const socialPeopleModal =
     mounted &&
-    fansOpen && (
+    socialPeopleOpen && (
       <div
         className="modal-backdrop"
         role="presentation"
-        onClick={(e) => e.target === e.currentTarget && !fanActionBusy && setFansOpen(false)}
+        onClick={(e) => e.target === e.currentTarget && !fanActionBusy && !labelBusyId && setSocialPeopleOpen(false)}
       >
         <div
           className="modal-sheet"
           role="dialog"
           aria-modal="true"
-          aria-labelledby="fans-title"
+          aria-labelledby="social-people-title"
           onClick={(e) => e.stopPropagation()}
         >
           <div className="modal-sheet-header">
-            <h2 id="fans-title">我的粉丝</h2>
+            <h2 id="social-people-title">关注与粉丝</h2>
             <button
               type="button"
               className="modal-sheet-close"
-              onClick={() => !fanActionBusy && setFansOpen(false)}
+              onClick={() => !fanActionBusy && !labelBusyId && setSocialPeopleOpen(false)}
               aria-label="关闭"
             >
               ×
             </button>
           </div>
           <div className="modal-sheet-body">
+            <div className="social-people-tabs" role="tablist">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={socialTab === "fans"}
+                className={`social-people-tab${socialTab === "fans" ? " is-active" : ""}`}
+                onClick={() => setSocialTab("fans")}
+              >
+                粉丝 · {fansRows.length}
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={socialTab === "following"}
+                className={`social-people-tab${socialTab === "following" ? " is-active" : ""}`}
+                onClick={() => setSocialTab("following")}
+              >
+                关注 · {followingRows.length}
+              </button>
+            </div>
             {fansLoading ? <p className="muted-link">加载中…</p> : null}
             {fansErr ? <p className="me-msg">{fansErr}</p> : null}
-            {!fansLoading && !fansErr && fansRows.length === 0 ? <p className="muted-link">暂无粉丝</p> : null}
-            <ul className="fan-list-plain">
-              {fansRows.map((f) => (
-                <li key={f.followerId} className="fan-row">
-                  <div className="fan-row-main">
-                    <div className="fan-nick">{f.nickname}</div>
-                    {f.emailHint ? (
-                      <div className="muted-link fan-row-hint">
-                        {f.emailHint}
+            {socialTab === "fans" && !fansLoading && !fansErr && fansRows.length === 0 ? <p className="muted-link">暂无粉丝</p> : null}
+            {socialTab === "following" && !fansLoading && !fansErr && followingRows.length === 0 ? (
+              <p className="muted-link">暂无关注</p>
+            ) : null}
+            {socialTab === "fans" ? (
+              <ul className="fan-list-plain">
+                {fansRows.map((f) => (
+                  <li key={f.followerId} className="fan-row" style={{ flexDirection: "column", alignItems: "stretch" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                      <div className="fan-row-main">
+                        <div className="fan-nick">{f.nickname}</div>
+                        {f.emailHint ? <div className="muted-link fan-row-hint">{f.emailHint}</div> : null}
                       </div>
-                    ) : null}
-                  </div>
-                  {f.isFollowingBack ? (
-                    <span className="muted-link fan-row-hint">已互关</span>
-                  ) : (
-                    <button
-                      type="button"
-                      className="btn secondary fan-follow-back-btn"
-                      disabled={fanActionBusy}
-                      onClick={() => void onFollowBack(f.followerId)}
-                    >
-                      回关
-                    </button>
-                  )}
-                </li>
-              ))}
-            </ul>
+                      {f.isFollowingBack ? (
+                        <span className="muted-link fan-row-hint">已互关</span>
+                      ) : (
+                        <button
+                          type="button"
+                          className="btn secondary fan-follow-back-btn"
+                          disabled={fanActionBusy}
+                          onClick={() => void onFollowBack(f.followerId)}
+                        >
+                          回关
+                        </button>
+                      )}
+                    </div>
+                    <FanNoteEditor
+                      followerId={f.followerId}
+                      initialLabel={f.myLabel ?? ""}
+                      nickname={f.nickname}
+                      busy={labelBusyId === `fan:${f.followerId}`}
+                      onSave={(id, lab) => void saveFanLabel(id, lab)}
+                    />
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            {socialTab === "following"
+              ? followingRows.map((f) => (
+                  <FollowingLabelEditor
+                    key={f.followedId}
+                    followedId={f.followedId}
+                    initialLabel={f.label}
+                    nickname={f.nickname}
+                    busy={labelBusyId === `fol:${f.followedId}`}
+                    onSave={(id, lab) => void saveFollowingLabel(id, lab)}
+                  />
+                ))
+              : null}
+          </div>
+        </div>
+      </div>
+    );
+
+  const recommendationsModal =
+    mounted &&
+    recOpen && (
+      <div
+        className="modal-backdrop"
+        role="presentation"
+        onClick={(e) => e.target === e.currentTarget && !recLoading && setRecOpen(false)}
+      >
+        <div className="modal-sheet" role="dialog" aria-modal="true" aria-labelledby="rec-title" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-sheet-header">
+            <h2 id="rec-title">我的推荐</h2>
+            <button type="button" className="modal-sheet-close" onClick={() => !recLoading && setRecOpen(false)} aria-label="关闭">
+              ×
+            </button>
+          </div>
+          <div className="modal-sheet-body">
+            {recLoading ? <p className="muted-link">加载中…</p> : null}
+            {recErr ? <p className="me-msg">{recErr}</p> : null}
+            {!recLoading && !recErr && recRows.length === 0 ? <p className="muted-link">暂无推荐记录</p> : null}
+            {recRows.map((r) => (
+              <div key={r.id} className="social-rec-item">
+                <div style={{ fontWeight: 600 }}>{r.title}</div>
+                <div className="muted-link" style={{ fontSize: "var(--fs-small)", marginTop: 4 }}>
+                  推荐给 {r.toNickname} · 对方状态：{r.targetStatus === "done" ? "已读" : "待读"}
+                </div>
+                {r.url ? (
+                  <a href={r.url} target="_blank" rel="noreferrer" className="muted-link" style={{ fontSize: "var(--fs-small)", wordBreak: "break-all" }}>
+                    {r.url}
+                  </a>
+                ) : null}
+              </div>
+            ))}
           </div>
         </div>
       </div>
@@ -546,9 +792,12 @@ export function AccountAvatarMenu({
             <p className="account-menu-email" role="presentation">
               {email}
             </p>
-            <button type="button" className="account-menu-item account-menu-item--with-badge" role="menuitem" onClick={() => void openFansModal()}>
-              <span className="account-menu-item-label">查看粉丝</span>
+            <button type="button" className="account-menu-item account-menu-item--with-badge" role="menuitem" onClick={() => void openSocialPeopleModal()}>
+              <span className="account-menu-item-label">查看关注/粉丝</span>
               {showFanDot ? <span className="account-menu-fan-dot" aria-hidden /> : null}
+            </button>
+            <button type="button" className="account-menu-item" role="menuitem" onClick={() => void openRecommendationsModal()}>
+              我的推荐
             </button>
             <button type="button" className="account-menu-item" role="menuitem" onClick={() => void openProfileModal()}>
               修改账号信息
@@ -585,7 +834,8 @@ export function AccountAvatarMenu({
         )}
       </div>
       {modal && createPortal(modal, document.body)}
-      {fansModal && createPortal(fansModal, document.body)}
+      {socialPeopleModal && createPortal(socialPeopleModal, document.body)}
+      {recommendationsModal && createPortal(recommendationsModal, document.body)}
       {profileModal && createPortal(profileModal, document.body)}
       <TokenUsageViewerModal
         open={tokenUsageOpen}

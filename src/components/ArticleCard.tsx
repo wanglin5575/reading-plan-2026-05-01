@@ -12,6 +12,7 @@ import { fallbackReadModalBody } from "@/lib/read-modal-fallback";
 import { getReadPreviewUiCache, setReadPreviewUiCache } from "@/lib/read-preview-ui-cache";
 import { readPreviewSourceFromApiPayload, type ReadPreviewSource } from "@/lib/read-preview-source";
 import { buildArticlePreviewSource } from "@/lib/article-preview-source";
+import { RecommendToUserModal, useMyFollowsForRecommend } from "@/components/RecommendToUserModal";
 
 export type ArticleSocialComment = {
   id: string;
@@ -44,6 +45,8 @@ interface Props {
 
 /** 三钮（评论·已读·待读）露出宽度，与 Browse 双钮比例一致 */
 const FOLLOW_TODO_PLAN_SWIPE_REVEAL_PX = 200;
+/** 自有待读：推荐 + 已读 */
+const OWN_TODO_RECOMMEND_SWIPE_PX = 148;
 
 type DigestMode = "markDone" | "edit";
 
@@ -301,12 +304,20 @@ export function ArticleCard({
   const [socialCommentOpen, setSocialCommentOpen] = useState(false);
   const [socialDraft, setSocialDraft] = useState("");
   const [socialReplyTo, setSocialReplyTo] = useState<string | null>(null);
+  const [recommendOpen, setRecommendOpen] = useState(false);
+  const [recommendBusy, setRecommendBusy] = useState(false);
+  const [recommendErr, setRecommendErr] = useState<string | null>(null);
 
   const moreBtnRef = useRef<HTMLButtonElement>(null);
   const morePopRef = useRef<HTMLDivElement>(null);
 
+  const followsForRec = useMyFollowsForRecommend();
+  const hasRecFollows = followsForRec.length > 0;
+
   const showActionsEffective = showActions && !readOnlyBorrowed;
   const swipeMarkRead = showActionsEffective && article.status === "todo";
+  const ownDoneRecommendSwipe = showActionsEffective && article.status === "done" && hasRecFollows;
+  const ownTodoRecDouble = Boolean(swipeMarkRead && hasRecFollows);
   const followTodoPlanSwipe = Boolean(
     readOnlyBorrowed && swipeCommentOnly && article.status === "todo" && followPlanActions,
   );
@@ -315,8 +326,12 @@ export function ArticleCard({
       swipeCommentOnly &&
       (article.status === "done" || (article.status === "todo" && !followPlanActions)),
   );
-  const swipeFaceEnabled = swipeMarkRead || swipeCommentSolo || followTodoPlanSwipe;
-  const swipeRevealPx = followTodoPlanSwipe ? FOLLOW_TODO_PLAN_SWIPE_REVEAL_PX : 76;
+  const swipeFaceEnabled = swipeMarkRead || swipeCommentSolo || followTodoPlanSwipe || ownDoneRecommendSwipe;
+  const swipeRevealPx = followTodoPlanSwipe
+    ? FOLLOW_TODO_PLAN_SWIPE_REVEAL_PX
+    : ownTodoRecDouble
+      ? OWN_TODO_RECOMMEND_SWIPE_PX
+      : 76;
   const swipe = useSwipeCardFace(swipeFaceEnabled, swipeRevealPx);
 
   const [dueDate, setDueDate] = useState(article.dueDate);
@@ -391,8 +406,30 @@ export function ArticleCard({
   const closeSummary = useCallback(() => setSummaryOpen(false), []);
 
   useEffect(() => {
-    if (metaOpen || digestOpen || moreOpen || summaryOpen || socialCommentOpen) swipe.resetOffset();
-  }, [metaOpen, digestOpen, moreOpen, summaryOpen, socialCommentOpen, swipe.resetOffset]);
+    if (metaOpen || digestOpen || moreOpen || summaryOpen || socialCommentOpen || recommendOpen) swipe.resetOffset();
+  }, [metaOpen, digestOpen, moreOpen, summaryOpen, socialCommentOpen, recommendOpen, swipe.resetOffset]);
+
+  async function submitRecommendToUser(targetUserId: string) {
+    setRecommendBusy(true);
+    setRecommendErr(null);
+    try {
+      const r = await fetch("/api/social/recommend", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ targetUserId, sourceArticleId: article.id }),
+      });
+      const d = (await r.json().catch(() => ({}))) as { error?: string; message?: string };
+      if (!r.ok) throw new Error(d.message || d.error || "推荐失败");
+      swipe.resetOffset();
+      setRecommendOpen(false);
+      alert("已加入对方待读");
+      startTransition(() => router.refresh());
+    } catch (e) {
+      setRecommendErr(e instanceof Error ? e.message : "推荐失败");
+    } finally {
+      setRecommendBusy(false);
+    }
+  }
 
   useEffect(() => {
     if (!moreOpen) return;
@@ -1072,7 +1109,9 @@ export function ArticleCard({
         <div className="article-swipe-host">
           <div
             className={
-              followTodoPlanSwipe ? "article-swipe-underlay article-swipe-underlay--triple" : "article-swipe-underlay"
+              followTodoPlanSwipe
+                ? "article-swipe-underlay article-swipe-underlay--triple"
+                : ownTodoRecDouble ? "article-swipe-underlay article-swipe-underlay--double" : "article-swipe-underlay"
             }
             aria-hidden
           >
@@ -1131,6 +1170,37 @@ export function ArticleCard({
               >
                 评论
               </button>
+            ) : ownTodoRecDouble ? (
+              <>
+                <button
+                  type="button"
+                  className="article-swipe-comment-circle"
+                  onClick={() => {
+                    swipe.resetOffset();
+                    setRecommendErr(null);
+                    setRecommendOpen(true);
+                  }}
+                  aria-label="推荐 TA 读"
+                >
+                  推荐
+                </button>
+                <button type="button" className="article-swipe-read-circle" onClick={openMarkReadFromSwipe} aria-label="标记已读">
+                  已读
+                </button>
+              </>
+            ) : ownDoneRecommendSwipe ? (
+              <button
+                type="button"
+                className="article-swipe-comment-circle"
+                onClick={() => {
+                  swipe.resetOffset();
+                  setRecommendErr(null);
+                  setRecommendOpen(true);
+                }}
+                aria-label="推荐 TA 读"
+              >
+                推荐
+              </button>
             ) : (
               <button type="button" className="article-swipe-read-circle" onClick={openMarkReadFromSwipe} aria-label="标记已读">
                 已读
@@ -1154,6 +1224,20 @@ export function ArticleCard({
         {digestModal && createPortal(digestModal, document.body)}
         {summaryModal && createPortal(summaryModal, document.body)}
         {socialCommentModal && createPortal(socialCommentModal, document.body)}
+        {mounted
+          ? createPortal(
+              <RecommendToUserModal
+                open={recommendOpen}
+                articleTitle={article.title}
+                busy={recommendBusy}
+                error={recommendErr}
+                follows={followsForRec}
+                onClose={() => !recommendBusy && setRecommendOpen(false)}
+                onPick={(id) => void submitRecommendToUser(id)}
+              />,
+              document.body,
+            )
+          : null}
       </>
     );
   }

@@ -2,14 +2,49 @@ import { NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
 import { insertArticle, listArticlesForUser, recordTokenUsage, upsertUserRegistry } from "@/lib/db";
 import { buildArticleClassification } from "@/lib/classify";
-import { scrapeUrl } from "@/lib/scrape";
+import { scrapeUrl, type ScrapeResult } from "@/lib/scrape";
+import type { MediaKind } from "@/lib/media-kind";
 import { todayIso, shiftDays } from "@/lib/plan";
 import type { Article } from "@/lib/types";
 import { getRouteHandlerUser, getRouteHandlerUserId } from "@/lib/auth/api";
 import { isAuthEnabled } from "@/lib/auth";
 import { normalizeKeyPointsSlots, validateReadDigest } from "@/lib/read-digest";
+import { recommendMyArticleToUser } from "@/lib/recommend-article";
 
 export const dynamic = "force-dynamic";
+
+function parseMediaKind(v: unknown): MediaKind {
+  if (v === "video" || v === "audio" || v === "article") return v;
+  return "article";
+}
+
+function parseScrapeFromBody(raw: unknown): ScrapeResult | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const title = typeof o.title === "string" ? o.title : "";
+  const author = typeof o.author === "string" ? o.author : "";
+  const body = typeof o.body === "string" ? o.body : "";
+  const source = o.source === "firecrawl" || o.source === "fallback" ? o.source : "fallback";
+  const publishedIsoHint =
+    o.publishedIsoHint === null ? null : typeof o.publishedIsoHint === "string" ? o.publishedIsoHint : null;
+  const durationSeconds =
+    typeof o.durationSeconds === "number" && Number.isFinite(o.durationSeconds) ? o.durationSeconds : null;
+  const ogType = typeof o.ogType === "string" ? o.ogType : undefined;
+  const rawMarkdown = typeof o.rawMarkdown === "string" ? o.rawMarkdown : undefined;
+  const metadata = o.metadata && typeof o.metadata === "object" && !Array.isArray(o.metadata) ? (o.metadata as Record<string, unknown>) : undefined;
+  return {
+    title,
+    author,
+    body,
+    source,
+    ogType,
+    mediaKind: parseMediaKind(o.mediaKind),
+    durationSeconds,
+    publishedIsoHint,
+    rawMarkdown,
+    metadata,
+  };
+}
 
 export async function GET() {
   const uid = await getRouteHandlerUserId();
@@ -26,6 +61,8 @@ export async function POST(req: Request) {
     readOneLiner?: string;
     readKeyPoints?: string[];
     readAction?: string;
+    scrape?: unknown;
+    recommendToUserId?: string;
   };
   try {
     payload = await req.json();
@@ -60,25 +97,53 @@ export async function POST(req: Request) {
   }
 
   const dueDate = payload.dueDate || shiftDays(todayIso(), 2);
-  const scraped = await scrapeUrl(parsed.toString());
-  const classification = await buildArticleClassification(parsed.toString(), scraped.title, scraped.body, {
-    mediaKind: scraped.mediaKind,
-    durationSeconds: scraped.durationSeconds,
-    scrapeAuthor: scraped.author?.trim() || "",
-    publishedIsoHint: scraped.publishedIsoHint,
-    cacheUserId: ownerId,
-    onAiUsage: (usage) => {
-      if (usage && usage.totalTokens > 0 && session) {
-        void recordTokenUsage({
-          userId: session.id,
-          source: "article_classify",
-          promptTokens: usage.promptTokens,
-          completionTokens: usage.completionTokens,
-          totalTokens: usage.totalTokens,
-        });
-      }
-    },
-  });
+  const fromClient = parseScrapeFromBody(payload.scrape);
+  let scraped: ScrapeResult;
+  if (fromClient) {
+    scraped = fromClient;
+  } else {
+    try {
+      scraped = await scrapeUrl(parsed.toString());
+    } catch (e) {
+      console.error("[articles POST] scrape", e);
+      return NextResponse.json(
+        { error: "scrape_failed", message: e instanceof Error ? e.message : "网页抓取失败" },
+        { status: 502 },
+      );
+    }
+  }
+
+  let classification: Awaited<ReturnType<typeof buildArticleClassification>>;
+  try {
+    classification = await buildArticleClassification(parsed.toString(), scraped.title, scraped.body, {
+      mediaKind: scraped.mediaKind,
+      durationSeconds: scraped.durationSeconds,
+      scrapeAuthor: scraped.author?.trim() || "",
+      publishedIsoHint: scraped.publishedIsoHint,
+      cacheUserId: ownerId,
+      onAiUsage: (usage) => {
+        if (usage && usage.totalTokens > 0 && session) {
+          void recordTokenUsage({
+            userId: session.id,
+            source: "article_classify",
+            promptTokens: usage.promptTokens,
+            completionTokens: usage.completionTokens,
+            totalTokens: usage.totalTokens,
+          });
+        }
+      },
+    });
+  } catch (e) {
+    console.error("[articles POST] AI classification", e);
+    return NextResponse.json(
+      {
+        error: "ai_failed",
+        message: e instanceof Error ? e.message : "AI 生成摘要或分类失败，可稍后重试",
+      },
+      { status: 503 },
+    );
+  }
+
   const markIntensive = Boolean(payload.featured);
   const quickDone = Boolean(payload.quickDone);
   const topicHint =
@@ -120,7 +185,6 @@ export async function POST(req: Request) {
 
   try {
     await insertArticle(article, ownerId);
-    return NextResponse.json({ article }, { status: 201 });
   } catch (error) {
     if (error instanceof Error && error.message === "auth_required") {
       return NextResponse.json(
@@ -136,4 +200,17 @@ export async function POST(req: Request) {
     }
     throw error;
   }
+
+  let recommendNote: string | null = null;
+  const recId = typeof payload.recommendToUserId === "string" ? payload.recommendToUserId.trim() : "";
+  if (recId && ownerId) {
+    const rec = await recommendMyArticleToUser({
+      fromUserId: ownerId,
+      toUserId: recId,
+      source: article,
+    });
+    if (!rec.ok) recommendNote = rec.error;
+  }
+
+  return NextResponse.json({ article, recommendNote }, { status: 201 });
 }
