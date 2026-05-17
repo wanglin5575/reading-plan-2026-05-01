@@ -35,6 +35,7 @@ export async function GET() {
   );
   return NextResponse.json({
     fans,
+    following,
     newFanCount: newCount,
     lastFansSeenAt: profile?.lastFansSeenAt ?? null,
   });
@@ -61,7 +62,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true });
   }
   if (body.action === "follow_back" && body.followerId) {
-    const r = await createFollow(session.id, body.followerId.trim(), "回关");
+    const fid = body.followerId.trim();
+    const prof = await getUserProfile(fid);
+    const nick = prof?.nickname?.trim() || "书友";
+    const r = await createFollow(session.id, fid, `${nick}的Plan`.slice(0, 120));
     if (r === "self") return NextResponse.json({ error: "invalid" }, { status: 400 });
     return NextResponse.json({ ok: true, already: r === "exists" });
   }

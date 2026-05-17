@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getArticle, recordTokenUsage, updateArticle, upsertUserRegistry } from "@/lib/db";
 import { scrapeUrl } from "@/lib/scrape";
+import { buildBookAiReadSourcesLabel } from "@/lib/ai-read-sources-label";
 import { buildArticleClassification } from "@/lib/classify";
 import { getRouteHandlerUser } from "@/lib/auth/api";
 import { isAuthEnabled } from "@/lib/auth";
@@ -42,6 +43,7 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
       durationSeconds: scraped.durationSeconds,
       scrapeAuthor: scraped.author?.trim() || "",
       publishedIsoHint: scraped.publishedIsoHint,
+      screenshotDataUrl: scraped.screenshotDataUrl ?? null,
       cacheUserId: ownerId,
       onAiUsage: (usage) => {
         if (usage && usage.totalTokens > 0 && session) {
@@ -66,7 +68,12 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
     );
   }
 
-  const updated = { ...article, ...cls };
+  const aiReadSourcesLabel = buildBookAiReadSourcesLabel({
+    mediaKind: scraped.mediaKind,
+    bodyForAi: scraped.body,
+    hadScreenshot: Boolean(scraped.screenshotDataUrl),
+  });
+  const updated = { ...article, ...cls, aiReadSourcesLabel };
   try {
     await updateArticle(updated, ownerId ?? null);
     return NextResponse.json({ article: updated });

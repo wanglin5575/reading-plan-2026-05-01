@@ -34,6 +34,15 @@ export interface Article {
   /** 标记已读时必填：1 个行动项 */
   readAction: string;
   rawExcerpt: string;
+  /**
+   * 生成书库摘要/分类时模型实际读取的素材说明（用于「AI生成(读取…)」展示）。
+   * 在添加文章或「刷新文章」时由服务端写入；旧数据可能为空。
+   */
+  aiReadSourcesLabel?: string;
+  /** 他人通过「推荐 TA 读」写入当前用户书库（由 article_recommendations 关联判定） */
+  receivedViaRecommendation?: boolean;
+  /** 当前登录用户已将本篇（同 URL）推荐给哪些互关对象（对方书库中的副本） */
+  recommendSentTo?: { userId: string; nickname: string; label: string }[];
 }
 
 /** 「重点精读」：算法深读或用户手动标记（原「精选」与 deep 合并展示） */
@@ -93,6 +102,8 @@ export interface BrowseHit {
    * 摘要是否由 WolfAI 结构化生成（随览卡片展示灰色「AI生成」标签）。
    */
   summarySource?: "ai";
+  /** 随览 AI 摘要时读取的素材说明（与 summarySource=ai 同时使用） */
+  aiReadSourcesLabel?: string;
   /**
    * 仅服务端：Firecrawl 检索命中全文 markdown 的节选（供 WolfAI 摘要），响应 JSON 前会剥离。
    */

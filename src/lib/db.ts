@@ -185,6 +185,9 @@ async function ensureSchema(): Promise<void> {
       await p.query(
         `ALTER TABLE articles ADD COLUMN IF NOT EXISTS media_type TEXT NOT NULL DEFAULT 'article';`,
       );
+      await p.query(
+        `ALTER TABLE articles ADD COLUMN IF NOT EXISTS ai_read_sources_label TEXT NOT NULL DEFAULT '';`,
+      );
       await p.query(`ALTER TABLE articles DROP COLUMN IF EXISTS custom_tags;`);
       await p.query(`
         CREATE TABLE IF NOT EXISTS app_user_registry (
@@ -258,6 +261,14 @@ async function ensureSchema(): Promise<void> {
         );
       `);
       await p.query(`
+        ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS reading_role TEXT NOT NULL DEFAULT '';
+        ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS reading_duties TEXT NOT NULL DEFAULT '';
+        ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS reading_goal TEXT NOT NULL DEFAULT '';
+        ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS reading_prompt_extra TEXT NOT NULL DEFAULT '';
+        ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS todo_digest TEXT NOT NULL DEFAULT '';
+        ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS todo_digest_at TIMESTAMPTZ;
+      `);
+      await p.query(`
         CREATE TABLE IF NOT EXISTS user_follows (
           id TEXT PRIMARY KEY,
           follower_id TEXT NOT NULL,
@@ -269,6 +280,13 @@ async function ensureSchema(): Promise<void> {
       `);
       await p.query(`CREATE INDEX IF NOT EXISTS idx_user_follows_follower ON user_follows (follower_id);`);
       await p.query(`CREATE INDEX IF NOT EXISTS idx_user_follows_followed ON user_follows (followed_id);`);
+      await p.query(`ALTER TABLE user_follows ADD COLUMN IF NOT EXISTS sort_order INT NOT NULL DEFAULT 0;`);
+      await p.query(`
+        UPDATE user_follows f
+        SET label = LEFT(COALESCE(NULLIF(TRIM(p.nickname), ''), '书友') || '的Plan', 120)
+        FROM user_profiles p
+        WHERE p.user_id = f.followed_id AND f.label = '回关';
+      `);
       await p.query(`
         CREATE TABLE IF NOT EXISTS article_social_comments (
           id TEXT PRIMARY KEY,
@@ -524,6 +542,67 @@ interface ArticleRow {
   media_type?: string | null;
   title_zh?: string | null;
   published_date?: string | Date | null;
+  ai_read_sources_label?: string | null;
+  /** EXISTS 子查询：他人推荐入我书库的篇目 */
+  received_via_recommendation?: boolean;
+  /** json / jsonb：当前用户作为推荐人，已将同 URL 推荐给了哪些用户 */
+  recommend_sent_to?: unknown;
+}
+
+/** 登录用户列表文章时的附加列：接收标记 + 已推荐给谁 */
+const ARTICLE_ROW_EXTRAS_AUTH = `
+,
+  EXISTS (
+    SELECT 1 FROM article_recommendations r
+    WHERE r.article_id = a.id AND r.to_user_id = a.user_id
+  ) AS received_via_recommendation,
+  (
+    SELECT COALESCE(
+      json_agg(obj ORDER BY created_at DESC),
+      '[]'::json
+    )
+    FROM (
+      SELECT DISTINCT ON (r.to_user_id)
+        json_build_object(
+          'userId', r.to_user_id,
+          'nickname', COALESCE(NULLIF(TRIM(p.nickname), ''), '书友'),
+          'label', COALESCE(NULLIF(TRIM(f.label), ''), '')
+        ) AS obj,
+        r.created_at
+      FROM article_recommendations r
+      INNER JOIN articles recv ON recv.id = r.article_id AND recv.user_id = r.to_user_id
+      LEFT JOIN user_profiles p ON p.user_id = r.to_user_id
+      LEFT JOIN user_follows f ON f.follower_id = a.user_id AND f.followed_id = r.to_user_id
+      WHERE r.from_user_id = a.user_id AND recv.url = a.url
+      ORDER BY r.to_user_id, r.created_at DESC
+    ) sub
+  ) AS recommend_sent_to
+`;
+
+function parseRecommendSentTo(raw: unknown): Article["recommendSentTo"] {
+  if (raw == null) return undefined;
+  let arr: unknown = raw;
+  if (typeof raw === "string") {
+    try {
+      arr = JSON.parse(raw) as unknown;
+    } catch {
+      return undefined;
+    }
+  }
+  if (!Array.isArray(arr) || arr.length === 0) return undefined;
+  const out: NonNullable<Article["recommendSentTo"]> = [];
+  for (const x of arr) {
+    if (!x || typeof x !== "object") continue;
+    const o = x as Record<string, unknown>;
+    const userId = typeof o.userId === "string" ? o.userId.trim() : "";
+    if (!userId) continue;
+    out.push({
+      userId,
+      nickname: typeof o.nickname === "string" ? o.nickname.trim() || "书友" : "书友",
+      label: typeof o.label === "string" ? o.label.trim() : "",
+    });
+  }
+  return out.length ? out : undefined;
 }
 
 function normalizeMediaType(raw: string | null | undefined): MediaKind {
@@ -597,6 +676,9 @@ function rowToArticle(row: ArticleRow): Article {
     readAction: row.read_action ?? "",
     rawExcerpt: row.raw_excerpt,
     publishedAt: normalizePublishedDateRow(row.published_date),
+    aiReadSourcesLabel: row.ai_read_sources_label?.trim() || undefined,
+    receivedViaRecommendation: Boolean(row.received_via_recommendation),
+    recommendSentTo: parseRecommendSentTo(row.recommend_sent_to),
   };
 }
 
@@ -610,11 +692,12 @@ export async function insertArticle(article: Article, ownerUserId: string | null
     `INSERT INTO articles (
       id, url, title, title_zh, author, domain, theme, featured, summary, language, char_count, word_count,
       estimated_minutes, recommended_depth, knowledge_tags, status, added_at, due_date, completed_at,
-      read_one_liner, read_key_points, read_action, raw_excerpt, media_type, published_date, user_id
+      read_one_liner, read_key_points, read_action, raw_excerpt, media_type, published_date, user_id,
+      ai_read_sources_label
     ) VALUES (
       $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
       $13, $14, $15::jsonb, $16, $17::timestamptz, $18::date, $19::timestamptz,
-      $20, $21::jsonb, $22, $23, $24, $25::date, $26
+      $20, $21::jsonb, $22, $23, $24, $25::date, $26, $27
     )`,
     [
       article.id,
@@ -643,6 +726,7 @@ export async function insertArticle(article: Article, ownerUserId: string | null
       article.mediaType || "article",
       article.publishedAt ?? null,
       uid,
+      article.aiReadSourcesLabel?.trim() || "",
     ],
   );
 }
@@ -675,8 +759,9 @@ export async function updateArticle(article: Article, ownerUserId: string | null
       read_action = $18,
       media_type = $19,
       raw_excerpt = $20,
-      published_date = $21::date
-    WHERE id = $22 AND user_id = $23`,
+      published_date = $21::date,
+      ai_read_sources_label = $22
+    WHERE id = $23 AND user_id = $24`,
       [
         article.title,
         article.titleZh || "",
@@ -699,6 +784,7 @@ export async function updateArticle(article: Article, ownerUserId: string | null
         article.mediaType || "article",
         article.rawExcerpt,
         article.publishedAt ?? null,
+        article.aiReadSourcesLabel?.trim() || "",
         article.id,
         ownerUserId,
       ],
@@ -727,8 +813,9 @@ export async function updateArticle(article: Article, ownerUserId: string | null
       read_action = $18,
       media_type = $19,
       raw_excerpt = $20,
-      published_date = $21::date
-    WHERE id = $22`,
+      published_date = $21::date,
+      ai_read_sources_label = $22
+    WHERE id = $23`,
     [
       article.title,
       article.titleZh || "",
@@ -751,6 +838,7 @@ export async function updateArticle(article: Article, ownerUserId: string | null
       article.mediaType || "article",
       article.rawExcerpt,
       article.publishedAt ?? null,
+      article.aiReadSourcesLabel?.trim() || "",
       article.id,
     ],
   );
@@ -769,7 +857,10 @@ export async function listArticlesForUser(userId: string | null): Promise<Articl
     if (isAuthEnabled()) {
       if (!userId) return [];
       const { rows } = await p.query<ArticleRow>(
-        "SELECT * FROM articles WHERE user_id = $1 ORDER BY due_date ASC, added_at DESC",
+        `SELECT a.*${ARTICLE_ROW_EXTRAS_AUTH}
+         FROM articles a
+         WHERE a.user_id = $1
+         ORDER BY a.due_date ASC, a.added_at DESC`,
         [userId],
       );
       return rows.map(rowToArticle);
@@ -790,7 +881,10 @@ export async function getArticle(id: string, ownerUserId: string | null): Promis
     if (isAuthEnabled()) {
       if (!ownerUserId) return null;
       const { rows } = await p.query<ArticleRow>(
-        "SELECT * FROM articles WHERE id = $1 AND user_id = $2 LIMIT 1",
+        `SELECT a.*${ARTICLE_ROW_EXTRAS_AUTH}
+         FROM articles a
+         WHERE a.id = $1 AND a.user_id = $2
+         LIMIT 1`,
         [id, ownerUserId],
       );
       const row = rows[0];
@@ -823,7 +917,10 @@ export async function listCompletedBetween(startIso: string, endIso: string): Pr
     if (!p) return [];
     await ensureSchema();
     const { rows } = await p.query<ArticleRow>(
-      "SELECT * FROM articles WHERE status = 'done' AND completed_at >= $1 AND completed_at < $2 ORDER BY completed_at DESC",
+      `SELECT a.*${ARTICLE_ROW_EXTRAS_AUTH}
+       FROM articles a
+       WHERE a.status = 'done' AND a.completed_at >= $1 AND a.completed_at < $2
+       ORDER BY a.completed_at DESC`,
       [startIso, endIso],
     );
     return rows.map(rowToArticle);
@@ -1008,6 +1105,23 @@ export async function getBrowseTopic(id: string, userId: string | null): Promise
   }
 }
 
+/** 随览顶部：主题与关注标签共用排序空间，新项排在当前最大 sort_order 之后 */
+export async function getNextBrowseStripSortOrder(userId: string | null): Promise<number> {
+  const p = getPoolOrNull();
+  if (!p) return 0;
+  const uid = browseOwnerKey(userId);
+  await ensureSchema();
+  const { rows } = await p.query<{ m: string | null }>(
+    `SELECT GREATEST(
+        COALESCE((SELECT MAX(sort_order) FROM browse_topics WHERE user_id = $1), -1),
+        COALESCE((SELECT MAX(sort_order) FROM user_follows WHERE follower_id = $1), -1)
+      )::text AS m`,
+    [uid],
+  );
+  const m = rows[0]?.m;
+  return m != null && m !== "" ? parseInt(m, 10) + 1 : 0;
+}
+
 export async function insertBrowseTopic(
   userId: string | null,
   name: string,
@@ -1027,12 +1141,7 @@ export async function insertBrowseTopic(
   }
   await ensureSchema();
   const id = randomUUID();
-  const { rows: maxRows } = await p.query<{ m: string | null }>(
-    "SELECT MAX(sort_order)::text AS m FROM browse_topics WHERE user_id = $1",
-    [owner],
-  );
-  const m = maxRows[0]?.m;
-  const nextOrder = m != null && m !== "" ? parseInt(m, 10) + 1 : 0;
+  const nextOrder = await getNextBrowseStripSortOrder(userId);
   let maxDays: number | null = opts?.maxPublishedAgeDays ?? null;
   if (maxDays != null && (!Number.isFinite(maxDays) || maxDays < 1 || maxDays > 3650)) {
     throw new Error("invalid_max_age");
@@ -1809,6 +1918,10 @@ export type UserProfilePublic = {
   userId: string;
   nickname: string;
   lastFansSeenAt: string | null;
+  readingRole: string;
+  readingDuties: string;
+  readingGoal: string;
+  readingPromptExtra: string;
 };
 
 export async function getUserProfile(userId: string): Promise<UserProfilePublic | null> {
@@ -1817,8 +1930,21 @@ export async function getUserProfile(userId: string): Promise<UserProfilePublic 
   await ensureSchema();
   const uid = userId.trim();
   if (!uid) return null;
-  const { rows } = await p.query<{ user_id: string; nickname: string; last_fans_seen_at: Date | string | null }>(
-    `SELECT user_id, nickname, last_fans_seen_at FROM user_profiles WHERE user_id = $1 LIMIT 1`,
+  const { rows } = await p.query<{
+    user_id: string;
+    nickname: string;
+    last_fans_seen_at: Date | string | null;
+    reading_role: string | null;
+    reading_duties: string | null;
+    reading_goal: string | null;
+    reading_prompt_extra: string | null;
+  }>(
+    `SELECT user_id, nickname, last_fans_seen_at,
+            COALESCE(reading_role, '') AS reading_role,
+            COALESCE(reading_duties, '') AS reading_duties,
+            COALESCE(reading_goal, '') AS reading_goal,
+            COALESCE(reading_prompt_extra, '') AS reading_prompt_extra
+     FROM user_profiles WHERE user_id = $1 LIMIT 1`,
     [uid],
   );
   const r = rows[0];
@@ -1832,17 +1958,92 @@ export async function getUserProfile(userId: string): Promise<UserProfilePublic 
         : r.last_fans_seen_at
           ? String(r.last_fans_seen_at)
           : null,
+    readingRole: r.reading_role ?? "",
+    readingDuties: r.reading_duties ?? "",
+    readingGoal: r.reading_goal ?? "",
+    readingPromptExtra: r.reading_prompt_extra ?? "",
   };
 }
 
+const READING_PROMPT_FIELD_MAX = 4000;
+
+export async function updateUserReadingPrompt(
+  userId: string,
+  patch: Partial<{
+    readingRole: string;
+    readingDuties: string;
+    readingGoal: string;
+    readingPromptExtra: string;
+  }>,
+): Promise<void> {
+  const p = getPoolOrNull();
+  if (!p) throw new Error("db_not_configured");
+  await ensureSchema();
+  const uid = userId.trim();
+  await ensureUserProfile(uid);
+  const cur = await getUserProfile(uid);
+  if (!cur) throw new Error("profile_missing");
+  const next = {
+    readingRole: patch.readingRole !== undefined ? patch.readingRole.trim().slice(0, READING_PROMPT_FIELD_MAX) : cur.readingRole,
+    readingDuties:
+      patch.readingDuties !== undefined ? patch.readingDuties.trim().slice(0, READING_PROMPT_FIELD_MAX) : cur.readingDuties,
+    readingGoal: patch.readingGoal !== undefined ? patch.readingGoal.trim().slice(0, READING_PROMPT_FIELD_MAX) : cur.readingGoal,
+    readingPromptExtra:
+      patch.readingPromptExtra !== undefined
+        ? patch.readingPromptExtra.trim().slice(0, READING_PROMPT_FIELD_MAX)
+        : cur.readingPromptExtra,
+  };
+  await p.query(
+    `UPDATE user_profiles SET reading_role = $2, reading_duties = $3, reading_goal = $4, reading_prompt_extra = $5 WHERE user_id = $1`,
+    [uid, next.readingRole, next.readingDuties, next.readingGoal, next.readingPromptExtra],
+  );
+}
+
+export async function getTodoDigestForUser(userId: string): Promise<{ text: string; updatedAt: string | null }> {
+  const p = getPoolOrNull();
+  if (!p) return { text: "", updatedAt: null };
+  await ensureSchema();
+  const uid = userId.trim();
+  const { rows } = await p.query<{ todo_digest: string | null; todo_digest_at: Date | string | null }>(
+    `SELECT todo_digest, todo_digest_at FROM user_profiles WHERE user_id = $1 LIMIT 1`,
+    [uid],
+  );
+  const r = rows[0];
+  if (!r) return { text: "", updatedAt: null };
+  const text = (r.todo_digest ?? "").trim();
+  const updatedAt =
+    r.todo_digest_at instanceof Date
+      ? r.todo_digest_at.toISOString()
+      : r.todo_digest_at
+        ? String(r.todo_digest_at)
+        : null;
+  return { text, updatedAt };
+}
+
+export async function saveTodoDigestForUser(userId: string, text: string): Promise<void> {
+  const p = getPoolOrNull();
+  if (!p) throw new Error("db_not_configured");
+  await ensureSchema();
+  const uid = userId.trim();
+  await ensureUserProfile(uid);
+  const t = text.trim().slice(0, 600);
+  await p.query(`UPDATE user_profiles SET todo_digest = $2, todo_digest_at = NOW() WHERE user_id = $1`, [uid, t]);
+}
+
 export async function ensureUserProfile(userId: string): Promise<UserProfilePublic> {
+  const emptyReading = {
+    readingRole: "",
+    readingDuties: "",
+    readingGoal: "",
+    readingPromptExtra: "",
+  };
   const p = getPoolOrNull();
   if (!p) {
-    return { userId: userId.trim(), nickname: generateRandomNickname(), lastFansSeenAt: null };
+    return { userId: userId.trim(), nickname: generateRandomNickname(), lastFansSeenAt: null, ...emptyReading };
   }
   await ensureSchema();
   const uid = userId.trim();
-  if (!uid) return { userId: "", nickname: generateRandomNickname(), lastFansSeenAt: null };
+  if (!uid) return { userId: "", nickname: generateRandomNickname(), lastFansSeenAt: null, ...emptyReading };
 
   const existing = await getUserProfile(uid);
   if (existing) return existing;
@@ -1851,7 +2052,7 @@ export async function ensureUserProfile(userId: string): Promise<UserProfilePubl
     const nick = generateRandomNickname();
     try {
       await p.query(`INSERT INTO user_profiles (user_id, nickname) VALUES ($1, $2)`, [uid, nick]);
-      return { userId: uid, nickname: nick, lastFansSeenAt: null };
+      return { userId: uid, nickname: nick, lastFansSeenAt: null, ...emptyReading };
     } catch {
       /* nickname collision */
     }
@@ -1862,7 +2063,14 @@ export async function ensureUserProfile(userId: string): Promise<UserProfilePubl
   } catch {
     /* ignore */
   }
-  return (await getUserProfile(uid)) ?? { userId: uid, nickname: fallback.slice(0, 14), lastFansSeenAt: null };
+  return (
+    (await getUserProfile(uid)) ?? {
+      userId: uid,
+      nickname: fallback.slice(0, 14),
+      lastFansSeenAt: null,
+      ...emptyReading,
+    }
+  );
 }
 
 export async function updateUserNickname(
@@ -1906,7 +2114,7 @@ export async function listFollowsByFollower(followerId: string): Promise<FollowR
     created_at: Date | string;
   }>(
     `SELECT id, follower_id, followed_id, label, created_at FROM user_follows
-     WHERE follower_id = $1 ORDER BY created_at DESC`,
+     WHERE follower_id = $1 ORDER BY sort_order ASC, created_at ASC`,
     [followerId.trim()],
   );
   return rows.map((r) => ({
@@ -1930,9 +2138,10 @@ export async function createFollow(
   if (!p) throw new Error("db_not_configured");
   await ensureSchema();
   try {
+    const nextOrder = await getNextBrowseStripSortOrder(a);
     await p.query(
-      `INSERT INTO user_follows (id, follower_id, followed_id, label) VALUES ($1, $2, $3, $4)`,
-      [randomUUID(), a, b, label.trim().slice(0, 120)],
+      `INSERT INTO user_follows (id, follower_id, followed_id, label, sort_order) VALUES ($1, $2, $3, $4, $5)`,
+      [randomUUID(), a, b, label.trim().slice(0, 120), nextOrder],
     );
     return "ok";
   } catch (e: unknown) {
@@ -2298,6 +2507,7 @@ export type RecommendationSentRow = {
   targetArticleId: string;
   title: string;
   url: string;
+  summary: string;
   targetStatus: "todo" | "done";
   createdAt: string;
 };
@@ -2313,11 +2523,12 @@ export async function listRecommendationsSent(fromUserId: string): Promise<Recom
     created_at: Date | string;
     title: string | null;
     url: string | null;
+    summary: string | null;
     status: string | null;
     to_nick: string | null;
   }>(
     `SELECT r.id, r.to_user_id, r.article_id, r.created_at,
-            a.title, a.url, a.status,
+            a.title, a.url, a.summary, a.status,
             p.nickname AS to_nick
      FROM article_recommendations r
      JOIN articles a ON a.id = r.article_id AND a.user_id = r.to_user_id
@@ -2334,6 +2545,7 @@ export async function listRecommendationsSent(fromUserId: string): Promise<Recom
     targetArticleId: x.article_id,
     title: x.title?.trim() || x.url || "（无标题）",
     url: x.url?.trim() || "",
+    summary: x.summary?.trim() || "",
     targetStatus: x.status === "done" ? "done" : "todo",
     createdAt: x.created_at instanceof Date ? x.created_at.toISOString() : String(x.created_at),
   }));
@@ -2346,6 +2558,7 @@ export type FollowingRowUi = {
   nickname: string;
   emailHint: string;
   createdAt: string;
+  sortOrder: number;
 };
 
 export async function listFollowingEnriched(followerId: string): Promise<FollowingRowUi[]> {
@@ -2356,26 +2569,33 @@ export async function listFollowingEnriched(followerId: string): Promise<Followi
     id: string;
     followed_id: string;
     label: string;
+    sort_order: number;
     created_at: Date | string;
     nickname: string | null;
     email: string | null;
   }>(
-    `SELECT f.id, f.followed_id, f.label, f.created_at, p.nickname, r.email
+    `SELECT f.id, f.followed_id, f.label, f.sort_order, f.created_at, p.nickname, r.email
      FROM user_follows f
      LEFT JOIN user_profiles p ON p.user_id = f.followed_id
      LEFT JOIN app_user_registry r ON r.user_id = f.followed_id
      WHERE f.follower_id = $1
-     ORDER BY f.created_at DESC`,
+     ORDER BY f.sort_order ASC, f.created_at ASC`,
     [followerId.trim()],
   );
-  return rows.map((r) => ({
-    id: r.id,
-    followedId: r.followed_id,
-    label: r.label?.trim() || "",
-    nickname: r.nickname?.trim() || "未设置昵称",
-    emailHint: r.email?.trim() || "",
-    createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
-  }));
+  return rows.map((r) => {
+    const nick = r.nickname?.trim() || "书友";
+    const rawLabel = r.label?.trim() || "";
+    const label = rawLabel === "回关" ? `${nick}的Plan`.slice(0, 120) : rawLabel;
+    return {
+      id: r.id,
+      followedId: r.followed_id,
+      label,
+      nickname: r.nickname?.trim() || "未设置昵称",
+      emailHint: r.email?.trim() || "",
+      createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
+      sortOrder: Number(r.sort_order) || 0,
+    };
+  });
 }
 
 /** 我关注的用户中，与对方互相关注的条目（用于推荐等） */
@@ -2387,25 +2607,120 @@ export async function listMutualFollowingEnriched(followerId: string): Promise<F
     id: string;
     followed_id: string;
     label: string;
+    sort_order: number;
     created_at: Date | string;
     nickname: string | null;
     email: string | null;
   }>(
-    `SELECT f.id, f.followed_id, f.label, f.created_at, p.nickname, r.email
+    `SELECT f.id, f.followed_id, f.label, f.sort_order, f.created_at, p.nickname, r.email
      FROM user_follows f
      INNER JOIN user_follows rev ON rev.follower_id = f.followed_id AND rev.followed_id = f.follower_id
      LEFT JOIN user_profiles p ON p.user_id = f.followed_id
      LEFT JOIN app_user_registry r ON r.user_id = f.followed_id
      WHERE f.follower_id = $1
-     ORDER BY f.created_at DESC`,
+     ORDER BY f.sort_order ASC, f.created_at ASC`,
     [followerId.trim()],
   );
-  return rows.map((r) => ({
-    id: r.id,
-    followedId: r.followed_id,
-    label: r.label?.trim() || "",
-    nickname: r.nickname?.trim() || "未设置昵称",
-    emailHint: r.email?.trim() || "",
-    createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
-  }));
+  return rows.map((r) => {
+    const nick = r.nickname?.trim() || "书友";
+    const rawLabel = r.label?.trim() || "";
+    const label = rawLabel === "回关" ? `${nick}的Plan`.slice(0, 120) : rawLabel;
+    return {
+      id: r.id,
+      followedId: r.followed_id,
+      label,
+      nickname: r.nickname?.trim() || "未设置昵称",
+      emailHint: r.email?.trim() || "",
+      createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
+      sortOrder: Number(r.sort_order) || 0,
+    };
+  });
+}
+
+type BrowseStripItem =
+  | { kind: "topic"; id: string; sortOrder: number; createdAt: string }
+  | { kind: "follow"; followedUserId: string; sortOrder: number; createdAt: string };
+
+function compareBrowseStripItems(a: BrowseStripItem, b: BrowseStripItem): number {
+  const d = a.sortOrder - b.sortOrder;
+  if (d !== 0) return d;
+  const ct = Date.parse(a.createdAt) - Date.parse(b.createdAt);
+  if (ct !== 0) return ct;
+  if (a.kind !== b.kind) return a.kind === "topic" ? -1 : 1;
+  return 0;
+}
+
+/** 随览顶栏：主题与关注标签合并排序（置顶 / 上移 / 下移） */
+export async function reorderBrowseStripTab(
+  userId: string | null,
+  target: { kind: "topic"; topicId: string } | { kind: "follow"; followedUserId: string },
+  action: "pin" | "up" | "down",
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const uid = userId?.trim();
+  if (!uid) return { ok: false, error: "unauthorized" };
+  const p = getPoolOrNull();
+  if (!p) return { ok: false, error: "db_not_configured" };
+  await ensureSchema();
+  const owner = browseOwnerKey(userId);
+
+  const topics = await listBrowseTopics(userId);
+  const follows = await listFollowingEnriched(uid);
+
+  const items: BrowseStripItem[] = [
+    ...topics.map((t) => ({ kind: "topic" as const, id: t.id, sortOrder: t.sortOrder, createdAt: t.createdAt })),
+    ...follows.map((f) => ({
+      kind: "follow" as const,
+      followedUserId: f.followedId,
+      sortOrder: f.sortOrder,
+      createdAt: f.createdAt,
+    })),
+  ].sort(compareBrowseStripItems);
+
+  const idx = items.findIndex((it) =>
+    target.kind === "topic"
+      ? it.kind === "topic" && it.id === target.topicId
+      : it.kind === "follow" && it.followedUserId === target.followedUserId,
+  );
+  if (idx < 0) return { ok: false, error: "not_found" };
+
+  let next: BrowseStripItem[];
+  if (action === "pin") {
+    next = [items[idx], ...items.filter((_, i) => i !== idx)];
+  } else if (action === "up") {
+    if (idx <= 0) return { ok: true };
+    next = [...items];
+    [next[idx - 1], next[idx]] = [next[idx], next[idx - 1]];
+  } else {
+    if (idx >= items.length - 1) return { ok: true };
+    next = [...items];
+    [next[idx], next[idx + 1]] = [next[idx + 1], next[idx]];
+  }
+
+  const client = await p.connect();
+  try {
+    await client.query("BEGIN");
+    for (let i = 0; i < next.length; i++) {
+      const it = next[i];
+      if (it.kind === "topic") {
+        await client.query(`UPDATE browse_topics SET sort_order = $1 WHERE id = $2 AND user_id = $3`, [
+          i,
+          it.id,
+          owner,
+        ]);
+      } else {
+        await client.query(`UPDATE user_follows SET sort_order = $1 WHERE follower_id = $2 AND followed_id = $3`, [
+          i,
+          uid,
+          it.followedUserId,
+        ]);
+      }
+    }
+    await client.query("COMMIT");
+  } catch {
+    await client.query("ROLLBACK");
+    return { ok: false, error: "reorder_failed" };
+  } finally {
+    client.release();
+  }
+  return { ok: true };
 }

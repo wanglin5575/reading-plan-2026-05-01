@@ -10,6 +10,7 @@ import { enrichBrowseHitsWithAi, stripBrowseHitServerFields } from "@/lib/browse
 import { translateBrowseHitsToChinese } from "@/lib/translate-zh";
 import { countChars, countWords, detectLanguage, estimateMinutes } from "@/lib/classify";
 import { BROWSE_EXCLUDE_URLS_MAX } from "@/lib/browse-storage";
+import { browseHitLanguageBlob, isPrimarilyChineseOrEnglish } from "@/lib/browse-language";
 
 function mergeHitsPreferFirst(a: BrowseHit[], b: BrowseHit[]): BrowseHit[] {
   const seen = new Set<string>();
@@ -98,7 +99,8 @@ export async function POST(req: Request) {
     const skippedKnown = combined.length - afterExclude.length;
     const maxAge = effectiveMaxPublishedAgeDays(topic);
     const recencyFiltered = filterBrowseHitsByPublishedAge(afterExclude, maxAge);
-    const aiResult = await enrichBrowseHitsWithAi(recencyFiltered, uid ?? null);
+    const langFiltered = recencyFiltered.filter((h) => isPrimarilyChineseOrEnglish(browseHitLanguageBlob(h)));
+    const aiResult = await enrichBrowseHitsWithAi(langFiltered, uid ?? null);
     const translated = await translateBrowseHitsToChinese(aiResult.hits, uid ?? null);
     const hits = translated.map((h) => {
       const cleaned = stripBrowseHitServerFields(h);

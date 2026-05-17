@@ -12,6 +12,7 @@ import { fallbackReadModalBody } from "@/lib/read-modal-fallback";
 import { clearReadPreviewUiCache, getReadPreviewUiCache, setReadPreviewUiCache } from "@/lib/read-preview-ui-cache";
 import { readPreviewSourceFromApiPayload, type ReadPreviewSource } from "@/lib/read-preview-source";
 import { buildArticlePreviewSource } from "@/lib/article-preview-source";
+import { buildReadPreviewInputLabel, resolveArticleAiReadLabel } from "@/lib/ai-read-sources-label";
 import { RecommendToUserModal, useMyFollowsForRecommend } from "@/components/RecommendToUserModal";
 
 export type ArticleSocialComment = {
@@ -63,7 +64,7 @@ function trimmedKeyPoints(points: unknown[] | undefined): string[] {
   return (Array.isArray(points) ? points : []).map((p) => String(p).trim()).filter(Boolean);
 }
 
-function ArticleSummaryFooter({ summary }: { summary: string }) {
+function ArticleSummaryFooter({ summary, readLead }: { summary: string; readLead?: string }) {
   const [expanded, setExpanded] = useState(false);
   return (
     <button
@@ -73,7 +74,18 @@ function ArticleSummaryFooter({ summary }: { summary: string }) {
       aria-expanded={expanded}
       aria-label={expanded ? "收起原文摘要" : "展开原文摘要"}
     >
-      <span className={`article-summary-footer-text ${expanded ? "is-expanded" : "is-collapsed"}`}>{summary}</span>
+      <span className={`article-summary-footer-text ${expanded ? "is-expanded" : "is-collapsed"}`}>
+        {readLead ? (
+          <>
+            <span className="browse-hit-ai-inline" title={`模型读取：${readLead}`}>
+              AI生成(读取{readLead})：
+            </span>
+            {summary}
+          </>
+        ) : (
+          summary
+        )}
+      </span>
       <span className={`article-summary-footer-chevron ${expanded ? "is-expanded" : ""}`} aria-hidden>
         &gt;&gt;
       </span>
@@ -89,6 +101,7 @@ export function ArticleTitleLink({
   previewTitle,
   previewSourceText,
   className,
+  readSourcesShort: readSourcesShortProp,
 }: {
   /** 书库用 article.id；随览等无 id 时用稳定 url */
   previewCacheNamespaceId: string;
@@ -98,6 +111,8 @@ export function ArticleTitleLink({
   previewSourceText: string;
   /** 追加到 `article-title-link` 上，如概述与标题同行为 */
   className?: string;
+  /** 读前弹窗「AI生成(读取…)」；缺省由摘要+节选与链接推断 */
+  readSourcesShort?: string;
 }) {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const blockClickRef = useRef(false);
@@ -112,6 +127,9 @@ export function ArticleTitleLink({
   const [skipReadPreviewClientCache, setSkipReadPreviewClientCache] = useState(false);
 
   useEffect(() => setMounted(true), []);
+
+  const readSourcesShort =
+    readSourcesShortProp?.trim() || buildReadPreviewInputLabel(previewSourceText, url);
 
   useEffect(() => {
     if (!loading) {
@@ -168,6 +186,7 @@ export function ArticleTitleLink({
           source?: unknown;
           cached?: boolean;
           ai?: boolean;
+          readSourcesLabel?: string;
         };
         if (cancelled) return;
         if (!r.ok) {
@@ -286,6 +305,7 @@ export function ArticleTitleLink({
           loading={loading}
           loadPhase={loadPhase}
           previewSource={previewSource}
+          readSourcesShort={readSourcesShort}
           bodyText={body}
           showFallbackNote={showFallback}
           showForceAiSummaryLink={
@@ -648,7 +668,13 @@ export function ArticleCard({
   const cardTop = (
     <div className="article-card-top">
       <div className="meta-row article-card-meta">
-        <span className="tag theme">{article.theme}</span>
+        <span
+          className={["tag", "theme", article.receivedViaRecommendation ? "theme-from-recommend" : ""]
+            .filter(Boolean)
+            .join(" ")}
+        >
+          {article.theme}
+        </span>
         <span className="tag media-kind">{MEDIA_KIND_LABEL[article.mediaType]}</span>
         <span className={`tag ${isIntensiveRead(article) ? "deep" : "skim"}`}>
           {isIntensiveRead(article) ? "重点精读" : "快速扫览"}
@@ -677,6 +703,9 @@ export function ArticleCard({
   const showSummaryInBody = hasUsableSummary && !collapseOriginalSummary;
   const digestKpTrimmed = trimmedKeyPoints(article.readKeyPoints);
   const readAfterKpProse = digestKpTrimmed.join("；");
+  const bookReadLead = resolveArticleAiReadLabel(article);
+  const readPreviewSourcesShort =
+    article.aiReadSourcesLabel?.trim() || buildReadPreviewInputLabel(buildArticlePreviewSource(article), article.url);
 
   const cardMiddle = (
     <>
@@ -686,6 +715,7 @@ export function ArticleCard({
         url={article.url}
         previewTitle={article.title}
         previewSourceText={buildArticlePreviewSource(article)}
+        readSourcesShort={readPreviewSourcesShort}
       >
         <h3 className="title">{article.title}</h3>
       </ArticleTitleLink>
@@ -719,14 +749,25 @@ export function ArticleCard({
           url={article.url}
           previewTitle={article.title}
           previewSourceText={buildArticlePreviewSource(article)}
+          readSourcesShort={readPreviewSourcesShort}
           className="article-card-summary-title-link"
         >
-          <p className="summary">{article.summary}</p>
+          <p className="summary">
+            <span className="browse-hit-ai-inline" title={`模型读取：${bookReadLead}`}>
+              AI生成(读取{bookReadLead})：
+            </span>
+            {article.summary}
+          </p>
         </ArticleTitleLink>
       )}
 
       {article.status === "done" && showSummaryInBody && (
-        <p className="summary">{article.summary}</p>
+        <p className="summary">
+          <span className="browse-hit-ai-inline" title={`模型读取：${bookReadLead}`}>
+            AI生成(读取{bookReadLead})：
+          </span>
+          {article.summary}
+        </p>
       )}
 
       {article.status === "done" &&
@@ -779,7 +820,7 @@ export function ArticleCard({
         ))}
 
       {collapseOriginalSummary && hasUsableSummary && (
-        <ArticleSummaryFooter summary={article.summary} />
+        <ArticleSummaryFooter summary={article.summary} readLead={bookReadLead} />
       )}
 
       {readOnlyBorrowed && socialComments.length > 0 ? (
@@ -844,13 +885,15 @@ export function ArticleCard({
             {article.status === "todo" && (
               <>
                 <label className="muted-link">期望完成阅读时间</label>
-                <input
-                  className="input"
-                  type="date"
-                  value={dueDate}
-                  onChange={(e) => setDueDate(e.target.value)}
-                  aria-label="期望完成阅读时间"
-                />
+                <div className="add-form-date-wrap">
+                  <input
+                    className="input"
+                    type="date"
+                    value={dueDate}
+                    onChange={(e) => setDueDate(e.target.value)}
+                    aria-label="期望完成阅读时间"
+                  />
+                </div>
               </>
             )}
             <label className="muted-link">作者</label>
@@ -1299,6 +1342,7 @@ export function ArticleCard({
                 busy={recommendBusy}
                 error={recommendErr}
                 follows={followsForRec}
+                alreadySentTo={article.recommendSentTo}
                 onClose={() => !recommendBusy && setRecommendOpen(false)}
                 onConfirm={(id) => void submitRecommendToUser(id)}
               />,

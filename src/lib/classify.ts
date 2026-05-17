@@ -254,6 +254,8 @@ export async function buildArticleClassification(
     durationSeconds?: number | null;
     scrapeAuthor?: string;
     publishedIsoHint?: string | null;
+    /** Firecrawl 首屏截图，配合 AI_SUMMARY_VISION_MODEL 做多模态摘要 */
+    screenshotDataUrl?: string | null;
     onAiUsage?: (usage: AiChatUsage | null) => void;
     /** 书库：与文章归属用户一致，用于云端复用 AI 结果 */
     cacheUserId?: string | null;
@@ -272,6 +274,7 @@ export async function buildArticleClassification(
     url,
     scrapeAuthorHint: opts?.scrapeAuthor,
     publishedIsoHint: opts?.publishedIsoHint ?? null,
+    screenshotDataUrl: opts?.screenshotDataUrl ?? null,
     cacheUserId: opts?.cacheUserId ?? null,
   });
   opts?.onAiUsage?.(usage);

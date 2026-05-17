@@ -10,6 +10,7 @@ import { getRouteHandlerUser, getRouteHandlerUserId } from "@/lib/auth/api";
 import { isAuthEnabled } from "@/lib/auth";
 import { normalizeKeyPointsSlots, validateReadDigest } from "@/lib/read-digest";
 import { recommendMyArticleToUser } from "@/lib/recommend-article";
+import { buildBookAiReadSourcesLabel } from "@/lib/ai-read-sources-label";
 
 export const dynamic = "force-dynamic";
 
@@ -32,6 +33,10 @@ function parseScrapeFromBody(raw: unknown): ScrapeResult | null {
   const ogType = typeof o.ogType === "string" ? o.ogType : undefined;
   const rawMarkdown = typeof o.rawMarkdown === "string" ? o.rawMarkdown : undefined;
   const metadata = o.metadata && typeof o.metadata === "object" && !Array.isArray(o.metadata) ? (o.metadata as Record<string, unknown>) : undefined;
+  const screenshotDataUrl =
+    typeof o.screenshotDataUrl === "string" && o.screenshotDataUrl.startsWith("data:image")
+      ? o.screenshotDataUrl
+      : undefined;
   return {
     title,
     author,
@@ -41,6 +46,7 @@ function parseScrapeFromBody(raw: unknown): ScrapeResult | null {
     mediaKind: parseMediaKind(o.mediaKind),
     durationSeconds,
     publishedIsoHint,
+    screenshotDataUrl,
     rawMarkdown,
     metadata,
   };
@@ -120,6 +126,7 @@ export async function POST(req: Request) {
       durationSeconds: scraped.durationSeconds,
       scrapeAuthor: scraped.author?.trim() || "",
       publishedIsoHint: scraped.publishedIsoHint,
+      screenshotDataUrl: scraped.screenshotDataUrl ?? null,
       cacheUserId: ownerId,
       onAiUsage: (usage) => {
         if (usage && usage.totalTokens > 0 && session) {
@@ -166,6 +173,12 @@ export async function POST(req: Request) {
     digest = { readOneLiner: one, readKeyPoints: points, readAction: action };
   }
 
+  const aiReadSourcesLabel = buildBookAiReadSourcesLabel({
+    mediaKind: scraped.mediaKind,
+    bodyForAi: scraped.body,
+    hadScreenshot: Boolean(scraped.screenshotDataUrl),
+  });
+
   const article: Article = {
     id: randomUUID(),
     url: parsed.toString(),
@@ -178,6 +191,7 @@ export async function POST(req: Request) {
     readKeyPoints: digest?.readKeyPoints ?? [],
     readAction: digest?.readAction ?? "",
     ...classification,
+    aiReadSourcesLabel,
     theme,
     recommendedDepth: markIntensive ? "deep" : classification.recommendedDepth,
   };

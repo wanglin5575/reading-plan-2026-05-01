@@ -6,6 +6,7 @@ import type { BrowseStoredHit } from "@/lib/browse-storage";
 import { formatPublishedTimeZh, resolveBrowseAuthorLine } from "@/lib/browse-attribution";
 import { MEDIA_KIND_LABEL } from "@/lib/media-kind";
 import { countChars, countWords, detectLanguage, estimateMinutes } from "@/lib/classify-basics";
+import { buildBrowseAiReadSourcesLabel, buildReadPreviewInputLabel } from "@/lib/ai-read-sources-label";
 
 /** 与待读列表同一套滑轨；右缘两枚圆钮：已读 + 待读（加入已读 / 加入待读） */
 const BROWSE_SWIPE_REVEAL_PX = 144;
@@ -40,6 +41,12 @@ export function BrowseHitCard({
   const summaryText = (hit.summary || hit.excerpt || "").trim();
   const excerptRaw = (hit.excerpt || "").trim();
   const showSummary = Boolean(summaryText && summaryText !== "(暂无摘要)");
+  const browsePreviewReadShort =
+    hit.aiReadSourcesLabel?.trim() || buildReadPreviewInputLabel(buildBrowseHitPreviewSource(hit), hit.url);
+  const browseAiReadLead =
+    hit.summarySource === "ai"
+      ? hit.aiReadSourcesLabel?.trim() || buildBrowseAiReadSourcesLabel(hit)
+      : "";
 
   const estimateBlob = `${summaryText}\n${excerptRaw}`;
   const readMins =
@@ -124,6 +131,7 @@ export function BrowseHitCard({
               url={hit.url}
               previewTitle={hit.title}
               previewSourceText={buildBrowseHitPreviewSource(hit)}
+              readSourcesShort={browsePreviewReadShort}
             >
               <h3 className="title">{hit.title}</h3>
             </ArticleTitleLink>
@@ -142,13 +150,14 @@ export function BrowseHitCard({
             url={hit.url}
             previewTitle={hit.title}
             previewSourceText={buildBrowseHitPreviewSource(hit)}
+            readSourcesShort={browsePreviewReadShort}
             className="browse-hit-summary-as-title"
           >
             <p className="summary">
               {hit.summarySource === "ai" ? (
                 <>
-                  <span className="browse-hit-ai-inline" title="由 WolfAI 根据正文生成的摘要">
-                    AI生成：
+                  <span className="browse-hit-ai-inline" title={`模型读取：${browseAiReadLead}`}>
+                    AI生成(读取{browseAiReadLead})：
                   </span>
                   {summaryText}
                 </>
@@ -161,8 +170,8 @@ export function BrowseHitCard({
           <p className="summary">
             {hit.summarySource === "ai" ? (
               <>
-                <span className="browse-hit-ai-inline" title="由 WolfAI 根据正文生成的摘要">
-                  AI生成：
+                <span className="browse-hit-ai-inline" title={`模型读取：${browseAiReadLead}`}>
+                  AI生成(读取{browseAiReadLead})：
                 </span>
                 {summaryText}
               </>

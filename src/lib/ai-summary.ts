@@ -6,7 +6,7 @@
  */
 
 import { normalizePublishedToIso } from "@/lib/browse-published";
-import { enrichArticleInputHash } from "@/lib/ai-cache-hash";
+import { enrichArticleInputHash, sha256Hex } from "@/lib/ai-cache-hash";
 import {
   getAiGenerationCache,
   getAiGenerationCacheByUrlKey,
@@ -165,12 +165,21 @@ export function parseOpenAiCompatibleUsage(data: unknown): AiChatUsage | null {
  * 调用 AI 生成结构化结果；完全失败（未配置、网络、非 2xx）返回 null，由上层全部降级。
  * 部分字段缺失时仍可合并使用。
  */
+type VisionContentPart =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string } };
+
 export async function enrichArticleWithAi(params: {
   title: string;
   body: string;
   url: string;
   scrapeAuthorHint?: string;
   publishedIsoHint?: string | null;
+  /**
+   * 视频/图集页 Firecrawl 首屏截图（常为 data:image/...;base64,...）。
+   * 若同时配置 AI_SUMMARY_VISION_MODEL，将走多模态消息以理解画面；否则仅使用正文。
+   */
+  screenshotDataUrl?: string | null;
   /**
    * 随览专用：提示词要求输出 worth_reading，并强化「从正文推断发布时间」。
    * 书库文章分类请勿开启。
@@ -181,8 +190,9 @@ export async function enrichArticleWithAi(params: {
 }): Promise<AiEnrichArticleResult> {
   const base = trimEnv("AI_SUMMARY_BASE_URL", "WOLF_BASE_URL");
   const key = trimEnv("AI_SUMMARY_API_KEY", "WOLF_API_KEY");
-  const model = trimEnv("AI_SUMMARY_MODEL", "WOLF_MODEL");
-  if (!base || !key || !model) return { enrichment: null, usage: null };
+  const textModel = trimEnv("AI_SUMMARY_MODEL", "WOLF_MODEL");
+  const visionModel = trimEnv("AI_SUMMARY_VISION_MODEL");
+  if (!base || !key || !textModel) return { enrichment: null, usage: null };
 
   const maxInput =
     Math.min(parseInt(process.env.AI_SUMMARY_MAX_INPUT_CHARS?.trim() || "12000", 10) || 12000, 60000) ||
@@ -199,6 +209,18 @@ export async function enrichArticleWithAi(params: {
   const bodyText = params.body.replace(/\s+/g, " ").trim().slice(0, maxInput);
   const hintAuthor = params.scrapeAuthorHint?.trim() || "";
   const publishedIsoHint = params.publishedIsoHint?.trim() ?? "";
+  const shotRaw = params.screenshotDataUrl?.trim() ?? "";
+  const maxShot =
+    Math.min(parseInt(process.env.AI_SUMMARY_SCREENSHOT_MAX_CHARS?.trim() || "400000", 10) || 400000, 900000) ||
+    400000;
+  const screenshotOk =
+    Boolean(visionModel) &&
+    shotRaw.startsWith("data:image") &&
+    shotRaw.length >= 80 &&
+    shotRaw.length <= maxShot;
+  const visionFingerprint = screenshotOk ? sha256Hex(shotRaw.slice(0, 16384)) : "";
+  const model = screenshotOk && visionModel ? visionModel : textModel;
+
   const kind = params.browseQualify ? "enrich_article_browse_v1" : "enrich_article_book_v1";
   const inputHash = enrichArticleInputHash({
     title: params.title.slice(0, 400),
@@ -207,6 +229,7 @@ export async function enrichArticleWithAi(params: {
     browseQualify: Boolean(params.browseQualify),
     scrapeAuthorHint: hintAuthor,
     publishedIsoHint,
+    visionFingerprint,
   });
 
   const urlKey = normalizeArticleUrlKey(params.url);
@@ -230,11 +253,17 @@ export async function enrichArticleWithAi(params: {
     ? `页面元数据 / Firecrawl 推测的发布时间（ISO，常与正文不一致，仅作线索）：${params.publishedIsoHint!.trim()}`
     : "页面元数据未提供可靠发布时间。";
 
-  const userContent = `标题：${params.title.slice(0, 400)}
+  const visionNote = screenshotOk
+    ? "另附一张页面首屏截图（视频约前十余秒加载后的画面或图集首图），请结合画面与下方文字理解主题。"
+    : shotRaw && !visionModel
+      ? "抓取侧曾截取首屏画面，但当前未配置 AI_SUMMARY_VISION_MODEL，请仅依据文字（含字幕/描述摘录）推断。"
+      : "";
+
+  const userText = `标题：${params.title.slice(0, 400)}
 链接：${params.url}
 抓取侧作者线索（可能为空或不准）：${hintAuthor || "无"}
 ${hintPub}
-
+${visionNote ? `${visionNote}\n` : ""}
 正文节选：
 ${bodyText || "(正文为空)"}`;
 
@@ -262,14 +291,23 @@ ${bodyText || "(正文为空)"}`;
 - worth_reading：布尔值。true = 有独立观点、信息增量或完整叙事，值得打开阅读原文；false = 明显为站点首页、栏目聚合、仅列表无正文、失效占位、spam、纯广告导航。
 - not_worth_reason：仅当 worth_reading 为 false 时填写，简体中文一句话说明为何不推荐阅读，严格不超过50个字；worth_reading 为 true 时必须为 null。
 
-原则：published_at / author 不确定用 null；worth_reading 宁严勿滥。`
+原则：published_at / author 不确定用 null；worth_reading 宁严勿滥。${
+        screenshotOk ? " 若提供截图，请把画面中的关键文字、场景与视频主题纳入 summary。" : ""
+      }`
     : `你是阅读元数据助手。请根据标题与正文节选，输出且仅输出一个 JSON 对象（不要 Markdown、不要代码围栏），字段如下：
 - summary：简体中文一句话概括主旨，严格不超过150个字（含标点）；不要前缀「摘要：」；不要复述 URL。
 - published_at：文章首次公开发布的日期，格式 YYYY-MM-DD；无法从正文或常识推断则填 null（不要用「今天」搪塞）。
 - author：文章署名作者或机构，简短；无法判断则填 null。可参考抓取线索但不要照抄明显站点名当作者。
 - reading_minutes：通读/听完正文所需的整数分钟数，范围 1～600；无法估计则填 null。
 
-原则：不确定的字段用 null，不要编造日期或作者。`;
+原则：不确定的字段用 null，不要编造日期或作者。${screenshotOk ? " 若提供截图，请结合画面理解多媒体内容并写入 summary。" : ""}`;
+
+  const userMessageContent: string | VisionContentPart[] = screenshotOk
+    ? [
+        { type: "text", text: userText },
+        { type: "image_url", image_url: { url: shotRaw } },
+      ]
+    : userText;
 
   const bodyPayload: Record<string, unknown> = {
     model,
@@ -277,7 +315,7 @@ ${bodyText || "(正文为空)"}`;
     max_tokens: maxTokens,
     messages: [
       { role: "system", content: systemText },
-      { role: "user", content: userContent },
+      { role: "user", content: userMessageContent },
     ],
   };
 

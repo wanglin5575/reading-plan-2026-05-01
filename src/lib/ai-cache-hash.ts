@@ -27,8 +27,21 @@ export function enrichArticleInputHash(parts: {
   browseQualify: boolean;
   scrapeAuthorHint: string;
   publishedIsoHint: string;
+  /** 有首屏截图参与多模态摘要时用于区分缓存 */
+  visionFingerprint?: string;
 }): string {
-  return sha256Hex(JSON.stringify({ v: 1, ...parts }));
+  return sha256Hex(
+    JSON.stringify({
+      v: 2,
+      title: parts.title,
+      url: parts.url,
+      bodyText: parts.bodyText,
+      browseQualify: parts.browseQualify,
+      scrapeAuthorHint: parts.scrapeAuthorHint,
+      publishedIsoHint: parts.publishedIsoHint,
+      visionFingerprint: parts.visionFingerprint?.trim() || "",
+    }),
+  );
 }
 
 /** 与 `translateWithOpenAiCompatibleGateway` 内对正文规范化一致 */

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -11,6 +11,7 @@ import { PasswordInputWithToggle } from "@/components/PasswordInputWithToggle";
 import { TokenUsageViewerModal } from "@/components/TokenUsageViewerModal";
 import { LS_ADMIN_REGISTRY_ACK_AT } from "@/lib/admin-registry-badge";
 import { isValidNickname } from "@/lib/random-nickname";
+import { RecommendSentReadPreviewTitle } from "@/components/RecommendSentReadPreviewTitle";
 
 function vipSyntheticAccountName(email: string): string | null {
   const m = email.trim().toLowerCase().match(/^vip_([a-z0-9._-]+)@vip\.local$/);
@@ -33,6 +34,7 @@ type FollowingRowUi = {
   nickname: string;
   emailHint: string;
   createdAt: string;
+  sortOrder?: number;
 };
 
 type RecRowUi = {
@@ -41,6 +43,7 @@ type RecRowUi = {
   toNickname: string;
   title: string;
   url: string;
+  summary: string;
   targetStatus: "todo" | "done";
   createdAt: string;
 };
@@ -210,7 +213,21 @@ export function AccountAvatarMenu({
   const [profileLoad, setProfileLoad] = useState(false);
   const [profileBusy, setProfileBusy] = useState(false);
   const [profileMsg, setProfileMsg] = useState<string | null>(null);
+  const [profileReadingRole, setProfileReadingRole] = useState("");
+  const [profileReadingDuties, setProfileReadingDuties] = useState("");
+  const [profileReadingGoal, setProfileReadingGoal] = useState("");
+  const [profileReadingExtra, setProfileReadingExtra] = useState("");
   const wrapRef = useRef<HTMLDivElement>(null);
+
+  const recGrouped = useMemo(() => {
+    const m = new Map<string, RecRowUi[]>();
+    for (const r of recRows) {
+      const list = m.get(r.toUserId) ?? [];
+      list.push(r);
+      m.set(r.toUserId, list);
+    }
+    return Array.from(m.entries());
+  }, [recRows]);
 
   const isVipUser = email.trim().toLowerCase().endsWith("@vip.local");
   const showFanDot = fanUnreadCount > 0;
@@ -449,24 +466,45 @@ export function AccountAvatarMenu({
     }
   }
 
-  async function openProfileModal() {
+  const openProfileModal = useCallback(async () => {
     closeMenu();
     setProfileOpen(true);
     setProfileMsg(null);
     setProfileLoad(true);
     try {
       const r = await fetch("/api/me/profile", { cache: "no-store" });
-      const d = (await r.json().catch(() => ({}))) as { error?: string; userId?: string; email?: string; nickname?: string };
+      const d = (await r.json().catch(() => ({}))) as {
+        error?: string;
+        userId?: string;
+        email?: string;
+        nickname?: string;
+        readingRole?: string;
+        readingDuties?: string;
+        readingGoal?: string;
+        readingPromptExtra?: string;
+      };
       if (!r.ok) throw new Error(d.error || "加载失败");
       setProfileUid(d.userId ?? "");
       setProfileEmailField(d.email ?? email);
       setProfileNick(d.nickname ?? "");
+      setProfileReadingRole(d.readingRole ?? "");
+      setProfileReadingDuties(d.readingDuties ?? "");
+      setProfileReadingGoal(d.readingGoal ?? "");
+      setProfileReadingExtra(d.readingPromptExtra ?? "");
     } catch (e: unknown) {
       setProfileMsg(e instanceof Error ? e.message : "加载失败");
     } finally {
       setProfileLoad(false);
     }
-  }
+  }, [closeMenu, email]);
+
+  useEffect(() => {
+    const h = () => {
+      void openProfileModal();
+    };
+    window.addEventListener("reading-plan-open-profile", h);
+    return () => window.removeEventListener("reading-plan-open-profile", h);
+  }, [openProfileModal]);
 
   async function onSaveProfile(e: React.FormEvent) {
     e.preventDefault();
@@ -480,15 +518,35 @@ export function AccountAvatarMenu({
       const r = await fetch("/api/me/profile", {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ nickname: profileNick.trim() }),
+        body: JSON.stringify({
+          nickname: profileNick.trim(),
+          readingRole: profileReadingRole,
+          readingDuties: profileReadingDuties,
+          readingGoal: profileReadingGoal,
+          readingPromptExtra: profileReadingExtra,
+        }),
       });
-      const d = (await r.json().catch(() => ({}))) as { error?: string; nickname?: string };
+      const d = (await r.json().catch(() => ({}))) as {
+        error?: string;
+        nickname?: string;
+        readingRole?: string;
+        readingDuties?: string;
+        readingGoal?: string;
+        readingPromptExtra?: string;
+      };
       if (!r.ok) {
         if (d.error === "nickname_taken") throw new Error("该昵称已被注册");
         if (d.error === "invalid_nickname") throw new Error("昵称格式不符合要求");
         throw new Error(d.error || "保存失败");
       }
       if (d.nickname) setProfileNick(d.nickname);
+      if (d.readingRole !== undefined) setProfileReadingRole(d.readingRole);
+      if (d.readingDuties !== undefined) setProfileReadingDuties(d.readingDuties);
+      if (d.readingGoal !== undefined) setProfileReadingGoal(d.readingGoal);
+      if (d.readingPromptExtra !== undefined) setProfileReadingExtra(d.readingPromptExtra);
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("reading-plan-profile-saved"));
+      }
       setProfileOpen(false);
       router.refresh();
     } catch (err: unknown) {
@@ -758,27 +816,32 @@ export function AccountAvatarMenu({
             {recLoading ? <p className="muted-link">加载中…</p> : null}
             {recErr ? <p className="me-msg">{recErr}</p> : null}
             {!recLoading && !recErr && recRows.length === 0 ? <p className="muted-link">暂无推荐记录</p> : null}
-            {recRows.map((r) => (
-              <div key={r.id} className="social-rec-item">
-                <div style={{ fontWeight: 600 }}>{r.title}</div>
-                <div className="muted-link" style={{ fontSize: "var(--fs-small)", marginTop: 4 }}>
-                  推荐给 {r.toNickname} · 对方状态：{r.targetStatus === "done" ? "已读" : "待读"}
-                </div>
-                {r.url ? (
-                  <a href={r.url} target="_blank" rel="noreferrer" className="muted-link" style={{ fontSize: "var(--fs-small)", wordBreak: "break-all" }}>
-                    {r.url}
-                  </a>
-                ) : null}
-                <button
-                  type="button"
-                  className="btn secondary"
-                  style={{ marginTop: 10 }}
-                  disabled={recCancelBusyId !== null}
-                  onClick={() => void cancelSentRecommendation(r.id)}
-                >
-                  {recCancelBusyId === r.id ? "取消中…" : "取消推荐"}
-                </button>
-              </div>
+            {recGrouped.map(([toUid, items]) => (
+              <section key={toUid} className="social-rec-group" aria-label={`推荐给 ${items[0]?.toNickname ?? ""}`}>
+                <h3 className="social-rec-group-title">{items[0]?.toNickname ?? "未设置昵称"}</h3>
+                <ul className="social-rec-group-list">
+                  {items.map((r) => (
+                    <li key={r.id} className="social-rec-group-row">
+                      <RecommendSentReadPreviewTitle
+                        namespaceKey={`my-rec-sent:${r.id}`}
+                        title={r.title}
+                        url={r.url}
+                        sourceText={r.summary.trim() ? r.summary : r.url ? `(链接) ${r.url}` : r.title}
+                      >
+                        <span className="social-rec-row-title-text">{r.title}</span>
+                      </RecommendSentReadPreviewTitle>
+                      <button
+                        type="button"
+                        className="btn secondary social-rec-cancel-btn"
+                        disabled={recCancelBusyId !== null}
+                        onClick={() => void cancelSentRecommendation(r.id)}
+                      >
+                        {recCancelBusyId === r.id ? "取消中…" : "取消推荐"}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </section>
             ))}
           </div>
         </div>
@@ -832,6 +895,58 @@ export function AccountAvatarMenu({
                 onChange={(e) => setProfileNick(e.target.value)}
                 disabled={profileBusy || profileLoad}
                 autoComplete="nickname"
+              />
+              <p className="muted-link" style={{ margin: "12px 0 6px", fontSize: "var(--fs-small)", fontWeight: 600 }}>
+                阅读的目的（用于待读页 AI 摘要）
+              </p>
+              <label className="muted-link" htmlFor="prof-read-role">
+                我是一个 ___ 职业
+              </label>
+              <input
+                id="prof-read-role"
+                className="input"
+                value={profileReadingRole}
+                onChange={(e) => setProfileReadingRole(e.target.value)}
+                disabled={profileBusy || profileLoad}
+                placeholder="如：产品经理、独立开发者"
+                autoComplete="off"
+              />
+              <label className="muted-link" htmlFor="prof-read-duties">
+                我的工作职责是
+              </label>
+              <input
+                id="prof-read-duties"
+                className="input"
+                value={profileReadingDuties}
+                onChange={(e) => setProfileReadingDuties(e.target.value)}
+                disabled={profileBusy || profileLoad}
+                placeholder="简要描述职责范围"
+                autoComplete="off"
+              />
+              <label className="muted-link" htmlFor="prof-read-goal">
+                我计划通过阅读希望实现
+              </label>
+              <input
+                id="prof-read-goal"
+                className="input"
+                value={profileReadingGoal}
+                onChange={(e) => setProfileReadingGoal(e.target.value)}
+                disabled={profileBusy || profileLoad}
+                placeholder="如：跟上大模型评测前沿、提升写作"
+                autoComplete="off"
+              />
+              <label className="muted-link" htmlFor="prof-read-extra">
+                其它补充（可选）
+              </label>
+              <textarea
+                id="prof-read-extra"
+                className="input textarea-input"
+                rows={3}
+                value={profileReadingExtra}
+                onChange={(e) => setProfileReadingExtra(e.target.value)}
+                disabled={profileBusy || profileLoad}
+                placeholder="任意补充给模型的上下文"
+                autoComplete="off"
               />
               {profileMsg ? <p className="me-msg">{profileMsg}</p> : null}
             </div>

@@ -14,6 +14,7 @@ import { formatUsd } from "@/lib/admin-usage-format";
 import { ArticleCard, ArticleTitleLink } from "./ArticleCard";
 import { MonthCalendarPicker } from "./MonthCalendarPicker";
 import { buildArticlePreviewSource } from "@/lib/article-preview-source";
+import { buildReadPreviewInputLabel } from "@/lib/ai-read-sources-label";
 
 type ViewMode = "week" | "day";
 
@@ -70,6 +71,10 @@ function ReviewActionTodoList({
               url={it.article.url}
               previewTitle={it.article.titleZh?.trim() ? it.article.titleZh : it.article.title}
               previewSourceText={buildArticlePreviewSource(it.article)}
+              readSourcesShort={
+                it.article.aiReadSourcesLabel?.trim() ||
+                buildReadPreviewInputLabel(buildArticlePreviewSource(it.article), it.article.url)
+              }
             >
               <span className="review-action-todos-num">{it.n}</span>
             </ArticleTitleLink>

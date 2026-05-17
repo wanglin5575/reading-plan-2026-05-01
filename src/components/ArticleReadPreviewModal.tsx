@@ -16,6 +16,7 @@ export function ArticleReadPreviewModal({
   loading,
   loadPhase,
   previewSource,
+  readSourcesShort,
   bodyText,
   showFallbackNote,
   showForceAiSummaryLink = false,
@@ -29,6 +30,8 @@ export function ArticleReadPreviewModal({
   /** 请求发出后先「查询」，超时后视为等待模型输出 */
   loadPhase: "query" | "generating";
   previewSource: ReadPreviewSource | null;
+  /** 与 POST read-preview 输入一致，用于「AI生成(读取…)」 */
+  readSourcesShort: string;
   bodyText: string;
   showFallbackNote: boolean;
   /** 历史缓存 / 节选降级时显示「使用AI总结文章」 */
@@ -100,12 +103,12 @@ export function ArticleReadPreviewModal({
           <a href={url} target="_blank" rel="noreferrer" className="article-read-preview-origin-link">
             查看原文
           </a>
-          {!loading && previewSource ? (
+          {!loading && previewSource === "fallback" ? (
             <>
               <span className="article-read-preview-meta-sep" aria-hidden>
                 ·
               </span>
-              <span>{readPreviewSourceHeadline(previewSource)}</span>
+              <span>{readPreviewSourceHeadline(previewSource, readSourcesShort)}</span>
             </>
           ) : null}
         </div>
@@ -119,6 +122,15 @@ export function ArticleReadPreviewModal({
                 <p className="article-read-preview-fallback-note muted-link">
                   当前展示为节选摘要（AI 暂不可用或未配置）。
                   {forceLink}
+                </p>
+              ) : null}
+              {!loading &&
+              !showFallbackNote &&
+              previewSource &&
+              previewSource !== "fallback" &&
+              readSourcesShort.trim() ? (
+                <p className="article-read-preview-ai-lead muted-link">
+                  {readPreviewSourceHeadline(previewSource, readSourcesShort)}：
                 </p>
               ) : null}
               {!showFallbackNote && readiness ? (

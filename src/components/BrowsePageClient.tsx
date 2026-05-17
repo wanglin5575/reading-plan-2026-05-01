@@ -31,6 +31,36 @@ import { normalizeArticleUrlKey } from "@/lib/url-key";
 
 const KW_PREVIEW_MAX = 4;
 
+type FollowStripRow = { id: string; followedId: string; label: string; sortOrder: number; createdAt: string };
+
+function mergeBrowseStrip(topicList: BrowseTopic[], followList: FollowStripRow[]) {
+  type Item =
+    | { kind: "topic"; sortOrder: number; createdAt: string; topic: BrowseTopic }
+    | { kind: "follow"; sortOrder: number; createdAt: string; follow: FollowStripRow };
+  const items: Item[] = [
+    ...topicList.map((topic) => ({
+      kind: "topic" as const,
+      sortOrder: topic.sortOrder,
+      createdAt: topic.createdAt,
+      topic,
+    })),
+    ...followList.map((follow) => ({
+      kind: "follow" as const,
+      sortOrder: follow.sortOrder,
+      createdAt: follow.createdAt,
+      follow,
+    })),
+  ];
+  return items.sort((x, y) => {
+    const d = x.sortOrder - y.sortOrder;
+    if (d !== 0) return d;
+    const ct = Date.parse(x.createdAt) - Date.parse(y.createdAt);
+    if (ct !== 0) return ct;
+    if (x.kind !== y.kind) return x.kind === "topic" ? -1 : 1;
+    return 0;
+  });
+}
+
 /** 筛除记录分割线左侧日期文案（本地日历日） */
 function formatRejectedDayLabel(iso?: string): string {
   if (!iso || iso === BROWSE_REJECTED_LEGACY_AT) return "早期";
@@ -98,6 +128,61 @@ function TopicTabButton({
   );
 }
 
+function FollowTabButton({
+  f,
+  active,
+  onSelect,
+  onLongPress,
+}: {
+  f: FollowStripRow;
+  active: boolean;
+  onSelect: (followedId: string) => void;
+  onLongPress: (f: FollowStripRow) => void;
+}) {
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longConsumedRef = useRef(false);
+
+  const clearTimer = () => {
+    if (timerRef.current != null) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      className={`browse-topic-tab browse-topic-tab--follow ${active ? "active" : ""}`}
+      onPointerDown={(e) => {
+        if (e.pointerType === "mouse" && e.button !== 0) return;
+        longConsumedRef.current = false;
+        clearTimer();
+        timerRef.current = setTimeout(() => {
+          timerRef.current = null;
+          longConsumedRef.current = true;
+          onLongPress(f);
+        }, 550);
+      }}
+      onPointerUp={clearTimer}
+      onPointerCancel={clearTimer}
+      onPointerLeave={clearTimer}
+      onClick={() => {
+        if (longConsumedRef.current) {
+          longConsumedRef.current = false;
+          return;
+        }
+        onSelect(f.followedId);
+      }}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        onLongPress(f);
+      }}
+    >
+      {f.label?.trim() || "关注"}
+    </button>
+  );
+}
+
 export default function BrowsePageClient() {
   const [topics, setTopics] = useState<BrowseTopic[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -106,7 +191,7 @@ export default function BrowsePageClient() {
   const [msg, setMsg] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [addModalTab, setAddModalTab] = useState<"topic" | "follow">("topic");
-  const [followRows, setFollowRows] = useState<{ id: string; followedId: string; label: string }[]>([]);
+  const [followRows, setFollowRows] = useState<FollowStripRow[]>([]);
   const [followSearch, setFollowSearch] = useState("");
   const [followResults, setFollowResults] = useState<{ userId: string; display: string; nickname: string | null }[]>(
     [],
@@ -115,9 +200,14 @@ export default function BrowsePageClient() {
   const [followLabel, setFollowLabel] = useState("");
   const [followBusy, setFollowBusy] = useState(false);
   const [followMsg, setFollowMsg] = useState<string | null>(null);
+  const [followManage, setFollowManage] = useState<FollowStripRow | null>(null);
+  const [followManageLabel, setFollowManageLabel] = useState("");
+  const [followManageBusy, setFollowManageBusy] = useState(false);
   const [libraryUrlKeys, setLibraryUrlKeys] = useState<Set<string>>(() => new Set());
   const [newName, setNewName] = useState("");
   const [newKw, setNewKw] = useState("");
+  const [newSeeds, setNewSeeds] = useState("");
+  const [stripOrderBusy, setStripOrderBusy] = useState(false);
   const [editTopic, setEditTopic] = useState<BrowseTopic | null>(null);
   const [editKw, setEditKw] = useState("");
   const [editSeeds, setEditSeeds] = useState("");
@@ -192,6 +282,23 @@ export default function BrowsePageClient() {
     return loadRejectedSeenMap()[activeId] !== sig;
   }, [activeId, aiRejectedList, rejectedSeenNonce]);
 
+  const browseStripItems = useMemo(() => mergeBrowseStrip(topics, followRows), [topics, followRows]);
+
+  useEffect(() => {
+    if (loadingTopics) return;
+    setActiveId((prev) => {
+      if (browseStripItems.length === 0) return null;
+      if (prev) {
+        if (prev.startsWith("__follow__")) {
+          const uid = prev.slice("__follow__".length);
+          if (followRows.some((f) => f.followedId === uid)) return prev;
+        } else if (topics.some((t) => t.id === prev)) return prev;
+      }
+      const head = browseStripItems[0];
+      return head.kind === "topic" ? head.topic.id : `__follow__${head.follow.followedId}`;
+    });
+  }, [loadingTopics, browseStripItems, topics, followRows]);
+
   const openAiRejectedModal = useCallback(() => {
     if (activeId && typeof window !== "undefined") {
       const m = { ...loadRejectedSeenMap() };
@@ -223,8 +330,9 @@ export default function BrowsePageClient() {
       const list = d.topics ?? [];
       setTopics(list);
       setActiveId((prev) => {
-        if (prev && list.some((t) => t.id === prev)) return prev;
-        return list[0]?.id ?? null;
+        if (prev && !prev.startsWith("__follow__") && list.some((t) => t.id === prev)) return prev;
+        if (prev?.startsWith("__follow__")) return prev;
+        return list[0]?.id ?? (prev ?? null);
       });
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "加载失败");
@@ -241,8 +349,18 @@ export default function BrowsePageClient() {
     try {
       const r = await fetch("/api/social/follows", { cache: "no-store" });
       if (!r.ok) return;
-      const d = (await r.json()) as { follows?: { id: string; followedId: string; label: string }[] };
-      setFollowRows(d.follows ?? []);
+      const d = (await r.json()) as {
+        follows?: { id: string; followedId: string; label: string; sortOrder?: number; createdAt?: string }[];
+      };
+      setFollowRows(
+        (d.follows ?? []).map((f) => ({
+          id: f.id,
+          followedId: f.followedId,
+          label: f.label,
+          sortOrder: typeof f.sortOrder === "number" ? f.sortOrder : 0,
+          createdAt: f.createdAt ?? new Date(0).toISOString(),
+        })),
+      );
     } catch {
       /* 未登录等 */
     }
@@ -251,6 +369,29 @@ export default function BrowsePageClient() {
   useEffect(() => {
     void reloadFollows();
   }, [reloadFollows]);
+
+  const postBrowseStripOrder = useCallback(
+    async (action: "pin" | "up" | "down", target: { kind: "topic"; topicId: string } | { kind: "follow"; followedUserId: string }) => {
+      setStripOrderBusy(true);
+      setMsg(null);
+      try {
+        const r = await fetch("/api/browse/tab-order", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ action, target }),
+        });
+        const d = (await r.json().catch(() => ({}))) as { error?: string };
+        if (!r.ok) throw new Error(d.error || "排序失败");
+        await loadTopics();
+        await reloadFollows();
+      } catch (e) {
+        setMsg(e instanceof Error ? e.message : "排序失败");
+      } finally {
+        setStripOrderBusy(false);
+      }
+    },
+    [loadTopics, reloadFollows],
+  );
 
   const reloadLibraryUrls = useCallback(async () => {
     try {
@@ -481,7 +622,7 @@ export default function BrowsePageClient() {
   /** 双击「随览」标题：重置当前主题（清空本地与服务端随览缓存，下次下拉按首次规则重新拉取） */
   const resetActiveTopic = useCallback(async () => {
     const cur = activeIdRef.current;
-    if (!cur || refreshingRef.current || loadingTopics) return;
+    if (!cur || cur.startsWith("__follow__") || refreshingRef.current || loadingTopics) return;
     setRefreshing(true);
     setMsg(null);
     try {
@@ -619,11 +760,15 @@ export default function BrowsePageClient() {
       setMsg("请填写主题名和关键词（可用中英文逗号分隔）");
       return;
     }
+    const seedSources = newSeeds
+      .split("\n")
+      .map((s) => s.trim())
+      .filter(Boolean);
     try {
       const r = await fetch("/api/browse/topics", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name, keywords }),
+        body: JSON.stringify({ name, keywords, seedSources }),
       });
       const d = (await r.json()) as { topic?: BrowseTopic; error?: string };
       if (!r.ok) throw new Error(d.error || "添加失败");
@@ -631,6 +776,7 @@ export default function BrowsePageClient() {
       setAddModalTab("topic");
       setNewName("");
       setNewKw("");
+      setNewSeeds("");
       await loadTopics();
       if (d.topic?.id) setActiveId(d.topic.id);
     } catch (e) {
@@ -704,13 +850,16 @@ export default function BrowsePageClient() {
       const td = (await tr.json()) as { topics?: BrowseTopic[]; error?: string };
       if (!tr.ok) throw new Error(td.error || "加载主题失败");
       const freshList = td.topics ?? [];
-      const nextId = freshList[0]?.id ?? null;
+      const nextMerged = mergeBrowseStrip(freshList, followRows);
+      const head = nextMerged[0];
+      const nextId = head ? (head.kind === "topic" ? head.topic.id : `__follow__${head.follow.followedId}`) : null;
       setActiveId(nextId);
       activeIdRef.current = nextId;
       const storeAfter = loadBrowseStorage();
-      const nextHits = nextId ? (storeAfter.topics[nextId]?.items ?? []) : [];
+      const topicKey = nextId && !nextId.startsWith("__follow__") ? nextId : null;
+      const nextHits = topicKey ? (storeAfter.topics[topicKey]?.items ?? []) : [];
       setHits(nextHits);
-      setAiRejectedList(nextId ? (storeAfter.topics[nextId]?.aiRejected ?? []) : []);
+      setAiRejectedList(topicKey ? (storeAfter.topics[topicKey]?.aiRejected ?? []) : []);
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "删除失败");
     }
@@ -809,6 +958,58 @@ export default function BrowsePageClient() {
       setMsg(e instanceof Error ? e.message : "添加失败");
     } finally {
       setBusyUrl(null);
+    }
+  }
+
+  async function saveFollowTabLabel() {
+    if (!followManage) return;
+    setFollowManageBusy(true);
+    setMsg(null);
+    try {
+      const r = await fetch("/api/social/follows", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          followedUserId: followManage.followedId,
+          label: followManageLabel.trim() || "关注",
+        }),
+      });
+      const d = (await r.json().catch(() => ({}))) as { error?: string };
+      if (!r.ok) throw new Error(d.error || "保存失败");
+      await reloadFollows();
+      setFollowManage(null);
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "保存失败");
+    } finally {
+      setFollowManageBusy(false);
+    }
+  }
+
+  async function deleteFollowTabUser() {
+    if (!followManage) return;
+    if (!confirm("取消关注该用户？其随览标签将移除。")) return;
+    setFollowManageBusy(true);
+    setMsg(null);
+    try {
+      const r = await fetch(`/api/social/follows?followedUserId=${encodeURIComponent(followManage.followedId)}`, {
+        method: "DELETE",
+      });
+      const d = (await r.json().catch(() => ({}))) as { error?: string };
+      if (!r.ok) throw new Error(d.error || "取消关注失败");
+      if (activeId === `__follow__${followManage.followedId}`) {
+        const merged = mergeBrowseStrip(
+          topics,
+          followRows.filter((x) => x.followedId !== followManage.followedId),
+        );
+        const next = merged[0];
+        setActiveId(next ? (next.kind === "topic" ? next.topic.id : `__follow__${next.follow.followedId}`) : null);
+      }
+      await reloadFollows();
+      setFollowManage(null);
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "取消关注失败");
+    } finally {
+      setFollowManageBusy(false);
     }
   }
 
@@ -934,25 +1135,28 @@ export default function BrowsePageClient() {
           <span className="muted-link">加载主题…</span>
         ) : (
           <>
-            {topics.map((t) => (
-              <TopicTabButton
-                key={t.id}
-                t={t}
-                active={t.id === activeId}
-                onSelect={setActiveId}
-                onLongPress={openEditTopic}
-              />
-            ))}
-            {followRows.map((f) => (
-              <button
-                key={f.id}
-                type="button"
-                className={`browse-topic-tab ${activeId === `__follow__${f.followedId}` ? "active" : ""}`}
-                onClick={() => setActiveId(`__follow__${f.followedId}`)}
-              >
-                {f.label?.trim() || "关注"}
-              </button>
-            ))}
+            {browseStripItems.map((item) =>
+              item.kind === "topic" ? (
+                <TopicTabButton
+                  key={item.topic.id}
+                  t={item.topic}
+                  active={item.topic.id === activeId}
+                  onSelect={setActiveId}
+                  onLongPress={openEditTopic}
+                />
+              ) : (
+                <FollowTabButton
+                  key={item.follow.id}
+                  f={item.follow}
+                  active={activeId === `__follow__${item.follow.followedId}`}
+                  onSelect={(followedId) => setActiveId(`__follow__${followedId}`)}
+                  onLongPress={(row) => {
+                    setFollowManageLabel(row.label?.trim() || "");
+                    setFollowManage(row);
+                  }}
+                />
+              ),
+            )}
             <button
               type="button"
               className="browse-topic-tab browse-topic-tab-add"
@@ -969,7 +1173,7 @@ export default function BrowsePageClient() {
         )}
       </div>
 
-      {!loadingTopics && topics.length === 0 ? (
+      {!loadingTopics && topics.length === 0 && followRows.length === 0 ? (
         <div className="card browse-onboarding-card" style={{ marginBottom: 16 }}>
           <h2 style={{ marginTop: 0 }}>还没有随览主题</h2>
           <p className="muted-link" style={{ lineHeight: 1.6 }}>
@@ -1101,7 +1305,7 @@ export default function BrowsePageClient() {
         <div
           className="browse-modal-backdrop"
           role="presentation"
-          onClick={() => setEditTopic(null)}
+          onClick={() => !stripOrderBusy && setEditTopic(null)}
         >
           <div
             className="card browse-modal"
@@ -1144,14 +1348,43 @@ export default function BrowsePageClient() {
               onChange={(e) => setEditMaxAge(e.target.value)}
               placeholder={`默认 ${BROWSE_DEFAULT_MAX_PUBLISHED_AGE_DAYS}`}
             />
+            <p className="muted-link" style={{ margin: "10px 0 6px", fontSize: "var(--fs-small)" }}>
+              标签栏顺序（主题与关注合并排序）
+            </p>
+            <div className="browse-strip-order-row">
+              <button
+                type="button"
+                className="btn secondary"
+                disabled={stripOrderBusy}
+                onClick={() => void postBrowseStripOrder("pin", { kind: "topic", topicId: editTopic.id })}
+              >
+                置顶
+              </button>
+              <button
+                type="button"
+                className="btn secondary"
+                disabled={stripOrderBusy}
+                onClick={() => void postBrowseStripOrder("up", { kind: "topic", topicId: editTopic.id })}
+              >
+                前移
+              </button>
+              <button
+                type="button"
+                className="btn secondary"
+                disabled={stripOrderBusy}
+                onClick={() => void postBrowseStripOrder("down", { kind: "topic", topicId: editTopic.id })}
+              >
+                后移
+              </button>
+            </div>
             <div className="browse-form-actions">
-              <button className="btn" type="button" onClick={() => void saveEditTopic()}>
+              <button className="btn" type="button" onClick={() => void saveEditTopic()} disabled={stripOrderBusy}>
                 保存
               </button>
-              <button className="btn danger" type="button" onClick={() => void deleteEditTopic()}>
+              <button className="btn danger" type="button" onClick={() => void deleteEditTopic()} disabled={stripOrderBusy}>
                 删除主题
               </button>
-              <button type="button" className="btn secondary" onClick={() => setEditTopic(null)}>
+              <button type="button" className="btn secondary" onClick={() => setEditTopic(null)} disabled={stripOrderBusy}>
                 取消
               </button>
             </div>
@@ -1166,6 +1399,7 @@ export default function BrowsePageClient() {
           onClick={() => {
             setFormOpen(false);
             setFollowMsg(null);
+            setNewSeeds("");
           }}
         >
           <div
@@ -1219,11 +1453,30 @@ export default function BrowsePageClient() {
                     onChange={(e) => setNewKw(e.target.value)}
                     placeholder="benchmark, evaluation, 论文（中英文逗号均可）"
                   />
+                  <label className="muted-link" htmlFor="browse-new-seeds">
+                    种子站 / RSS（选填 · 每行一条 URL 或域名）
+                  </label>
+                  <textarea
+                    id="browse-new-seeds"
+                    className="input browse-edit-seeds"
+                    rows={4}
+                    value={newSeeds}
+                    onChange={(e) => setNewSeeds(e.target.value)}
+                    placeholder={"https://example.com/feed\nhttps://news.ycombinator.com"}
+                    autoComplete="off"
+                  />
                   <div className="browse-form-actions">
                     <button className="btn" type="submit">
                       保存
                     </button>
-                    <button type="button" className="btn secondary" onClick={() => setFormOpen(false)}>
+                    <button
+                      type="button"
+                      className="btn secondary"
+                      onClick={() => {
+                        setFormOpen(false);
+                        setNewSeeds("");
+                      }}
+                    >
                       取消
                     </button>
                   </div>
@@ -1534,6 +1787,115 @@ export default function BrowsePageClient() {
                 )}
                 <div className="modal-sheet-footer">
                   <button type="button" className="btn secondary" onClick={() => setAiRejectedOpen(false)}>
+                    关闭
+                  </button>
+                </div>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
+      {mounted && followManage
+        ? createPortal(
+            <div
+              className="modal-backdrop"
+              role="presentation"
+              onClick={(e) => {
+                if (e.target === e.currentTarget && !followManageBusy && !stripOrderBusy) setFollowManage(null);
+              }}
+            >
+              <div
+                className="modal-sheet"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="browse-follow-manage-title"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="modal-sheet-header">
+                  <h2 id="browse-follow-manage-title">已关注用户</h2>
+                  <button
+                    type="button"
+                    className="modal-sheet-close"
+                    onClick={() => !followManageBusy && !stripOrderBusy && setFollowManage(null)}
+                    aria-label="关闭"
+                  >
+                    ×
+                  </button>
+                </div>
+                <div className="modal-sheet-body row">
+                  <p className="muted-link" style={{ margin: 0, fontSize: "var(--fs-small)" }}>
+                    长按标签可打开此面板。修改备注名即随览顶部显示名称。
+                  </p>
+                  <label className="muted-link" htmlFor="browse-follow-manage-label">
+                    备注名称
+                  </label>
+                  <input
+                    id="browse-follow-manage-label"
+                    className="input"
+                    value={followManageLabel}
+                    onChange={(e) => setFollowManageLabel(e.target.value)}
+                    disabled={followManageBusy || stripOrderBusy}
+                    placeholder="显示在随览标签上"
+                  />
+                  <p className="muted-link" style={{ margin: "10px 0 6px", fontSize: "var(--fs-small)" }}>
+                    标签栏顺序（与主题合并）
+                  </p>
+                  <div className="browse-strip-order-row">
+                    <button
+                      type="button"
+                      className="btn secondary"
+                      disabled={followManageBusy || stripOrderBusy}
+                      onClick={() =>
+                        void postBrowseStripOrder("pin", { kind: "follow", followedUserId: followManage.followedId })
+                      }
+                    >
+                      置顶
+                    </button>
+                    <button
+                      type="button"
+                      className="btn secondary"
+                      disabled={followManageBusy || stripOrderBusy}
+                      onClick={() =>
+                        void postBrowseStripOrder("up", { kind: "follow", followedUserId: followManage.followedId })
+                      }
+                    >
+                      前移
+                    </button>
+                    <button
+                      type="button"
+                      className="btn secondary"
+                      disabled={followManageBusy || stripOrderBusy}
+                      onClick={() =>
+                        void postBrowseStripOrder("down", { kind: "follow", followedUserId: followManage.followedId })
+                      }
+                    >
+                      后移
+                    </button>
+                  </div>
+                </div>
+                <div className="modal-sheet-footer">
+                  <button
+                    type="button"
+                    className="btn secondary"
+                    disabled={followManageBusy || stripOrderBusy}
+                    onClick={() => void saveFollowTabLabel()}
+                  >
+                    {followManageBusy ? "保存中…" : "保存"}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn danger"
+                    disabled={followManageBusy || stripOrderBusy}
+                    onClick={() => void deleteFollowTabUser()}
+                  >
+                    取消关注
+                  </button>
+                  <button
+                    type="button"
+                    className="btn secondary"
+                    disabled={followManageBusy || stripOrderBusy}
+                    onClick={() => setFollowManage(null)}
+                  >
                     关闭
                   </button>
                 </div>

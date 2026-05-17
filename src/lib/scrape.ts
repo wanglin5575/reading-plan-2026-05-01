@@ -1,4 +1,5 @@
 import FirecrawlApp from "@mendable/firecrawl-js";
+import type { ScrapeOptions } from "@mendable/firecrawl-js";
 import type { MediaKind } from "@/lib/media-kind";
 import { resolveBrowsePublishedTime } from "@/lib/browse-published";
 import { detectMediaKindFromSignals, extractDurationSecondsFromMetadataDeep, parseIso8601DurationSeconds } from "@/lib/media-kind";
@@ -14,6 +15,8 @@ export interface ScrapeResult {
   durationSeconds: number | null;
   /** 从 meta/HTML 解析的发布时间（ISO），供 AI 参考与规则降级 */
   publishedIsoHint: string | null;
+  /** Firecrawl 首屏截图，供多模态摘要（需配置 AI_SUMMARY_VISION_MODEL） */
+  screenshotDataUrl?: string;
   rawMarkdown?: string;
   metadata?: Record<string, unknown>;
 }
@@ -21,6 +24,8 @@ export interface ScrapeResult {
 interface FirecrawlScrapeData {
   markdown?: string;
   metadata?: Record<string, unknown>;
+  screenshot?: string;
+  actions?: { screenshots?: string[] };
 }
 
 interface FirecrawlScrapeResponse {
@@ -50,16 +55,77 @@ function metaString(m: Record<string, unknown> | undefined, ...keys: string[]): 
   return undefined;
 }
 
+/** 视频/图集类页面：延长等待并尝试截首屏，便于字幕加载与多模态摘要 */
+export function isLikelyRichMediaPageUrl(url: string): boolean {
+  try {
+    const h = new URL(url).hostname.replace(/^www\./, "").toLowerCase();
+    return /youtube\.com$|youtu\.be$|bilibili\.com|xiaohongshu\.com|xhslink\.com|instagram\.com|pinterest\.(com|co\.uk)$|tiktok\.com$|vimeo\.com$|ixigua\.com|douyin\.com$/.test(
+      h,
+    );
+  } catch {
+    return false;
+  }
+}
+
+function pickScreenshotFromFirecrawlData(data: FirecrawlScrapeData | undefined): string | undefined {
+  if (!data) return undefined;
+  const top = typeof data.screenshot === "string" && data.screenshot.startsWith("data:image") ? data.screenshot : "";
+  if (top) return top;
+  const fromActions = data.actions?.screenshots?.find((s) => typeof s === "string" && s.startsWith("data:image"));
+  return fromActions || undefined;
+}
+
+function extractLikelyTranscriptLines(rawMd: string): string {
+  const lines = rawMd.split(/\n/);
+  const out: string[] = [];
+  const timeRe = /^\s*(?:\d{1,2}:)?\d{1,2}:\d{2}(?::\d{2})?\b/;
+  for (const line of lines) {
+    const t = line.trim();
+    if (t.length < 2 || t.length > 600) continue;
+    if (timeRe.test(t)) out.push(t);
+    else if (/字幕|Transcript|Caption|自动字幕|關閉字幕/i.test(t) && t.length < 120) out.push(t);
+    if (out.length >= 48) break;
+  }
+  return out.join("\n").slice(0, 8000);
+}
+
+function buildRichMediaBodyNotes(url: string, stripped: string, rawMd: string, hadScreenshot: boolean): string {
+  const transcript = extractLikelyTranscriptLines(rawMd);
+  const head = isLikelyRichMediaPageUrl(url)
+    ? `【多媒体页面】已延长页面等待并尝试抓取首屏画面${hadScreenshot ? "（已截取）" : "（截图未返回则仅文本）"}；摘要时请结合标题、描述与下方字幕/时间轴文案（若有）。\n\n`
+    : "";
+  const tail =
+    transcript.trim().length > 0
+      ? `\n\n【页面中与音视频相关的文字摘录】\n${transcript}`
+      : "";
+  return `${head}${stripped}${tail}`.trim();
+}
+
 async function scrapeWithFirecrawl(url: string, apiKey: string): Promise<ScrapeResult> {
   const client = new FirecrawlApp({ apiKey });
-  const raw = (await client.scrape(url, { formats: ["markdown"] })) as unknown as FirecrawlScrapeResponse;
+  const rich = isLikelyRichMediaPageUrl(url);
+  const scrapeOpts: ScrapeOptions = rich
+    ? {
+        formats: ["markdown", "screenshot"],
+        onlyMainContent: false,
+        waitFor: 12000,
+        actions: [
+          { type: "wait", milliseconds: 8000 },
+          { type: "screenshot", quality: 72, fullPage: false },
+        ],
+      }
+    : { formats: ["markdown"] };
+
+  const raw = (await client.scrape(url, scrapeOpts)) as unknown as FirecrawlScrapeResponse;
   const data = raw.data ?? raw;
   const markdown = data?.markdown ?? raw.markdown ?? "";
   const meta = (data?.metadata ?? raw.metadata ?? {}) as Record<string, unknown>;
+  const screenshotDataUrl = pickScreenshotFromFirecrawlData(data as FirecrawlScrapeData);
   const title = metaString(meta, "title", "ogTitle", "og:title") || "";
   const ogType = metaString(meta, "og:type", "ogType");
   const primaryAuthor = metaString(meta, "author", "Author", "articleAuthor", "article:author");
-  const stripped = stripMarkdown(markdown);
+  const strippedBase = stripMarkdown(markdown);
+  const stripped = rich ? buildRichMediaBodyNotes(url, strippedBase, markdown, Boolean(screenshotDataUrl)) : strippedBase;
   const author = resolveArticleAuthor(primaryAuthor, meta, "", title, stripped, url);
   const durationSec = extractDurationSecondsFromMetadataDeep(meta);
   const mediaKind = detectMediaKindFromSignals(url, ogType, title, {
@@ -81,6 +147,7 @@ async function scrapeWithFirecrawl(url: string, apiKey: string): Promise<ScrapeR
     mediaKind,
     durationSeconds: durationSec,
     publishedIsoHint,
+    screenshotDataUrl,
     rawMarkdown: markdown.slice(0, 50_000),
     metadata: meta,
   };

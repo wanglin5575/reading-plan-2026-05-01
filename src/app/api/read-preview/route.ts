@@ -11,6 +11,7 @@ import {
   upsertAiGenerationCache,
 } from "@/lib/db";
 import { normalizeArticleUrlKey } from "@/lib/url-key";
+import { buildReadPreviewInputLabel } from "@/lib/ai-read-sources-label";
 
 export const dynamic = "force-dynamic";
 
@@ -38,6 +39,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "invalid_url" }, { status: 400 });
   }
 
+  const readSourcesLabel = buildReadPreviewInputLabel(sourceText, url);
+
   if (!sourceText) {
     const fb = fallbackReadModalBody("");
     return NextResponse.json({
@@ -45,6 +48,7 @@ export async function POST(req: Request) {
       fallback: true,
       ai: false,
       source: "fallback" as const,
+      readSourcesLabel,
     });
   }
 
@@ -60,6 +64,7 @@ export async function POST(req: Request) {
         fallback: false,
         ai: true,
         source: "server_cache" as const,
+        readSourcesLabel,
       });
     }
     if (urlKey) {
@@ -71,6 +76,7 @@ export async function POST(req: Request) {
           fallback: false,
           ai: true,
           source: "server_cache" as const,
+          readSourcesLabel,
         });
       }
     }
@@ -109,6 +115,7 @@ export async function POST(req: Request) {
       fallback: false,
       ai: true,
       source: "llm" as const,
+      readSourcesLabel,
     });
   }
 
@@ -118,5 +125,6 @@ export async function POST(req: Request) {
     fallback: true,
     ai: false,
     source: "fallback" as const,
+    readSourcesLabel,
   });
 }

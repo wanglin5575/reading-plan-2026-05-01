@@ -1,4 +1,5 @@
 import { enrichArticleWithAi } from "@/lib/ai-summary";
+import { buildBrowseAiReadSourcesLabel } from "@/lib/ai-read-sources-label";
 import { recordTokenUsage } from "@/lib/db";
 import { normalizePublishedToIso } from "@/lib/browse-published";
 import { publicationSourceLabelFromUrl } from "@/lib/browse-rejected-meta";
@@ -139,6 +140,7 @@ export async function enrichBrowseHitsWithAi(
           ? enrichment.readingMinutes
           : h.estimatedMinutes,
       summarySource: "ai",
+      aiReadSourcesLabel: buildBrowseAiReadSourcesLabel(h),
     });
   }
   return { hits: out, rejected };

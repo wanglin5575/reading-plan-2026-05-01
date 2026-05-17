@@ -158,6 +158,8 @@ export async function fetchBrowseHits(
     formats: ["markdown", "rawHtml"],
     /** false：保留页头/脚本区转写，便于从 HTML/markdown 中解析 pubdate、JSON-LD */
     onlyMainContent: false,
+    /** 略增等待，利于视频页加载描述/可见字幕进 markdown */
+    waitFor: 5000,
   };
 
   const toHits = (data: SearchData): BrowseHit[] => {
