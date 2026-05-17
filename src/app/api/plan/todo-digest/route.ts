@@ -34,11 +34,13 @@ export async function POST(req: Request) {
   }
 
   let extraRequirement = "";
+  let force = false;
   try {
     const raw: unknown = await req.json().catch(() => null);
     if (raw && typeof raw === "object" && !Array.isArray(raw)) {
-      const er = (raw as { extraRequirement?: unknown }).extraRequirement;
-      if (typeof er === "string") extraRequirement = er.trim().slice(0, 800);
+      const body = raw as { extraRequirement?: unknown; force?: unknown };
+      if (typeof body.extraRequirement === "string") extraRequirement = body.extraRequirement.trim().slice(0, 800);
+      force = body.force === true;
     }
   } catch {
     /* 空 body 视为无附加要求 */
@@ -70,7 +72,12 @@ export async function POST(req: Request) {
   let oneTime: string | undefined;
   let previousDigest: string | undefined;
 
-  if (hasExtra) {
+  if (force) {
+    mode = "full";
+    todosForAi = todos;
+    oneTime = hasExtra ? extraRequirement : undefined;
+    previousDigest = undefined;
+  } else if (hasExtra) {
     mode = "full";
     todosForAi = todos;
     oneTime = extraRequirement;

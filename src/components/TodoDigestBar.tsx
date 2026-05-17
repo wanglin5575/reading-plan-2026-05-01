@@ -48,6 +48,7 @@ export function TodoDigestBar({ signedIn }: { signedIn: boolean }) {
   const busyRef = useRef(false);
   const [initialLoaded, setInitialLoaded] = useState(false);
   const [refreshModalOpen, setRefreshModalOpen] = useState(false);
+  const [forceConfirmOpen, setForceConfirmOpen] = useState(false);
   const [extraRequirement, setExtraRequirement] = useState("");
   const [mounted, setMounted] = useState(false);
 
@@ -76,7 +77,7 @@ export function TodoDigestBar({ signedIn }: { signedIn: boolean }) {
   }, [loadStored]);
 
   const postRefresh = useCallback(
-    async (extra: string) => {
+    async (extra: string, opts?: { force?: boolean }) => {
       if (!signedIn || busyRef.current) return;
       busyRef.current = true;
       setBusy(true);
@@ -86,7 +87,10 @@ export function TodoDigestBar({ signedIn }: { signedIn: boolean }) {
         const r = await fetch("/api/plan/todo-digest", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ extraRequirement: extra }),
+          body: JSON.stringify({
+            extraRequirement: extra,
+            force: opts?.force === true,
+          }),
         });
         const d = (await r.json().catch(() => ({}))) as {
           error?: string;
@@ -120,27 +124,30 @@ export function TodoDigestBar({ signedIn }: { signedIn: boolean }) {
     return () => window.removeEventListener("reading-plan-profile-saved", onProfileSaved);
   }, [postRefresh]);
 
-  const openProfile = () => {
-    window.dispatchEvent(new CustomEvent("reading-plan-open-profile"));
-  };
-
   function openRefreshModal() {
     setInfoMsg(null);
     setExtraRequirement("");
+    setForceConfirmOpen(false);
     setRefreshModalOpen(true);
   }
 
   function closeRefreshModal() {
     if (busy) return;
     setRefreshModalOpen(false);
+    setForceConfirmOpen(false);
     setExtraRequirement("");
   }
 
   async function confirmRefreshFromModal() {
     const ex = extraRequirement.trim();
     await postRefresh(ex);
-    setRefreshModalOpen(false);
-    setExtraRequirement("");
+    closeRefreshModal();
+  }
+
+  async function confirmForceRefresh() {
+    const ex = extraRequirement.trim();
+    await postRefresh(ex, { force: true });
+    closeRefreshModal();
   }
 
   if (!signedIn) return null;
@@ -167,28 +174,62 @@ export function TodoDigestBar({ signedIn }: { signedIn: boolean }) {
           onClick={(e) => e.stopPropagation()}
         >
           <div className="modal-sheet-header">
-            <h2 id="todo-digest-refresh-title">刷新待读摘要</h2>
+            <h2 id="todo-digest-refresh-title">{forceConfirmOpen ? "确认强制刷新" : "刷新待读摘要"}</h2>
             <button type="button" className="modal-sheet-close" onClick={() => closeRefreshModal()} aria-label="关闭">
               ×
             </button>
           </div>
           <div className="modal-sheet-body">
-            <p className="muted-link" style={{ margin: "0 0 12px", fontSize: "var(--fs-small)" }}>
-              留空下方输入框并确认：在<strong>上一版摘要</strong>基础上，仅根据<strong>自上次生成以来新加入的待读</strong>合并更新（更省
-              token）。填写要求并确认：对<strong>当前全部待读</strong>重新生成一轮，并将你的要求作为<strong>单次临时说明</strong>追加到
-              prompt（摘要不超过 {TODO_DIGEST_MAX_CHARS} 字，力求完整、有逻辑、有深度）。
-            </p>
-            <DigestExtraTextarea value={extraRequirement} onChange={setExtraRequirement} disabled={busy} />
-            <p className="muted-link" style={{ margin: "8px 0 0", fontSize: "var(--fs-small)" }}>
-              最多 800 字；与「修改 prompt」里的长期阅读目的互补，无需重复粘贴个人资料全文。
-            </p>
+            {forceConfirmOpen ? (
+              <p className="muted-link" style={{ margin: 0, fontSize: "var(--fs-small)" }}>
+                将依据<strong>当前全部待读</strong>重新生成摘要，覆盖上一版内容，并消耗更多 token。若上方已填写附加要求，会一并纳入本次生成。确定继续？
+              </p>
+            ) : (
+              <>
+                <p className="muted-link" style={{ margin: "0 0 12px", fontSize: "var(--fs-small)" }}>
+                  留空下方输入框并确认：在<strong>上一版摘要</strong>基础上，仅根据<strong>自上次生成以来新加入的待读</strong>合并更新（更省
+                  token）。填写要求并确认：对<strong>当前全部待读</strong>重新生成一轮，并将你的要求作为<strong>单次临时说明</strong>追加到
+                  prompt（摘要不超过 {TODO_DIGEST_MAX_CHARS} 字，力求完整、有逻辑、有深度）。
+                </p>
+                <DigestExtraTextarea value={extraRequirement} onChange={setExtraRequirement} disabled={busy} />
+                <p className="muted-link" style={{ margin: "8px 0 0", fontSize: "var(--fs-small)" }}>
+                  最多 800 字；与账号里配置的长期阅读目的互补，无需重复粘贴个人资料全文。需要无视增量、全量重算时请用下方「强制刷新」。
+                </p>
+              </>
+            )}
           </div>
           <div className="modal-sheet-footer">
+            {forceConfirmOpen ? (
+              <>
+                <button type="button" className="btn" disabled={busy} onClick={() => void confirmForceRefresh()}>
+                  {busy ? "生成中…" : "确认强制刷新"}
+                </button>
+                <button
+                  type="button"
+                  className="btn secondary"
+                  disabled={busy}
+                  onClick={() => setForceConfirmOpen(false)}
+                >
+                  返回
+                </button>
+              </>
+            ) : (
+              <>
+                <button type="button" className="btn" disabled={busy} onClick={() => void confirmRefreshFromModal()}>
+                  {busy ? "生成中…" : "开始生成"}
+                </button>
+                <button
+                  type="button"
+                  className="btn secondary"
+                  disabled={busy}
+                  onClick={() => setForceConfirmOpen(true)}
+                >
+                  强制刷新
+                </button>
+              </>
+            )}
             <button type="button" className="btn secondary" disabled={busy} onClick={() => closeRefreshModal()}>
               取消
-            </button>
-            <button type="button" className="btn" disabled={busy} onClick={() => void confirmRefreshFromModal()}>
-              {busy ? "生成中…" : "开始生成"}
             </button>
           </div>
         </div>
@@ -219,9 +260,6 @@ export function TodoDigestBar({ signedIn }: { signedIn: boolean }) {
       {timeLine ? <p className="todo-digest-meta muted-link">上次生成：{timeLine}</p> : null}
       {expanded ? (
         <div className="todo-digest-actions">
-          <button type="button" className="btn todo-digest-action-btn" disabled={busy} onClick={() => openProfile()}>
-            修改 prompt
-          </button>
           <button type="button" className="btn todo-digest-action-btn" disabled={busy} onClick={() => openRefreshModal()}>
             刷新摘要
           </button>
