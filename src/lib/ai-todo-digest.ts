@@ -1,5 +1,5 @@
 /**
- * 待读列表摘要：根据用户「阅读目的」与待读条目生成 ≤300 字中文要点。
+ * 待读列表摘要：根据用户「阅读目的」与待读条目生成 ≤1000 字中文摘要。
  * 复用 AI_SUMMARY_* / WOLF_* 环境变量。
  */
 
@@ -7,7 +7,7 @@ import { clampZhBody } from "@/lib/read-modal-fallback";
 import type { Article } from "@/lib/types";
 import { MEDIA_KIND_LABEL } from "@/lib/media-kind";
 
-export const TODO_DIGEST_MAX_CHARS = 300;
+export const TODO_DIGEST_MAX_CHARS = 1000;
 
 function trimEnv(...keys: string[]): string | undefined {
   for (const k of keys) {
@@ -75,8 +75,8 @@ function compactArticleLine(a: Article, index: number, tight?: boolean): string 
   const kind = MEDIA_KIND_LABEL[a.mediaType] ?? "文章";
   const title = (a.titleZh?.trim() || a.title).replace(/\s+/g, " ").trim().slice(0, 120);
   const theme = a.theme.replace(/\s+/g, " ").trim().slice(0, 40);
-  const sum = a.summary.replace(/\s+/g, " ").trim().slice(0, tight ? 120 : 220);
-  const ex = a.rawExcerpt.replace(/\s+/g, " ").trim().slice(0, tight ? 100 : 180);
+  const sum = a.summary.replace(/\s+/g, " ").trim().slice(0, tight ? 160 : 320);
+  const ex = a.rawExcerpt.replace(/\s+/g, " ").trim().slice(0, tight ? 140 : 260);
   return `${index + 1}. [${kind}] ${title}${theme ? ` · 主题「${theme}」` : ""}\n   摘要：${sum || "（无）"}\n   节选：${ex || "（无）"}`;
 }
 
@@ -123,24 +123,24 @@ export async function generateTodoDigest(params: {
 
   const prevBlock =
     params.mode === "incremental" && params.previousDigest?.trim()
-      ? `【上一版待读摘要（请有机融入新增要点，勿逐句复述，可改写压缩）】\n${params.previousDigest.trim().slice(0, 400)}\n\n`
+      ? `【上一版待读摘要（请有机融入新增要点，勿逐句复述，可改写压缩）】\n${params.previousDigest.trim().slice(0, TODO_DIGEST_MAX_CHARS)}\n\n`
       : "";
 
   const bundle = `【用户阅读目的与背景】\n${purpose}\n\n${extraBlock}${prevBlock}${listSection}`.slice(0, maxInput);
 
   const maxTokens = Math.min(
-    Math.max(parseInt(process.env.TODO_DIGEST_MAX_OUTPUT_TOKENS?.trim() || "500", 10) || 500, 200),
-    1500,
+    Math.max(parseInt(process.env.TODO_DIGEST_MAX_OUTPUT_TOKENS?.trim() || "2200", 10) || 2200, 400),
+    4096,
   );
 
   const systemBase = `你是阅读计划助手。用户有一份「待读」清单（可能包含文章、视频、音频类素材的摘要与节选）。
-全文严格不超过 ${TODO_DIGEST_MAX_CHARS} 个汉字（含标点），宁短勿超；不要输出链接；不要复述用户固定背景原文。`;
+输出为简体中文纯文本：全文严格不超过 ${TODO_DIGEST_MAX_CHARS} 个汉字（含标点），不得超过上限；不要输出链接；不要复述用户固定背景原文。
+写作要求：在字数上限内做到**内容完整、逻辑连贯、有信息深度**——讲清「待读库在说什么、彼此如何关联、对用户目标意味着什么、建议优先关注什么」；避免空话套话、标题堆砌、只列书名式罗列或浅层概括。可用 2～4 个自然段组织，段内因果/递进清晰。`;
   const systemStyle =
     params.mode === "incremental"
-      ? `用一段连贯的简体中文写出（不要用 Markdown、不要标题、不要编号列表，除非不用分点无法说清且最多 2 个短分点）。
-你已收到「上一版待读摘要」与「新增条目」。请将新增条目的关键信息**有机融入**摘要：可改写、合并、删繁就简；不要简单拼接两段。`
-      : `请根据用户的职业背景、职责与阅读目的，判断当前待读库中**最值得关注或优先处理**的信息，用一段连贯的简体中文写出（不要用 Markdown、不要标题、不要编号列表，除非不用分点无法说清且最多 2 个短分点）。
-若存在「本次单次附加要求」，须优先满足。`;
+      ? `你已收到「上一版待读摘要」与「新增条目」。请将新增条目的关键信息**有机融入**全文：可改写、合并、删繁就简；不要简单拼接两段；更新后仍须满足上述完整性与深度要求。`
+      : `请根据用户的职业背景、职责与阅读目的，判断当前待读库中**最值得关注或优先处理**的信息并写成摘要。
+若存在「本次单次附加要求」，须优先满足，同时保持整体完整、有逻辑、有深度。`;
 
   const systemText = `${systemBase}\n${systemStyle}`;
 

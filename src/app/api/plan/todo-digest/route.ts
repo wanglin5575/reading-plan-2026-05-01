@@ -8,7 +8,7 @@ import {
   recordTokenUsage,
   saveTodoDigestForUser,
 } from "@/lib/db";
-import { generateTodoDigest } from "@/lib/ai-todo-digest";
+import { generateTodoDigest, TODO_DIGEST_MAX_CHARS } from "@/lib/ai-todo-digest";
 
 export const dynamic = "force-dynamic";
 
@@ -124,7 +124,7 @@ export async function POST(req: Request) {
 
   const fb =
     "暂时无法调用 AI 生成摘要（请检查 AI 密钥配置），或待读条目信息过少。你可稍后点击「刷新摘要」重试。";
-  await saveTodoDigestForUser(session.id, fb.slice(0, 300));
+  await saveTodoDigestForUser(session.id, fb.slice(0, TODO_DIGEST_MAX_CHARS));
   const row = await getTodoDigestForUser(session.id);
   return NextResponse.json({ text: row.text, updatedAt: row.updatedAt, ai: false });
 }

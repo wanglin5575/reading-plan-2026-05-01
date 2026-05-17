@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import type { Article } from "@/lib/types";
-import { WeeklyAccountEntry } from "@/components/WeeklyAccountEntry";
 import { TodoDigestBar } from "@/components/TodoDigestBar";
 import { TodoGroupedList, type TodoGroupMode } from "./TodoGroupedList";
 
@@ -13,9 +12,6 @@ export function TodoPageClient({
   deepCount,
   skimCount,
   signedIn,
-  accountEmail,
-  isAdmin,
-  fanUnreadCount,
 }: {
   items: Article[];
   planTotalMinutes: number;
@@ -23,9 +19,6 @@ export function TodoPageClient({
   deepCount: number;
   skimCount: number;
   signedIn: boolean;
-  accountEmail: string | null;
-  isAdmin: boolean;
-  fanUnreadCount: number;
 }) {
   const [mode, setMode] = useState<TodoGroupMode>("theme");
 
@@ -49,7 +42,6 @@ export function TodoPageClient({
             </select>
           </div>
         </div>
-        <WeeklyAccountEntry email={accountEmail} isAdmin={isAdmin} fanUnreadCount={fanUnreadCount} />
       </header>
 
       <section className="kpi-row todo-page-kpi" aria-label="待读概览">

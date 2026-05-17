@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { TODO_DIGEST_MAX_CHARS } from "@/lib/ai-todo-digest";
 
 function DigestExtraTextarea({
   value,
@@ -144,7 +145,9 @@ export function TodoDigestBar({ signedIn }: { signedIn: boolean }) {
 
   if (!signedIn) return null;
 
-  const display = text.trim() || "尚未生成待读摘要。展开后点击「刷新摘要」将根据你的阅读目的与当前待读列表生成（不超过 300 字）。";
+  const display =
+    text.trim() ||
+    `尚未生成待读摘要。展开后点击「刷新摘要」将根据你的阅读目的与当前待读列表生成（不超过 ${TODO_DIGEST_MAX_CHARS} 字，内容力求完整、有逻辑、有深度）。`;
   const timeLine = updatedAt
     ? new Date(updatedAt).toLocaleString("zh-CN", { dateStyle: "short", timeStyle: "short" })
     : null;
@@ -173,7 +176,7 @@ export function TodoDigestBar({ signedIn }: { signedIn: boolean }) {
             <p className="muted-link" style={{ margin: "0 0 12px", fontSize: "var(--fs-small)" }}>
               留空下方输入框并确认：在<strong>上一版摘要</strong>基础上，仅根据<strong>自上次生成以来新加入的待读</strong>合并更新（更省
               token）。填写要求并确认：对<strong>当前全部待读</strong>重新生成一轮，并将你的要求作为<strong>单次临时说明</strong>追加到
-              prompt（仍受字数上限约束）。
+              prompt（摘要不超过 {TODO_DIGEST_MAX_CHARS} 字，力求完整、有逻辑、有深度）。
             </p>
             <DigestExtraTextarea value={extraRequirement} onChange={setExtraRequirement} disabled={busy} />
             <p className="muted-link" style={{ margin: "8px 0 0", fontSize: "var(--fs-small)" }}>
