@@ -1,0 +1,40 @@
+--- a/xiaohongshu/user_profile.go
++++ b/xiaohongshu/user_profile.go
+@@ -33,13 +33,32 @@
+ 	if err := page.Goto(searchURL); err != nil {
+ 		return nil, fmt.Errorf("failed to navigate to user profile: %w", err)
+ 	}
+-	waitStable, err := u.polling.Delay("wait_1000ms")
++
++	// 博主主页有动态内容（笔记推荐、实时更新），DOM 可能永远不会稳定。
++	// 与 GetMyProfileViaSidebar 一致：等待 __INITIAL_STATE__ 中的用户数据，而非 DOM 稳定。
++	maxWait, err := u.polling.Timeout()
+ 	if err != nil {
+ 		return nil, err
+ 	}
+-	if err := page.WaitDOMStable(waitStable, 0.1); err != nil {
+-		return nil, fmt.Errorf("failed to wait for page stable: %w", err)
++	checkInterval, err := u.polling.Interval()
++	if err != nil {
++		return nil, err
++	}
++	startTime := time.Now()
++
++	for time.Since(startTime) < maxWait {
++		hasData, err := page.Eval(`() => {
++			return window.__INITIAL_STATE__ &&
++				window.__INITIAL_STATE__.user &&
++				window.__INITIAL_STATE__.user.userPageData !== undefined &&
++				window.__INITIAL_STATE__.user.notes !== undefined;
++		}`)
++		if err == nil && hasData == true {
++			break
++		}
++		time.Sleep(checkInterval)
++	}
++
++	if err := polling.SleepDelay(u.polling, "wait_500ms"); err != nil {
++		return nil, err
+ 	}
+ 
+ 	return u.extractUserProfileData(page)

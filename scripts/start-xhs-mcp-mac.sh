@@ -18,6 +18,7 @@ esac
 VER="v2026.03.03.1940-cookie-fix"
 URL="https://github.com/vmxmy/xiaohongshu-mcp/releases/download/${VER}/${ASSET}"
 BIN="$DIR/xiaohongshu-mcp"
+PATCHED_BIN="$DIR/xiaohongshu-mcp-patched"
 
 if [ ! -x "$BIN" ]; then
   echo "正在下载 ${ASSET} …"
@@ -38,6 +39,17 @@ if [ ! -x "$BIN" ]; then
 fi
 
 export COOKIES_PATH="$DIR/data/cookies.json"
+
+RUN_BIN="$BIN"
+if [ -x "$PATCHED_BIN" ]; then
+  RUN_BIN="$PATCHED_BIN"
+  echo "使用 patched MCP（已修复博主主页 DOM 超时）"
+elif [ -x "$BIN" ]; then
+  echo "提示：若随览抓取博主主页报「dom not stable」，请执行："
+  echo "  bash scripts/build-xhs-mcp-patched-mac.sh"
+  echo "然后重启本 MCP 窗口。"
+fi
+
 echo "启动小红书 MCP：http://127.0.0.1:18060"
 echo "（本窗口请保持打开；Ctrl+C 可停止）"
-exec "$BIN" --port=":18060"
+exec "$RUN_BIN" --port=":18060"

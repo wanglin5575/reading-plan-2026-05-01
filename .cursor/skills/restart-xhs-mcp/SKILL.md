@@ -104,6 +104,7 @@ curl -H "ngrok-skip-browser-warning: true" https://你的ngrok地址.ngrok-free.
 | ngrok HTML `ERR_NGROK_8012 connection refused` | ngrok 在跑但 MCP 未跑 | 先启动 MCP |
 | `/login/status` 500 + `playwright` / `1148` | 浏览器路径不对 | `bash scripts/install-xhs-mcp-playwright-mac.sh`，必要时重启 MCP |
 | 线上 `Failed to fetch` / 获取二维码失败 | MCP/ngrok 断、或 Vercel 变量错、或函数超时 | 完成步骤 4；确认两窗口在线；核对 `XHS_MCP_BASE_URL` |
+| 随览报「dom not stable」/ 博主主页抓取失败（已登录） | 上游 MCP 等 DOM 稳定超时 | `bash scripts/build-xhs-mcp-patched-mac.sh`，重启 MCP 窗口 |
 | ngrok 里 `/health` 200 但 `/login/*` 500 | Playwright | 见上 |
 | `scripts/...` 找不到 | 不在项目目录 | 先 `cd` 到项目根 |
 
@@ -120,5 +121,6 @@ curl -H "ngrok-skip-browser-warning: true" https://你的ngrok地址.ngrok-free.
 | 脚本 | 用途 |
 |------|------|
 | `scripts/start-xhs-mcp-mac.sh` | 下载并启动 MCP :18060 |
+| `scripts/build-xhs-mcp-patched-mac.sh` | 构建修复博主主页 DOM 超时的 patched MCP |
 | `scripts/start-xhs-public-ngrok.sh` | 检查 MCP 后启动 ngrok |
 | `scripts/install-xhs-mcp-playwright-mac.sh` | 1148 浏览器路径兼容 |

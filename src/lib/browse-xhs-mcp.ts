@@ -6,7 +6,10 @@ import { PROFILE_SCRAPE_BOOTSTRAP, PROFILE_SCRAPE_INCREMENTAL, resolveBrowseSeed
 
 const DEFAULT_BASE = "http://127.0.0.1:18060";
 const REQUEST_MS = 120_000;
+const PROFILE_REQUEST_MS = 180_000;
 const LOGIN_PROBE_MS = 45_000;
+const PROFILE_FETCH_ATTEMPTS = 3;
+const PROFILE_RETRY_DELAY_MS = 2_500;
 
 const XHS_MCP_HEADERS: Record<string, string> = {
   "content-type": "application/json",
@@ -81,7 +84,58 @@ export function xhsExploreUrl(feedId: string, xsecToken: string): string {
   return `https://www.xiaohongshu.com/explore/${feedId}${q}`;
 }
 
-type McpSuccess<T> = { success?: boolean; data?: T; message?: string; error?: string };
+type McpSuccess<T> = { success?: boolean; data?: T; message?: string; error?: string; code?: string; details?: string };
+
+export class XhsMcpError extends Error {
+  readonly code?: string;
+  readonly details?: string;
+  readonly httpStatus?: number;
+
+  constructor(message: string, opts?: { code?: string; details?: string; httpStatus?: number }) {
+    super(message);
+    this.name = "XhsMcpError";
+    this.code = opts?.code;
+    this.details = opts?.details;
+    this.httpStatus = opts?.httpStatus;
+  }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function formatXhsProfileWarning(rawSeed: string, err: unknown): string {
+  const seed = rawSeed.trim();
+  if (err instanceof XhsMcpError) {
+    const detail = err.details?.trim();
+    const code = err.code?.trim();
+    if (code === "GET_USER_PROFILE_FAILED" && /dom not stable|page stable/i.test(detail ?? "")) {
+      return (
+        "小红书博主主页加载超时（MCP 在等页面 DOM 稳定时失败，与登录无关）。" +
+        "请在本机执行 bash scripts/build-xhs-mcp-patched-mac.sh 后重启 MCP；" +
+        "或从小红书 App 重新复制最新分享链接再试。"
+      );
+    }
+    if (/xsec_token|token/i.test(detail ?? "") || /token/i.test(err.message)) {
+      return "小红书主页 xsec_token 可能已过期，请从小红书 App 重新分享复制链接后再刷新。";
+    }
+    if (detail) {
+      return `小红书博主主页抓取失败（${code ?? "MCP"}：${detail}）。链接：${seed}`;
+    }
+    if (code) {
+      return `小红书博主主页抓取失败（${code}：${err.message}）。链接：${seed}`;
+    }
+    return `小红书博主主页抓取失败：${err.message}。链接：${seed}`;
+  }
+  const msg = err instanceof Error ? err.message : String(err);
+  if (/abort|timeout|timed out/i.test(msg)) {
+    return `小红书 MCP 请求超时（${PROFILE_REQUEST_MS / 1000}s）。请确认 MCP 与 ngrok 窗口仍打开。链接：${seed}`;
+  }
+  if (/ECONNREFUSED|fetch failed|ENOTFOUND/i.test(msg)) {
+    return `小红书 MCP 不可达。请启动 bash scripts/start-xhs-mcp-mac.sh 并核对 Vercel 的 XHS_MCP_BASE_URL。`;
+  }
+  return `小红书博主主页抓取失败：${msg}。链接：${seed}`;
+}
 
 type XhsFeedItem = {
   id?: string;
@@ -111,26 +165,37 @@ type XhsFeedDetailData = {
   };
 };
 
-async function xhsMcpFetch<T>(path: string, init?: RequestInit): Promise<T> {
+async function xhsMcpFetch<T>(path: string, init?: RequestInit & { timeoutMs?: number }): Promise<T> {
   const base = getXhsMcpBaseUrl();
-  if (!base) throw new Error("missing_xhs_mcp_base_url");
+  if (!base) throw new XhsMcpError("missing_xhs_mcp_base_url");
+
+  const timeoutMs = init?.timeoutMs ?? REQUEST_MS;
+  const { timeoutMs: _drop, ...fetchInit } = init ?? {};
 
   const res = await fetch(`${base}${path}`, {
-    ...init,
-    signal: init?.signal ?? AbortSignal.timeout(REQUEST_MS),
+    ...fetchInit,
+    signal: fetchInit.signal ?? AbortSignal.timeout(timeoutMs),
     headers: {
       ...XHS_MCP_HEADERS,
-      ...(init?.headers ?? {}),
+      ...(fetchInit.headers ?? {}),
     },
   });
 
-  const body = (await res.json().catch(() => ({}))) as McpSuccess<T> & { error?: string };
+  const body = (await res.json().catch(() => ({}))) as McpSuccess<T>;
   if (!res.ok) {
     const msg = body.error || body.message || `xhs_mcp_http_${res.status}`;
-    throw new Error(msg);
+    throw new XhsMcpError(msg, {
+      code: body.code,
+      details: body.details,
+      httpStatus: res.status,
+    });
   }
   if (body.success === false) {
-    throw new Error(body.error || body.message || "xhs_mcp_failed");
+    throw new XhsMcpError(body.error || body.message || "xhs_mcp_failed", {
+      code: body.code,
+      details: body.details,
+      httpStatus: res.status,
+    });
   }
   return (body.data ?? body) as T;
 }
@@ -185,8 +250,41 @@ function isLoginCheckUncertain(message?: string): boolean {
 async function fetchXhsUserProfile(userId: string, xsecToken: string): Promise<XhsUserProfileData> {
   return xhsMcpFetch<XhsUserProfileData>("/api/v1/user/profile", {
     method: "POST",
+    timeoutMs: PROFILE_REQUEST_MS,
     body: JSON.stringify({ user_id: userId, xsec_token: xsecToken }),
   });
+}
+
+async function fetchXhsUserProfileWithRetry(
+  rawSeed: string,
+  profile: ParsedXhsProfile,
+): Promise<XhsUserProfileData> {
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= PROFILE_FETCH_ATTEMPTS; attempt += 1) {
+    let resolved = rawSeed.trim();
+    let userId = profile.userId;
+    let xsecToken = profile.xsecToken;
+
+    if (attempt > 1 || /xhslink\.com/i.test(resolved)) {
+      resolved = await resolveBrowseSeedUrl(resolved);
+      const reparsed = parseXhsProfileUrl(resolved);
+      if (reparsed) {
+        userId = reparsed.userId;
+        if (reparsed.xsecToken) xsecToken = reparsed.xsecToken;
+      }
+    }
+
+    try {
+      return await fetchXhsUserProfile(userId, xsecToken);
+    } catch (e) {
+      lastErr = e;
+      console.warn(`[browse-xhs-mcp] user profile attempt ${attempt}/${PROFILE_FETCH_ATTEMPTS} failed:`, resolved, e);
+      if (attempt < PROFILE_FETCH_ATTEMPTS) {
+        await sleep(PROFILE_RETRY_DELAY_MS * attempt);
+      }
+    }
+  }
+  throw lastErr;
 }
 
 async function fetchXhsFeedDetail(feedId: string, xsecToken: string): Promise<XhsFeedDetailData> {
@@ -333,10 +431,10 @@ export async function fetchBrowseXhsMcpHits(
 
     let profileData: XhsUserProfileData;
     try {
-      profileData = await fetchXhsUserProfile(profile.userId, profile.xsecToken);
+      profileData = await fetchXhsUserProfileWithRetry(raw, profile);
     } catch (e) {
       console.warn("[browse-xhs-mcp] user profile failed:", resolved, e);
-      warnings.push(`小红书博主主页抓取失败，请确认 MCP 已登录且链接有效。`);
+      warnings.push(formatXhsProfileWarning(raw, e));
       continue;
     }
 
