@@ -13,6 +13,7 @@ export async function GET() {
   try {
     const res = await fetch(`${base}/api/v1/login/qrcode`, {
       signal: AbortSignal.timeout(120_000),
+      headers: { "ngrok-skip-browser-warning": "true" },
     });
     const body = await res.json().catch(() => ({}));
     return NextResponse.json(body, { status: res.status });

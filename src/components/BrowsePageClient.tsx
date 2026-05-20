@@ -26,8 +26,14 @@ import { filterBrowseHitsByPublishedAge, effectiveMaxPublishedAgeDays } from "@/
 import { BROWSE_DEFAULT_MAX_PUBLISHED_AGE_DAYS } from "@/lib/browse-defaults";
 import { BrowseHitCard } from "@/components/BrowseHitCard";
 import { BrowseFollowFeed } from "@/components/BrowseFollowFeed";
+import { BrowseXhsGroupedHits } from "@/components/BrowseXhsGroupedHits";
 import { createBrowseUiDemoHit, isBrowseUiDemoHit } from "@/lib/browse-demo-preview";
 import { normalizeArticleUrlKey } from "@/lib/url-key";
+import {
+  isBrowseXhsTopic,
+  isLikelyXhsProfileSeedLine,
+  parseXhsProfileSeedLines,
+} from "@/lib/browse-xhs-display";
 
 const KW_PREVIEW_MAX = 4;
 
@@ -190,7 +196,7 @@ export default function BrowsePageClient() {
   const [loadingTopics, setLoadingTopics] = useState(true);
   const [msg, setMsg] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);
-  const [addModalTab, setAddModalTab] = useState<"topic" | "follow">("topic");
+  const [addModalTab, setAddModalTab] = useState<"topic" | "follow" | "xhs">("topic");
   const [followRows, setFollowRows] = useState<FollowStripRow[]>([]);
   const [followSearch, setFollowSearch] = useState("");
   const [followResults, setFollowResults] = useState<{ userId: string; display: string; nickname: string | null }[]>(
@@ -207,6 +213,8 @@ export default function BrowsePageClient() {
   const [newName, setNewName] = useState("");
   const [newKw, setNewKw] = useState("");
   const [newSeeds, setNewSeeds] = useState("");
+  const [newXhsName, setNewXhsName] = useState("");
+  const [newXhsProfiles, setNewXhsProfiles] = useState("");
   const [stripOrderBusy, setStripOrderBusy] = useState(false);
   const [editTopic, setEditTopic] = useState<BrowseTopic | null>(null);
   const [editKw, setEditKw] = useState("");
@@ -754,6 +762,38 @@ export default function BrowsePageClient() {
     };
   }, [runRefresh]);
 
+  async function onAddXhsSubscription(e: React.FormEvent) {
+    e.preventDefault();
+    const name = (newXhsName.trim() || "小红书订阅").slice(0, 80);
+    const seedSources = parseXhsProfileSeedLines(newXhsProfiles).filter(isLikelyXhsProfileSeedLine);
+    if (!seedSources.length) {
+      setMsg("请至少填写一条小红书博主主页链接（xhslink 或 xiaohongshu.com/user/profile/…）");
+      return;
+    }
+    try {
+      const r = await fetch("/api/browse/topics", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name,
+          keywords: ["小红书"],
+          seedSources,
+          kind: "xhs",
+        }),
+      });
+      const d = (await r.json()) as { topic?: BrowseTopic; error?: string };
+      if (!r.ok) throw new Error(d.error || "添加失败");
+      setFormOpen(false);
+      setAddModalTab("topic");
+      setNewXhsName("");
+      setNewXhsProfiles("");
+      await loadTopics();
+      if (d.topic?.id) setActiveId(d.topic.id);
+    } catch (err) {
+      setMsg(err instanceof Error ? err.message : "添加失败");
+    }
+  }
+
   async function onAddTopic(e: React.FormEvent) {
     e.preventDefault();
     const name = newName.trim();
@@ -799,10 +839,15 @@ export default function BrowsePageClient() {
 
   async function saveEditTopic() {
     if (!editTopic) return;
-    const keywords = editKw
-      .split(/[,，]/)
-      .map((s) => s.trim())
-      .filter(Boolean);
+    const keywords =
+      editTopic.kind === "xhs"
+        ? editTopic.keywords.length
+          ? editTopic.keywords
+          : ["小红书"]
+        : editKw
+            .split(/[,，]/)
+            .map((s) => s.trim())
+            .filter(Boolean);
     if (!keywords.length) {
       setMsg("至少保留一个关键词");
       return;
@@ -811,6 +856,13 @@ export default function BrowsePageClient() {
       .split("\n")
       .map((s) => s.trim())
       .filter(Boolean);
+    if (editTopic.kind === "xhs") {
+      const xhsOnly = seedSources.filter(isLikelyXhsProfileSeedLine);
+      if (!xhsOnly.length) {
+        setMsg("请至少保留一条小红书博主主页链接");
+        return;
+      }
+    }
     const ageTrim = editMaxAge.trim();
     let maxPublishedAgeDays: number | null = null;
     if (ageTrim === "") {
@@ -894,6 +946,7 @@ export default function BrowsePageClient() {
   const isFollowTab = Boolean(activeId?.startsWith("__follow__"));
   const followTargetUserId = isFollowTab && activeId ? activeId.slice("__follow__".length) : null;
   const activeTopicEntity = !isFollowTab ? topics.find((t) => t.id === activeId) : undefined;
+  const isXhsTopicActive = isBrowseXhsTopic(activeTopicEntity);
 
   async function addHitToPlanTodo(hit: BrowseStoredHit) {
     if (busyUrl) return;
@@ -1319,19 +1372,31 @@ export default function BrowsePageClient() {
             aria-labelledby="browse-edit-title"
             onClick={(e) => e.stopPropagation()}
           >
-            <h2 id="browse-edit-title">编辑主题 · {editTopic.name}</h2>
-            <label className="muted-link" htmlFor="browse-edit-kw">
-              关键词（与主题为且，多项为或；逗号分隔）
-            </label>
-            <input
-              id="browse-edit-kw"
-              className="input"
-              value={editKw}
-              onChange={(e) => setEditKw(e.target.value)}
-              placeholder="Hamel, Shreya, …"
-            />
+            <h2 id="browse-edit-title">
+              {editTopic.kind === "xhs" ? "编辑小红书订阅" : "编辑主题"} · {editTopic.name}
+            </h2>
+            {editTopic.kind === "xhs" ? (
+              <p className="muted-link" style={{ fontSize: "var(--fs-small)", marginBottom: 10 }}>
+                修改博主主页链接后保存，再下拉刷新即可更新笔记列表。
+              </p>
+            ) : (
+              <>
+                <label className="muted-link" htmlFor="browse-edit-kw">
+                  关键词（与主题为且，多项为或；逗号分隔）
+                </label>
+                <input
+                  id="browse-edit-kw"
+                  className="input"
+                  value={editKw}
+                  onChange={(e) => setEditKw(e.target.value)}
+                  placeholder="Hamel, Shreya, …"
+                />
+              </>
+            )}
             <label className="muted-link" htmlFor="browse-edit-seeds">
-              种子站 / RSS / 博主主页（B · 每行一条；小红书链接需本地或服务器运行 xiaohongshu-mcp 并已登录）
+              {editTopic.kind === "xhs"
+                ? "博主主页链接（每行一条）"
+                : "种子站 / RSS / 博主主页（B · 每行一条；小红书链接需本地或服务器运行 xiaohongshu-mcp 并已登录）"}
             </label>
             <textarea
               id="browse-edit-seeds"
@@ -1427,6 +1492,15 @@ export default function BrowsePageClient() {
               <button
                 type="button"
                 role="tab"
+                aria-selected={addModalTab === "xhs"}
+                className={`browse-add-chip${addModalTab === "xhs" ? " is-active" : ""}`}
+                onClick={() => setAddModalTab("xhs")}
+              >
+                订阅小红书
+              </button>
+              <button
+                type="button"
+                role="tab"
                 aria-selected={addModalTab === "follow"}
                 className={`browse-add-chip${addModalTab === "follow" ? " is-active" : ""}`}
                 onClick={() => setAddModalTab("follow")}
@@ -1480,6 +1554,52 @@ export default function BrowsePageClient() {
                       onClick={() => {
                         setFormOpen(false);
                         setNewSeeds("");
+                      }}
+                    >
+                      取消
+                    </button>
+                  </div>
+                </form>
+              </>
+            ) : addModalTab === "xhs" ? (
+              <>
+                <h2 id="browse-add-modal-title">订阅小红书</h2>
+                <p className="muted-link" style={{ fontSize: "var(--fs-small)", marginBottom: 12 }}>
+                  填写博主主页链接（每行一条），保存后下拉刷新即可通过小红书 MCP 拉取笔记；多博主将按昵称分组展示。
+                </p>
+                <form className="row" onSubmit={onAddXhsSubscription}>
+                  <label className="muted-link" htmlFor="browse-xhs-name">
+                    订阅名称（显示在随览标签上）
+                  </label>
+                  <input
+                    id="browse-xhs-name"
+                    className="input"
+                    value={newXhsName}
+                    onChange={(e) => setNewXhsName(e.target.value)}
+                    placeholder="如：设计博主合集"
+                  />
+                  <label className="muted-link" htmlFor="browse-xhs-profiles">
+                    博主主页链接（每行一条）
+                  </label>
+                  <textarea
+                    id="browse-xhs-profiles"
+                    className="input browse-edit-seeds"
+                    rows={5}
+                    value={newXhsProfiles}
+                    onChange={(e) => setNewXhsProfiles(e.target.value)}
+                    placeholder={"https://xhslink.com/m/xxxx\nhttps://www.xiaohongshu.com/user/profile/xxx?xsec_token=..."}
+                    autoComplete="off"
+                  />
+                  <div className="browse-form-actions">
+                    <button className="btn" type="submit">
+                      保存
+                    </button>
+                    <button
+                      type="button"
+                      className="btn secondary"
+                      onClick={() => {
+                        setFormOpen(false);
+                        setNewXhsProfiles("");
                       }}
                     >
                       取消
@@ -1587,20 +1707,33 @@ export default function BrowsePageClient() {
                 </button>
               </div>
             ) : null}
-            {hitsForUi.map((h) => (
-              <BrowseHitCard
-                key={isBrowseUiDemoHit(h) ? "__browse_ui_demo__" : h.url}
-                hit={h}
+            {isXhsTopicActive && activeTopicEntity ? (
+              <BrowseXhsGroupedHits
+                hits={hitsForUi}
+                topic={activeTopicEntity}
                 topicId={activeId ?? ""}
-                topicName={activeTopicEntity?.name ?? "—"}
-                busy={busyUrl === h.url}
-                demo={isBrowseUiDemoHit(h)}
-                onAddTodo={() => addHitToPlanTodo(h)}
-                onAddDone={async () => {
+                busyUrl={busyUrl}
+                onAddTodo={addHitToPlanTodo}
+                onAddDone={async (h) => {
                   openBrowseMarkDone(h);
                 }}
               />
-            ))}
+            ) : (
+              hitsForUi.map((h) => (
+                <BrowseHitCard
+                  key={isBrowseUiDemoHit(h) ? "__browse_ui_demo__" : h.url}
+                  hit={h}
+                  topicId={activeId ?? ""}
+                  topicName={activeTopicEntity?.name ?? "—"}
+                  busy={busyUrl === h.url}
+                  demo={isBrowseUiDemoHit(h)}
+                  onAddTodo={() => addHitToPlanTodo(h)}
+                  onAddDone={async () => {
+                    openBrowseMarkDone(h);
+                  }}
+                />
+              ))
+            )}
           </>
         )}
       </div>

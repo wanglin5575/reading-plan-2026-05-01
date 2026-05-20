@@ -106,18 +106,20 @@ export async function POST(req: Request) {
     const profileWarnings = [...new Set([...xhsWarnings, ...profileFcResult.warnings])];
     const rssHits = rssFeedSeeds.length ? await fetchBrowseRssHits(rssFeedSeeds) : [];
     let searchHits: BrowseHit[] = [];
-    try {
-      searchHits = await fetchBrowseHits(topic, {
-        since,
-        until,
-        tbsMaxSpanDays: bootstrap ? BROWSE_TBS_MAX_DAYS_BOOTSTRAP : BROWSE_TBS_MAX_DAYS_INCREMENTAL,
-      });
-    } catch (se: unknown) {
-      const m = se instanceof Error ? se.message : "";
-      if (m === "missing_firecrawl" && (rssHits.length || profileHits.length)) {
-        searchHits = [];
-      } else {
-        throw se;
+    if (topic.kind !== "xhs") {
+      try {
+        searchHits = await fetchBrowseHits(topic, {
+          since,
+          until,
+          tbsMaxSpanDays: bootstrap ? BROWSE_TBS_MAX_DAYS_BOOTSTRAP : BROWSE_TBS_MAX_DAYS_INCREMENTAL,
+        });
+      } catch (se: unknown) {
+        const m = se instanceof Error ? se.message : "";
+        if (m === "missing_firecrawl" && (rssHits.length || profileHits.length)) {
+          searchHits = [];
+        } else {
+          throw se;
+        }
       }
     }
     const combined = mergeHitsPreferFirst(profileHits, mergeHitsPreferFirst(rssHits, searchHits));

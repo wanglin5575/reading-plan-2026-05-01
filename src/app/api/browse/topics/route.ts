@@ -17,6 +17,7 @@ export async function POST(req: Request) {
     keywords?: unknown;
     seedSources?: unknown;
     maxPublishedAgeDays?: unknown;
+    kind?: unknown;
   };
   const name = typeof body.name === "string" ? body.name : "";
   const keywords = Array.isArray(body.keywords) ? body.keywords.map(String) : [];
@@ -27,9 +28,11 @@ export async function POST(req: Request) {
     maxPublishedAgeDays = Math.round(body.maxPublishedAgeDays);
   }
   try {
+    const kind = body.kind === "xhs" ? "xhs" : "topic";
     const topic = await insertBrowseTopic(uid, name, keywords, {
       seedSources,
       maxPublishedAgeDays,
+      kind,
     });
     return NextResponse.json({ topic });
   } catch (e: unknown) {

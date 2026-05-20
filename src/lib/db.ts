@@ -162,6 +162,7 @@ async function ensureSchema(): Promise<void> {
       await p.query(`
         ALTER TABLE browse_topics ADD COLUMN IF NOT EXISTS seed_sources JSONB NOT NULL DEFAULT '[]'::jsonb;
         ALTER TABLE browse_topics ADD COLUMN IF NOT EXISTS max_published_age_days INTEGER;
+        ALTER TABLE browse_topics ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'topic';
       `);
       await p.query(`
         CREATE TABLE IF NOT EXISTS browse_topic_feeds (
@@ -1046,6 +1047,7 @@ interface BrowseTopicRow {
   created_at: Date | string;
   seed_sources?: unknown;
   max_published_age_days?: number | null;
+  kind?: string | null;
 }
 
 function rowToBrowseTopic(row: BrowseTopicRow): BrowseTopic {
@@ -1065,6 +1067,7 @@ function rowToBrowseTopic(row: BrowseTopicRow): BrowseTopic {
     keywords,
     seedSources,
     maxPublishedAgeDays,
+    kind: row.kind === "xhs" ? "xhs" : "topic",
     sortOrder: row.sort_order,
     createdAt,
   };
@@ -1077,7 +1080,7 @@ export async function listBrowseTopics(userId: string | null): Promise<BrowseTop
   try {
     await ensureSchema();
     const { rows } = await p.query<BrowseTopicRow>(
-      "SELECT id, name, keywords, sort_order, created_at, seed_sources, max_published_age_days FROM browse_topics WHERE user_id = $1 ORDER BY sort_order ASC, created_at ASC",
+      "SELECT id, name, keywords, sort_order, created_at, seed_sources, max_published_age_days, kind FROM browse_topics WHERE user_id = $1 ORDER BY sort_order ASC, created_at ASC",
       [owner],
     );
     return rows.map(rowToBrowseTopic);
@@ -1094,7 +1097,7 @@ export async function getBrowseTopic(id: string, userId: string | null): Promise
   try {
     await ensureSchema();
     const { rows } = await p.query<BrowseTopicRow>(
-      "SELECT id, name, keywords, sort_order, created_at, seed_sources, max_published_age_days FROM browse_topics WHERE id = $1 AND user_id = $2 LIMIT 1",
+      "SELECT id, name, keywords, sort_order, created_at, seed_sources, max_published_age_days, kind FROM browse_topics WHERE id = $1 AND user_id = $2 LIMIT 1",
       [id, owner],
     );
     const row = rows[0];
@@ -1126,7 +1129,7 @@ export async function insertBrowseTopic(
   userId: string | null,
   name: string,
   keywords: string[],
-  opts?: { seedSources?: string[]; maxPublishedAgeDays?: number | null },
+  opts?: { seedSources?: string[]; maxPublishedAgeDays?: number | null; kind?: "topic" | "xhs" },
 ): Promise<BrowseTopic> {
   const p = getPoolOrNull();
   if (!p) throw new Error("db_not_configured");
@@ -1146,9 +1149,10 @@ export async function insertBrowseTopic(
   if (maxDays != null && (!Number.isFinite(maxDays) || maxDays < 1 || maxDays > 3650)) {
     throw new Error("invalid_max_age");
   }
+  const topicKind = opts?.kind === "xhs" ? "xhs" : "topic";
   await p.query(
-    `INSERT INTO browse_topics (id, user_id, name, keywords, sort_order, seed_sources, max_published_age_days) VALUES ($1, $2, $3, $4::jsonb, $5, $6::jsonb, $7)`,
-    [id, owner, trimmedName, JSON.stringify(cleanKw), nextOrder, JSON.stringify(seeds), maxDays],
+    `INSERT INTO browse_topics (id, user_id, name, keywords, sort_order, seed_sources, max_published_age_days, kind) VALUES ($1, $2, $3, $4::jsonb, $5, $6::jsonb, $7, $8)`,
+    [id, owner, trimmedName, JSON.stringify(cleanKw), nextOrder, JSON.stringify(seeds), maxDays, topicKind],
   );
   const row = await getBrowseTopic(id, userId);
   if (!row) throw new Error("insert_failed");

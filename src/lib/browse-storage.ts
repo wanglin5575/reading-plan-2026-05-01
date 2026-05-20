@@ -310,6 +310,8 @@ export function mergeBrowseFeed(
         mediaType: h.mediaType ?? ex.mediaType,
         titleZh: h.titleZh ?? ex.titleZh,
         summarySource: h.summarySource ?? ex.summarySource,
+        xhsBloggerName: h.xhsBloggerName ?? ex.xhsBloggerName,
+        xhsProfileSeed: h.xhsProfileSeed ?? ex.xhsProfileSeed,
         firstSeenAt: ex.firstSeenAt,
         lastRefreshedAt: fetchedAt,
       });

@@ -114,6 +114,7 @@ async function xhsMcpFetch<T>(path: string, init?: RequestInit): Promise<T> {
     signal: AbortSignal.timeout(REQUEST_MS),
     headers: {
       "content-type": "application/json",
+      "ngrok-skip-browser-warning": "true",
       ...(init?.headers ?? {}),
     },
   });
@@ -168,6 +169,7 @@ function feedItemToBrowseHit(
   item: XhsFeedItem,
   profileNickname?: string,
   detail?: XhsFeedDetailData,
+  meta?: { profileSeed?: string; bloggerName?: string },
 ): BrowseHit | null {
   const feedId = item.id?.trim();
   if (!feedId) return null;
@@ -199,6 +201,8 @@ function feedItemToBrowseHit(
     author,
     estimatedMinutes,
     fullMarkdownForAi: desc.replace(/\s+/g, " ").trim().slice(0, 12000),
+    xhsBloggerName: meta?.bloggerName ?? profileNickname ?? author,
+    xhsProfileSeed: meta?.profileSeed ?? null,
   };
 }
 
@@ -308,25 +312,29 @@ export async function fetchBrowseXhsMcpHits(
       continue;
     }
 
+    const bloggerLabel = nickname || profile.userId;
+    let profileHitCount = 0;
     for (const item of feeds) {
-      if (hits.length >= limit) break;
+      if (profileHitCount >= limit) break;
       const feedId = item.id?.trim();
       if (!feedId || seenFeed.has(feedId)) continue;
       seenFeed.add(feedId);
       const token = (item.xsecToken || profile.xsecToken).trim();
-      let hit = feedItemToBrowseHit(item, nickname);
+      const meta = { profileSeed: resolved, bloggerName: bloggerLabel };
+      let hit = feedItemToBrowseHit(item, nickname, undefined, meta);
       if (!hit) continue;
 
       try {
         const detail = await fetchXhsFeedDetail(feedId, token);
-        const enriched = feedItemToBrowseHit(item, nickname, detail);
+        const enriched = feedItemToBrowseHit(item, nickname, detail, meta);
         if (enriched) hit = enriched;
       } catch {
         /* 保留列表页标题，详情失败仍入库 */
       }
       hits.push(hit);
+      profileHitCount += 1;
     }
   }
 
-  return { hits: hits.slice(0, limit), warnings: [...new Set(warnings)] };
+  return { hits, warnings: [...new Set(warnings)] };
 }

@@ -48,15 +48,22 @@ export default function XhsLoginPage() {
     setLoading(true);
     setErr(null);
     try {
-      const [st, qrRes] = await Promise.all([
-        fetch("/api/browse/xhs-mcp/status").then((r) => r.json() as Promise<StatusPayload>),
-        fetch("/api/browse/xhs-mcp/qrcode").then(async (r) => {
-          const j = (await r.json()) as QrPayload;
-          if (!r.ok) throw new Error(j.error || "获取二维码失败");
-          return j;
-        }),
-      ]);
+      const st = await fetch("/api/browse/xhs-mcp/status").then((r) => r.json() as Promise<StatusPayload>);
       setStatus(st);
+
+      if (st.loggedIn) {
+        setQr(null);
+        return;
+      }
+
+      const qrRes = await fetch("/api/browse/xhs-mcp/qrcode").then(async (r) => {
+        const j = (await r.json()) as QrPayload;
+        if (!r.ok) {
+          const detail = j.error || j.message || `HTTP ${r.status}`;
+          throw new Error(detail);
+        }
+        return j;
+      });
       setQr(qrRes);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "加载失败");
@@ -85,7 +92,10 @@ export default function XhsLoginPage() {
         <div className="card" style={{ padding: 16, marginBottom: 16, borderColor: "#e57373" }}>
           <p style={{ margin: 0 }}>{err}</p>
           <p className="muted-link" style={{ marginTop: 12, marginBottom: 0, fontSize: "var(--fs-small)" }}>
-            请确认终端里小红书服务在跑。若提示端口占用，说明已在运行，直接点下方「刷新状态」即可。
+            线上站点（vercel.app）还需 Mac 上同时运行 ngrok（<code>ngrok http 18060</code>），并在 Vercel 配好{" "}
+            <code>XHS_MCP_BASE_URL</code>。本机调试可改用{" "}
+            <a href="http://127.0.0.1:3000/xhs-login">http://127.0.0.1:3000/xhs-login</a>（需先{" "}
+            <code>npm run dev</code>）。
           </p>
         </div>
       )}

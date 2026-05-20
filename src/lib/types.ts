@@ -65,6 +65,8 @@ export interface BrowseTopic {
    * B：种子站/RSS/博主主页（每行一条 URL 或域名）。RSS 拉取、博主主页批量发现笔记、其余用于 Firecrawl 检索 `site:` 限定
    */
   seedSources?: string[];
+  /** `xhs` = 小红书博主订阅（按博主分组展示）；默认 `topic` */
+  kind?: "topic" | "xhs";
 }
 
 /** 随览：被 AI 筛除（不值得读）的条目，供「筛除记录」查看 */
@@ -108,6 +110,10 @@ export interface BrowseHit {
    * 仅服务端：Firecrawl 检索命中全文 markdown 的节选（供 WolfAI 摘要），响应 JSON 前会剥离。
    */
   fullMarkdownForAi?: string;
+  /** 小红书订阅：博主昵称（分组标题） */
+  xhsBloggerName?: string | null;
+  /** 小红书订阅：来源博主主页种子 URL */
+  xhsProfileSeed?: string | null;
 }
 
 export interface DailyPlan {

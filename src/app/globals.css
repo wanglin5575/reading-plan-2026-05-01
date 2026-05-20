@@ -1686,6 +1686,66 @@ a:active { opacity: 0.7; }
   gap: 10px;
 }
 
+.browse-xhs-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.browse-xhs-group {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.browse-xhs-group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 12px 14px;
+  border: none;
+  background: var(--surface-2, var(--surface));
+  font: inherit;
+  font-weight: var(--fw-semibold);
+  text-align: left;
+  cursor: pointer;
+}
+
+.browse-xhs-group-head:hover {
+  background: color-mix(in srgb, var(--accent) 6%, var(--surface));
+}
+
+.browse-xhs-group-chevron {
+  flex-shrink: 0;
+  width: 1em;
+  color: var(--muted);
+}
+
+.browse-xhs-group-title {
+  flex: 1;
+  min-width: 0;
+}
+
+.browse-xhs-group-count {
+  flex-shrink: 0;
+  font-size: var(--fs-small);
+  font-weight: var(--fw-normal);
+}
+
+.browse-xhs-group-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 12px 12px;
+  border-top: 1px solid var(--border);
+}
+
+.browse-add-modal-tabs--chips {
+  flex-wrap: wrap;
+}
+
 .browse-hit-card-top {
   align-items: center;
 }
