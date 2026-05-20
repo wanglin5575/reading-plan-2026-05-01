@@ -1,12 +1,13 @@
 "use client";
 
 import { ArticleTitleLink } from "@/components/ArticleCard";
-import { useSwipeCardFace } from "@/lib/useSwipeCardFace";
+import { AiGeneratedInlineLabel } from "@/components/AiGeneratedInlineLabel";
 import type { BrowseStoredHit } from "@/lib/browse-storage";
 import { formatPublishedTimeZh, resolveBrowseAuthorLine } from "@/lib/browse-attribution";
 import { MEDIA_KIND_LABEL } from "@/lib/media-kind";
 import { countChars, countWords, detectLanguage, estimateMinutes } from "@/lib/classify-basics";
 import { buildBrowseAiReadSourcesLabel, buildReadPreviewInputLabel } from "@/lib/ai-read-sources-label";
+import { useSwipeCardFace } from "@/lib/useSwipeCardFace";
 
 /** 与待读列表同一套滑轨；右缘两枚圆钮：已读 + 待读（加入已读 / 加入待读） */
 const BROWSE_SWIPE_REVEAL_PX = 144;
@@ -156,9 +157,7 @@ export function BrowseHitCard({
             <p className="summary">
               {hit.summarySource === "ai" ? (
                 <>
-                  <span className="browse-hit-ai-inline" title={`模型读取：${browseAiReadLead}`}>
-                    AI生成(读取{browseAiReadLead})：
-                  </span>
+                  <AiGeneratedInlineLabel readLead={browseAiReadLead} />
                   {summaryText}
                 </>
               ) : (
@@ -170,9 +169,7 @@ export function BrowseHitCard({
           <p className="summary">
             {hit.summarySource === "ai" ? (
               <>
-                <span className="browse-hit-ai-inline" title={`模型读取：${browseAiReadLead}`}>
-                  AI生成(读取{browseAiReadLead})：
-                </span>
+                <AiGeneratedInlineLabel readLead={browseAiReadLead} />
                 {summaryText}
               </>
             ) : (

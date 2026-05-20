@@ -129,7 +129,10 @@ export function ArticleReadPreviewModal({
               previewSource &&
               previewSource !== "fallback" &&
               readSourcesShort.trim() ? (
-                <p className="article-read-preview-ai-lead muted-link">
+                <p
+                  className="article-read-preview-ai-lead muted-link"
+                  title={readSourcesShort.trim() ? `模型读取：${readSourcesShort.trim()}` : undefined}
+                >
                   {readPreviewSourceHeadline(previewSource, readSourcesShort)}：
                 </p>
               ) : null}

@@ -14,6 +14,7 @@ import { readPreviewSourceFromApiPayload, type ReadPreviewSource } from "@/lib/r
 import { buildArticlePreviewSource } from "@/lib/article-preview-source";
 import { buildReadPreviewInputLabel, resolveArticleAiReadLabel } from "@/lib/ai-read-sources-label";
 import { RecommendToUserModal, useMyFollowsForRecommend } from "@/components/RecommendToUserModal";
+import { AiGeneratedInlineLabel } from "@/components/AiGeneratedInlineLabel";
 
 export type ArticleSocialComment = {
   id: string;
@@ -77,9 +78,7 @@ function ArticleSummaryFooter({ summary, readLead }: { summary: string; readLead
       <div className={`article-summary-footer-text ${expanded ? "is-expanded" : "is-collapsed"}`}>
         {readLead ? (
           <>
-            <span className="browse-hit-ai-inline" title={`模型读取：${readLead}`}>
-              AI生成(读取{readLead})：
-            </span>
+            <AiGeneratedInlineLabel readLead={readLead} />
             {summary}
           </>
         ) : (
@@ -759,9 +758,7 @@ export function ArticleCard({
           className="article-card-summary-title-link"
         >
           <p className="summary">
-            <span className="browse-hit-ai-inline" title={`模型读取：${bookReadLead}`}>
-              AI生成(读取{bookReadLead})：
-            </span>
+            <AiGeneratedInlineLabel readLead={bookReadLead} />
             {article.summary}
           </p>
         </ArticleTitleLink>
@@ -769,9 +766,7 @@ export function ArticleCard({
 
       {article.status === "done" && showSummaryInBody && (
         <p className="summary">
-          <span className="browse-hit-ai-inline" title={`模型读取：${bookReadLead}`}>
-            AI生成(读取{bookReadLead})：
-          </span>
+          <AiGeneratedInlineLabel readLead={bookReadLead} />
           {article.summary}
         </p>
       )}

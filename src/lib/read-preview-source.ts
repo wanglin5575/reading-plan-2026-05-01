@@ -12,17 +12,16 @@ export function isReadPreviewApiSource(v: unknown): v is ReadPreviewApiSource {
   return v === "server_cache" || v === "llm" || v === "fallback";
 }
 
-/** 弹窗副标题：AI 路径展示「AI生成(读取…)」 */
+/** 弹窗副标题：AI 路径仅展示「AI生成」（读取明细见悬停或入库字段） */
 export function readPreviewSourceHeadline(
   source: ReadPreviewSource,
-  readSourcesShort?: string | null,
+  _readSourcesShort?: string | null,
 ): string {
-  const rs = readSourcesShort?.trim();
   switch (source) {
     case "client_cache":
     case "server_cache":
     case "llm":
-      return rs ? `AI生成(读取${rs})` : "AI生成(读取书库摘要与正文节选)";
+      return "AI生成";
     case "fallback":
       return "摘要来源：节选";
     default:
