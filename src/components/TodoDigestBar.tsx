@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { TODO_DIGEST_MAX_CHARS } from "@/lib/ai-todo-digest";
-import { hasActiveTextSelection } from "@/lib/text-selection";
 
 function DigestExtraTextarea({
   value,
@@ -239,29 +238,19 @@ export function TodoDigestBar({ signedIn }: { signedIn: boolean }) {
 
   return (
     <section className="todo-digest" aria-label="待读摘要">
-      <div
+      <button
+        type="button"
         className={`todo-digest-bar${expanded ? " is-expanded" : ""}`}
-        onClick={() => {
-          if (hasActiveTextSelection()) return;
-          setExpanded((v) => !v);
-        }}
+        onClick={() => setExpanded((v) => !v)}
+        aria-expanded={expanded}
       >
-        <button
-          type="button"
-          className="todo-digest-chevron"
-          aria-expanded={expanded}
-          aria-label={expanded ? "收起待读摘要" : "展开待读摘要"}
-          onClick={(e) => {
-            e.stopPropagation();
-            setExpanded((v) => !v);
-          }}
-        >
+        <span className="todo-digest-chevron" aria-hidden>
           {expanded ? "▼" : "▶"}
-        </button>
-        <div className="todo-digest-text-wrap">
-          <div className={`todo-digest-text${expanded ? " is-full" : " is-clamp"}`}>{display}</div>
-        </div>
-      </div>
+        </span>
+        <span className="todo-digest-text-wrap">
+          <span className={`todo-digest-text${expanded ? " is-full" : " is-clamp"}`}>{display}</span>
+        </span>
+      </button>
       {loadErr ? <p className="me-msg todo-digest-err">{loadErr}</p> : null}
       {infoMsg ? (
         <p className="muted-link todo-digest-err" style={{ color: "var(--muted-fg, #666)" }}>
