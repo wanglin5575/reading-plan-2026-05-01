@@ -3,11 +3,45 @@
  * 复用 AI_SUMMARY_* / WOLF_* 环境变量。
  */
 
-import { clampZhBody } from "@/lib/read-modal-fallback";
 import type { Article } from "@/lib/types";
 import { MEDIA_KIND_LABEL } from "@/lib/media-kind";
 
 export const TODO_DIGEST_MAX_CHARS = 1000;
+
+const SENTENCE_END_RE = /[。！？!?；;]/;
+
+/** 去掉末尾未写完的半句（模型或硬截断常停在「第18条…Dream」这类位置） */
+function trimIncompleteTail(text: string): string {
+  const t = text.replace(/\s+/g, " ").trim();
+  if (!t) return t;
+  if (SENTENCE_END_RE.test(t.slice(-1))) return t;
+
+  let lastEnd = -1;
+  for (let i = 0; i < t.length; i++) {
+    if (SENTENCE_END_RE.test(t[i]!)) lastEnd = i;
+  }
+  if (lastEnd >= Math.floor(t.length * 0.35)) {
+    return t.slice(0, lastEnd + 1).trim();
+  }
+  return t;
+}
+
+/** 超长时在最近句号处收束，避免裁在词语中间 */
+function clampTodoDigestBody(text: string, max = TODO_DIGEST_MAX_CHARS): string {
+  const normalized = trimIncompleteTail(text);
+  const chars = Array.from(normalized);
+  if (chars.length <= max) return chars.join("");
+
+  let slice = chars.slice(0, max).join("");
+  let lastEnd = -1;
+  for (let i = 0; i < slice.length; i++) {
+    if (SENTENCE_END_RE.test(slice[i]!)) lastEnd = i;
+  }
+  if (lastEnd >= Math.floor(max * 0.55)) {
+    return slice.slice(0, lastEnd + 1).trim();
+  }
+  return chars.slice(0, max).join("") + "…";
+}
 
 function trimEnv(...keys: string[]): string | undefined {
   for (const k of keys) {
@@ -82,6 +116,71 @@ function compactArticleLine(a: Article, index: number, tight?: boolean): string 
 
 export type TodoDigestGenerateMode = "full" | "incremental";
 
+export type TodoDigestBuildParams = {
+  readingRole: string;
+  readingDuties: string;
+  readingGoal: string;
+  readingPromptExtra: string;
+  todos: Article[];
+  mode: TodoDigestGenerateMode;
+  oneTimeExtra?: string;
+  previousDigest?: string;
+};
+
+/** 构建发往模型的 system / user 消息（便于调试与 case 还原） */
+export function buildTodoDigestMessages(params: TodoDigestBuildParams): {
+  system: string;
+  user: string;
+  meta: { mode: TodoDigestGenerateMode; itemCount: number; maxTokens: number; maxInputChars: number };
+} {
+  const purpose = buildPurposeBlock(params);
+  const maxItems = Math.min(Math.max(parseInt(process.env.TODO_DIGEST_MAX_ITEMS?.trim() || "60", 10) || 60, 5), 120);
+  const slice = params.todos.slice(0, maxItems);
+  const tight = params.mode === "incremental";
+  const lines = slice.map((a, i) => compactArticleLine(a, i, tight)).join("\n\n");
+
+  const maxInput =
+    Math.min(parseInt(process.env.AI_SUMMARY_MAX_INPUT_CHARS?.trim() || "12000", 10) || 12000, 58000) || 12000;
+
+  const extraBlock =
+    params.mode === "full" && params.oneTimeExtra?.trim()
+      ? `【本次单次附加要求（仅此一轮，优先满足；勿与下方固定背景重复）】\n${params.oneTimeExtra.trim().slice(0, 800)}\n\n`
+      : "";
+
+  const listSection =
+    params.mode === "incremental"
+      ? `【自上次摘要生成以来新加入的待读条目】\n${lines || "（无，若你仍收到此段则说明数据异常）"}`
+      : `【待读清单（含文章/视频/音频的摘要与节选）】\n${lines}`;
+
+  const prevBlock =
+    params.mode === "incremental" && params.previousDigest?.trim()
+      ? `【上一版待读摘要（请有机融入新增要点，勿逐句复述，可改写压缩）】\n${params.previousDigest.trim().slice(0, TODO_DIGEST_MAX_CHARS)}\n\n`
+      : "";
+
+  const user = `【用户阅读目的与背景】\n${purpose}\n\n${extraBlock}${prevBlock}${listSection}`.slice(0, maxInput);
+
+  const maxTokens = Math.min(
+    Math.max(parseInt(process.env.TODO_DIGEST_MAX_OUTPUT_TOKENS?.trim() || "2800", 10) || 2800, 400),
+    4096,
+  );
+
+  const systemBase = `你是阅读计划助手。用户有一份「待读」清单（可能包含文章、视频、音频类素材的摘要与节选）。
+输出为简体中文纯文本：全文不超过 ${TODO_DIGEST_MAX_CHARS} 个汉字（含标点），不要输出链接；不要复述用户固定背景原文。
+收束规则（极重要）：必须在**完整句子**处结束（以。！？等结尾），禁止在词语、英文单词、书名号或「第N条…」标题写到一半时停笔；若接近字数上限，应提前收束或压缩前文，而不是硬写到一半截断。
+写作要求：在字数上限内做到**内容完整、逻辑连贯、有信息深度**——讲清「待读库在说什么、彼此如何关联、对用户目标意味着什么、建议优先关注什么」；避免空话套话、标题堆砌、只列书名式罗列或浅层概括。可用 2～4 个自然段组织，段内因果/递进清晰。`;
+  const systemStyle =
+    params.mode === "incremental"
+      ? `你已收到「上一版待读摘要」与「新增条目」。请将新增条目的关键信息**有机融入**全文：可改写、合并、删繁就简；不要简单拼接两段；更新后仍须满足上述完整性与深度要求。`
+      : `请根据用户的职业背景、职责与阅读目的，判断当前待读库中**最值得关注或优先处理**的信息并写成摘要。
+若存在「本次单次附加要求」，须优先满足，同时保持整体完整、有逻辑、有深度。`;
+
+  return {
+    system: `${systemBase}\n${systemStyle}`,
+    user,
+    meta: { mode: params.mode, itemCount: slice.length, maxTokens, maxInputChars: maxInput },
+  };
+}
+
 export async function generateTodoDigest(params: {
   readingRole: string;
   readingDuties: string;
@@ -100,51 +199,8 @@ export async function generateTodoDigest(params: {
   const model = trimEnv("AI_SUMMARY_MODEL", "WOLF_MODEL");
   if (!base || !key || !model) return null;
 
-  const purpose = buildPurposeBlock(params);
-  const maxItems = Math.min(Math.max(parseInt(process.env.TODO_DIGEST_MAX_ITEMS?.trim() || "60", 10) || 60, 5), 120);
-  const slice = params.todos.slice(0, maxItems);
-  const tight = params.mode === "incremental";
-  const lines = slice.map((a, i) => compactArticleLine(a, i, tight)).join("\n\n");
-
-  const maxInput =
-    Math.min(parseInt(process.env.AI_SUMMARY_MAX_INPUT_CHARS?.trim() || "12000", 10) || 12000, 58000) || 12000;
-
-  const extraBlock =
-    params.mode === "full" && params.oneTimeExtra?.trim()
-      ? `【本次单次附加要求（仅此一轮，优先满足；勿与下方固定背景重复）】\n${params.oneTimeExtra.trim().slice(0, 800)}\n\n`
-      : "";
-
-  let listSection: string;
-  if (params.mode === "incremental") {
-    listSection = `【自上次摘要生成以来新加入的待读条目】\n${lines || "（无，若你仍收到此段则说明数据异常）"}`;
-  } else {
-    listSection = `【待读清单（含文章/视频/音频的摘要与节选）】\n${lines}`;
-  }
-
-  const prevBlock =
-    params.mode === "incremental" && params.previousDigest?.trim()
-      ? `【上一版待读摘要（请有机融入新增要点，勿逐句复述，可改写压缩）】\n${params.previousDigest.trim().slice(0, TODO_DIGEST_MAX_CHARS)}\n\n`
-      : "";
-
-  const bundle = `【用户阅读目的与背景】\n${purpose}\n\n${extraBlock}${prevBlock}${listSection}`.slice(0, maxInput);
-
-  const maxTokens = Math.min(
-    Math.max(parseInt(process.env.TODO_DIGEST_MAX_OUTPUT_TOKENS?.trim() || "2200", 10) || 2200, 400),
-    4096,
-  );
-
-  const systemBase = `你是阅读计划助手。用户有一份「待读」清单（可能包含文章、视频、音频类素材的摘要与节选）。
-输出为简体中文纯文本：全文严格不超过 ${TODO_DIGEST_MAX_CHARS} 个汉字（含标点），不得超过上限；不要输出链接；不要复述用户固定背景原文。
-写作要求：在字数上限内做到**内容完整、逻辑连贯、有信息深度**——讲清「待读库在说什么、彼此如何关联、对用户目标意味着什么、建议优先关注什么」；避免空话套话、标题堆砌、只列书名式罗列或浅层概括。可用 2～4 个自然段组织，段内因果/递进清晰。`;
-  const systemStyle =
-    params.mode === "incremental"
-      ? `你已收到「上一版待读摘要」与「新增条目」。请将新增条目的关键信息**有机融入**全文：可改写、合并、删繁就简；不要简单拼接两段；更新后仍须满足上述完整性与深度要求。`
-      : `请根据用户的职业背景、职责与阅读目的，判断当前待读库中**最值得关注或优先处理**的信息并写成摘要。
-若存在「本次单次附加要求」，须优先满足，同时保持整体完整、有逻辑、有深度。`;
-
-  const systemText = `${systemBase}\n${systemStyle}`;
-
-  const userContent = bundle;
+  const { system: systemText, user: userContent, meta } = buildTodoDigestMessages(params);
+  const maxTokens = meta.maxTokens;
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -207,5 +263,5 @@ export async function generateTodoDigest(params: {
   }
   if (!text) return null;
 
-  return { text: clampZhBody(text, TODO_DIGEST_MAX_CHARS), usage };
+  return { text: clampTodoDigestBody(text, TODO_DIGEST_MAX_CHARS), usage };
 }

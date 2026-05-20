@@ -14,6 +14,7 @@ type DragState = {
 
 /**
  * 横向左滑露出底栏按钮（待读列表卡片、随览卡片等共用）
+ * 仅触摸滑动；桌面端保留原生鼠标选字，不启鼠标拖拽。
  * @param maxRevealPx 底栏总露出宽度（单钮约 76，双钮约 148）
  */
 export function useSwipeCardFace(enabled: boolean, maxRevealPx: number) {
@@ -24,7 +25,6 @@ export function useSwipeCardFace(enabled: boolean, maxRevealPx: number) {
   }, [offset]);
 
   const [dragging, setDragging] = useState(false);
-  const [mouseDragging, setMouseDragging] = useState(false);
   const dragRef = useRef<DragState | null>(null);
   const suppressClickRef = useRef(false);
 
@@ -36,7 +36,7 @@ export function useSwipeCardFace(enabled: boolean, maxRevealPx: number) {
 
   /** 标题/摘要链仍可起滑；真实控件上不起滑 */
   const canSwipeFrom = (t: EventTarget | null) =>
-    !(t as HTMLElement | null)?.closest?.("button, input, textarea, select, label, summary");
+    !(t as HTMLElement | null)?.closest?.("button, input, textarea, select, label, summary, a");
 
   const tryCommitPan = useCallback((clientX: number, clientY: number) => {
     const d = dragRef.current;
@@ -57,7 +57,7 @@ export function useSwipeCardFace(enabled: boolean, maxRevealPx: number) {
 
   const style: React.CSSProperties = {
     transform: `translateX(${offset}px)`,
-    transition: dragging || mouseDragging ? "none" : "transform 0.2s ease",
+    transition: dragging ? "none" : "transform 0.2s ease",
   };
 
   const onTouchStart = useCallback(
@@ -102,50 +102,12 @@ export function useSwipeCardFace(enabled: boolean, maxRevealPx: number) {
     suppressClickRef.current = false;
   }, []);
 
-  const onMouseDown = useCallback(
-    (e: React.MouseEvent) => {
-      if (!enabled || e.button !== 0 || !canSwipeFrom(e.target)) return;
-      dragRef.current = {
-        startX: e.clientX,
-        startY: e.clientY,
-        origin: offsetRef.current,
-        panCommitted: false,
-      };
-      setMouseDragging(true);
-    },
-    [enabled],
-  );
-
-  useEffect(() => {
-    if (!mouseDragging) return;
-    const onMove = (e: MouseEvent) => {
-      if (!dragRef.current) return;
-      if (!tryCommitPan(e.clientX, e.clientY)) return;
-      const dx = e.clientX - dragRef.current.startX;
-      setOffset(Math.max(-maxRevealPx, Math.min(0, dragRef.current.origin + dx)));
-    };
-    const onUp = () => {
-      const wasPan = dragRef.current?.panCommitted ?? false;
-      dragRef.current = null;
-      setMouseDragging(false);
-      if (wasPan) suppressClickRef.current = true;
-      snap();
-    };
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
-    return () => {
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
-    };
-  }, [mouseDragging, maxRevealPx, snap, tryCommitPan]);
-
   return {
     style,
     resetOffset,
     onTouchStart,
     onTouchMove,
     onTouchEnd,
-    onMouseDown,
     onClickCapture,
   };
 }
