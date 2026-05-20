@@ -538,6 +538,7 @@ export default function BrowsePageClient() {
     merged: BrowseTopicFeed;
     hitCount: number;
     skippedKnown: number;
+    profileWarnings: string[];
   } | null> => {
     if (topicId.startsWith("__follow__")) return null;
     const store = loadBrowseStorage();
@@ -568,6 +569,7 @@ export default function BrowsePageClient() {
       fetchedAt?: string;
       error?: string;
       skippedKnown?: number;
+      profileWarnings?: string[];
     };
     if (!r.ok) throw new Error(d.error || "检索失败");
 
@@ -588,6 +590,7 @@ export default function BrowsePageClient() {
       merged,
       hitCount: d.hits?.length ?? 0,
       skippedKnown: d.skippedKnown ?? 0,
+      profileWarnings: Array.isArray(d.profileWarnings) ? d.profileWarnings.filter((w) => typeof w === "string") : [],
     };
   }, [pushTopicFeedToServer]);
 
@@ -599,11 +602,13 @@ export default function BrowsePageClient() {
       try {
         const pack = await executeTopicNetworkRefresh(topicId);
         if (!pack) return;
-        const { merged, hitCount, skippedKnown } = pack;
+        const { merged, hitCount, skippedKnown, profileWarnings } = pack;
         if (activeIdRef.current === topicId) {
           setHits(merged.items);
         }
-        if (hitCount > 0) {
+        if (profileWarnings.length) {
+          setMsg(profileWarnings[0] ?? null);
+        } else if (hitCount > 0) {
           setMsg(null);
         } else if (skippedKnown > 0) {
           setMsg("本次无新增链接；已跳过已有网址，未做重复翻译。");
@@ -1177,7 +1182,7 @@ export default function BrowsePageClient() {
         <div className="card browse-onboarding-card" style={{ marginBottom: 16 }}>
           <h2 style={{ marginTop: 0 }}>还没有随览主题</h2>
           <p className="muted-link" style={{ lineHeight: 1.6 }}>
-            随览按「主题 + 关键词」从网络发现文章：先起一个主题名，再填若干关键词（逗号分隔）。保存后点「+」旁的编辑可补充<strong>种子站 / RSS</strong>
+            随览按「主题 + 关键词」从网络发现文章：先起一个主题名，再填若干关键词（逗号分隔）。保存后点「+」旁的编辑可补充<strong>种子站 / RSS / 博主主页</strong>
             （每行一条 URL），下拉刷新即可拉取。
           </p>
           <p className="muted-link" style={{ fontWeight: 600, marginBottom: 6 }}>
@@ -1326,7 +1331,7 @@ export default function BrowsePageClient() {
               placeholder="Hamel, Shreya, …"
             />
             <label className="muted-link" htmlFor="browse-edit-seeds">
-              种子站 / RSS（B · 每行一条 URL 或域名；用于 RSS 拉取与检索 site: 限定）
+              种子站 / RSS / 博主主页（B · 每行一条；小红书链接需本地或服务器运行 xiaohongshu-mcp 并已登录）
             </label>
             <textarea
               id="browse-edit-seeds"
@@ -1334,7 +1339,7 @@ export default function BrowsePageClient() {
               rows={5}
               value={editSeeds}
               onChange={(e) => setEditSeeds(e.target.value)}
-              placeholder={"https://hamel.dev/blog/\nhttps://www.youtube.com/"}
+              placeholder={"https://hamel.dev/blog/\nhttps://www.xiaohongshu.com/user/profile/xxx\nhttps://xhslink.com/m/xxx"}
               autoComplete="off"
             />
             <label className="muted-link" htmlFor="browse-edit-max-age">
@@ -1454,7 +1459,7 @@ export default function BrowsePageClient() {
                     placeholder="benchmark, evaluation, 论文（中英文逗号均可）"
                   />
                   <label className="muted-link" htmlFor="browse-new-seeds">
-                    种子站 / RSS（选填 · 每行一条 URL 或域名）
+                    种子站 / RSS / 博主主页（选填 · 每行一条）
                   </label>
                   <textarea
                     id="browse-new-seeds"
@@ -1462,7 +1467,7 @@ export default function BrowsePageClient() {
                     rows={4}
                     value={newSeeds}
                     onChange={(e) => setNewSeeds(e.target.value)}
-                    placeholder={"https://example.com/feed\nhttps://news.ycombinator.com"}
+                    placeholder={"https://example.com/feed\nhttps://www.xiaohongshu.com/user/profile/xxx"}
                     autoComplete="off"
                   />
                   <div className="browse-form-actions">

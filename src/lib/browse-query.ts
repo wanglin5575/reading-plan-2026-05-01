@@ -1,6 +1,19 @@
 import type { BrowseTopic } from "@/lib/types";
+import { isBrowseProfileSeedUrl } from "@/lib/browse-seed-profile";
+
+function shouldSkipSiteLimit(seed: string): boolean {
+  if (isBrowseProfileSeedUrl(seed)) return true;
+  try {
+    const h = new URL(seed.trim()).hostname.replace(/^www\./, "").toLowerCase();
+    if (/(^|\.)xhslink\.com$/.test(h)) return true;
+  } catch {
+    /* ignore */
+  }
+  return false;
+}
 
 function hostnameOrDomainFromSeed(seed: string): string | null {
+  if (shouldSkipSiteLimit(seed)) return null;
   const s = seed.trim();
   if (!s) return null;
   try {

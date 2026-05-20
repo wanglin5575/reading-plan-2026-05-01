@@ -19,3 +19,7 @@ next-env.d.ts
 *.db-shm
 *.db-wal
 .vercel
+
+# 小红书 MCP 本机二进制与登录 Cookie（勿提交）
+tools/xhs-mcp/
+.firecrawl/

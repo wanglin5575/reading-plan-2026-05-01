@@ -4,6 +4,8 @@ import { upsertUserRegistry } from "@/lib/db";
 import { browseTopicToQuery, fetchBrowseHits, BROWSE_TBS_MAX_DAYS_BOOTSTRAP, BROWSE_TBS_MAX_DAYS_INCREMENTAL } from "@/lib/browse-search";
 import { filterBrowseHitsByPublishedAge, effectiveMaxPublishedAgeDays } from "@/lib/browse-recency";
 import { fetchBrowseRssHits } from "@/lib/browse-rss";
+import { partitionBrowseSeeds, fetchBrowseProfileHits, resolveBrowseSeedUrl } from "@/lib/browse-seed-profile";
+import { fetchBrowseXhsMcpHits, isXhsNoteSeedUrl, isXhsProfileSeedUrl } from "@/lib/browse-xhs-mcp";
 import type { BrowseHit } from "@/lib/types";
 import { getBrowseTopic } from "@/lib/db";
 import { enrichBrowseHitsWithAi, stripBrowseHitServerFields } from "@/lib/browse-ai-enrich";
@@ -75,10 +77,34 @@ export async function POST(req: Request) {
 
   try {
     const query = browseTopicToQuery(topic);
-    const rssHits =
-      topic.seedSources?.length && topic.seedSources.some((s) => s.trim())
-        ? await fetchBrowseRssHits(topic.seedSources ?? [])
-        : [];
+    const rawSeeds = (topic.seedSources ?? []).filter((s) => s.trim());
+    const { profileSeeds, feedSeeds } = rawSeeds.length ? await partitionBrowseSeeds(rawSeeds) : { profileSeeds: [], feedSeeds: [] };
+
+    const xhsExtraSeeds: string[] = [];
+    const rssFeedSeeds: string[] = [];
+    for (const s of feedSeeds) {
+      const resolved = await resolveBrowseSeedUrl(s);
+      if (isXhsNoteSeedUrl(resolved) || isXhsProfileSeedUrl(resolved)) xhsExtraSeeds.push(resolved);
+      else rssFeedSeeds.push(s);
+    }
+
+    const xhsOnlySeeds = [
+      ...new Set([
+        ...profileSeeds.filter((u) => isXhsProfileSeedUrl(u)),
+        ...xhsExtraSeeds,
+      ]),
+    ];
+    const nonXhsProfileSeeds = profileSeeds.filter((u) => !isXhsProfileSeedUrl(u));
+
+    const [{ hits: xhsHits, warnings: xhsWarnings }, profileFcResult] = await Promise.all([
+      xhsOnlySeeds.length ? fetchBrowseXhsMcpHits(xhsOnlySeeds, { bootstrap }) : Promise.resolve({ hits: [], warnings: [] }),
+      nonXhsProfileSeeds.length
+        ? fetchBrowseProfileHits(nonXhsProfileSeeds, { bootstrap })
+        : Promise.resolve({ hits: [], warnings: [] }),
+    ]);
+    const profileHits = mergeHitsPreferFirst(xhsHits, profileFcResult.hits);
+    const profileWarnings = [...new Set([...xhsWarnings, ...profileFcResult.warnings])];
+    const rssHits = rssFeedSeeds.length ? await fetchBrowseRssHits(rssFeedSeeds) : [];
     let searchHits: BrowseHit[] = [];
     try {
       searchHits = await fetchBrowseHits(topic, {
@@ -88,13 +114,13 @@ export async function POST(req: Request) {
       });
     } catch (se: unknown) {
       const m = se instanceof Error ? se.message : "";
-      if (m === "missing_firecrawl" && rssHits.length) {
+      if (m === "missing_firecrawl" && (rssHits.length || profileHits.length)) {
         searchHits = [];
       } else {
         throw se;
       }
     }
-    const combined = mergeHitsPreferFirst(rssHits, searchHits);
+    const combined = mergeHitsPreferFirst(profileHits, mergeHitsPreferFirst(rssHits, searchHits));
     const afterExclude = excludeSet.size ? combined.filter((h) => !excludeSet.has(h.url.trim())) : combined;
     const skippedKnown = combined.length - afterExclude.length;
     const maxAge = effectiveMaxPublishedAgeDays(topic);
@@ -123,6 +149,10 @@ export async function POST(req: Request) {
       since: since.toISOString(),
       bootstrap,
       skippedKnown,
+      profileSeedCount: profileSeeds.length,
+      profileHitCount: profileHits.length,
+      xhsMcpSeedCount: xhsOnlySeeds.length,
+      profileWarnings,
     });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : "fetch_failed";

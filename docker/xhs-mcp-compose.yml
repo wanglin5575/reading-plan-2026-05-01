@@ -1,0 +1,23 @@
+# 小红书 MCP（REST API 端口 18060）
+# 原 ghcr.io/vmxmy/... 可能 pull denied，改用 Docker Hub 公开镜像（与 vmxmy 同源 fork）
+# 国内若慢，可改用 compose 里注释的阿里云镜像行
+
+services:
+  xiaohongshu-mcp:
+    image: xpzouying/xiaohongshu-mcp
+    platform: linux/amd64
+    container_name: reading-plan-xhs-mcp
+    restart: unless-stopped
+    init: true
+    tty: true
+    ports:
+      - "18060:18060"
+    environment:
+      - COOKIES_PATH=/app/data/cookies.json
+    volumes:
+      - xhs-mcp-data:/app/data
+      - xhs-mcp-images:/app/images
+
+volumes:
+  xhs-mcp-data:
+  xhs-mcp-images:

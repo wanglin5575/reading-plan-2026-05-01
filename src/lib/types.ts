@@ -62,7 +62,7 @@ export interface BrowseTopic {
    */
   maxPublishedAgeDays?: number | null;
   /**
-   * B：种子站/RSS（每行一条 URL 或域名）。用于 RSS 拉取 + Firecrawl 检索 `site:` 限定（可编辑）
+   * B：种子站/RSS/博主主页（每行一条 URL 或域名）。RSS 拉取、博主主页批量发现笔记、其余用于 Firecrawl 检索 `site:` 限定
    */
   seedSources?: string[];
 }

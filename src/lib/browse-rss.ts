@@ -1,6 +1,7 @@
 import type { BrowseHit } from "@/lib/types";
 import { detectMediaKindFromUrl } from "@/lib/media-kind";
 import { normalizePublishedToIso } from "@/lib/browse-published";
+import { isBrowseProfileSeedUrl } from "@/lib/browse-seed-profile";
 
 const FETCH_MS = 12000;
 const MAX_ITEMS_PER_FEED = 12;
@@ -96,9 +97,9 @@ export async function fetchSingleFeed(feedUrl: string): Promise<BrowseHit[]> {
   }
 }
 
-/** 按种子列表拉取 RSS（并行探测 feed URL，成功则解析） */
+/** 按种子列表拉取 RSS（并行探测 feed URL，成功则解析；博主主页种子跳过） */
 export async function fetchBrowseRssHits(seeds: string[]): Promise<BrowseHit[]> {
-  const cleaned = [...new Set(seeds.map((s) => s.trim()).filter(Boolean))];
+  const cleaned = [...new Set(seeds.map((s) => s.trim()).filter(Boolean).filter((s) => !isBrowseProfileSeedUrl(s)))];
   if (!cleaned.length) return [];
 
   const perSeed = async (seed: string): Promise<BrowseHit[]> => {
