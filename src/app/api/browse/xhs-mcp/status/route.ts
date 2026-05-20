@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getXhsMcpBaseUrl, getXhsMcpLoginStatus } from "@/lib/browse-xhs-mcp";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 /** 检查小红书 MCP 侧车是否可达、是否已登录（随览调试 / 设置页用） */
 export async function GET() {

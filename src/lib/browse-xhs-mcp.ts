@@ -6,6 +6,12 @@ import { PROFILE_SCRAPE_BOOTSTRAP, PROFILE_SCRAPE_INCREMENTAL, resolveBrowseSeed
 
 const DEFAULT_BASE = "http://127.0.0.1:18060";
 const REQUEST_MS = 120_000;
+const LOGIN_PROBE_MS = 45_000;
+
+const XHS_MCP_HEADERS: Record<string, string> = {
+  "content-type": "application/json",
+  "ngrok-skip-browser-warning": "true",
+};
 
 export function getXhsMcpBaseUrl(): string | null {
   const raw = process.env.XHS_MCP_BASE_URL?.trim();
@@ -111,10 +117,9 @@ async function xhsMcpFetch<T>(path: string, init?: RequestInit): Promise<T> {
 
   const res = await fetch(`${base}${path}`, {
     ...init,
-    signal: AbortSignal.timeout(REQUEST_MS),
+    signal: init?.signal ?? AbortSignal.timeout(REQUEST_MS),
     headers: {
-      "content-type": "application/json",
-      "ngrok-skip-browser-warning": "true",
+      ...XHS_MCP_HEADERS,
       ...(init?.headers ?? {}),
     },
   });
@@ -134,10 +139,35 @@ export async function getXhsMcpLoginStatus(): Promise<{ loggedIn: boolean; messa
   const base = getXhsMcpBaseUrl();
   if (!base) return { loggedIn: false, message: "未配置 XHS_MCP_BASE_URL" };
 
+  // 已登录时 qrcode 接口通常比 status 更快（status 会启动浏览器，易在 Vercel 上超时）
+  try {
+    const res = await fetch(`${base}/api/v1/login/qrcode`, {
+      headers: XHS_MCP_HEADERS,
+      signal: AbortSignal.timeout(LOGIN_PROBE_MS),
+    });
+    const body = (await res.json().catch(() => ({}))) as McpSuccess<{
+      is_logged_in?: boolean;
+      status?: string;
+      message?: string;
+    }>;
+    const data = (body.data ?? body) as { is_logged_in?: boolean; status?: string; message?: string };
+    if (data.is_logged_in === true || data.status === "logged_in") {
+      return { loggedIn: true, message: data.message ?? body.message };
+    }
+    if (res.ok && body.success !== false) {
+      return { loggedIn: false, message: data.message ?? "需要扫码登录小红书" };
+    }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "xhs_mcp_unreachable";
+    if (!/abort|timeout|timed out/i.test(msg)) {
+      return { loggedIn: false, message: msg };
+    }
+  }
+
   try {
     const data = await xhsMcpFetch<{ is_logged_in?: boolean; logged_in?: boolean; message?: string }>(
       "/api/v1/login/status",
-      { method: "GET" },
+      { method: "GET", signal: AbortSignal.timeout(60_000) },
     );
     const loggedIn = data.is_logged_in === true || data.logged_in === true;
     return { loggedIn, message: data.message };
@@ -145,6 +175,11 @@ export async function getXhsMcpLoginStatus(): Promise<{ loggedIn: boolean; messa
     const msg = e instanceof Error ? e.message : "xhs_mcp_unreachable";
     return { loggedIn: false, message: msg };
   }
+}
+
+function isLoginCheckUncertain(message?: string): boolean {
+  if (!message) return false;
+  return /abort|timeout|timed out|fetch failed/i.test(message);
 }
 
 async function fetchXhsUserProfile(userId: string, xsecToken: string): Promise<XhsUserProfileData> {
@@ -250,13 +285,13 @@ export async function fetchBrowseXhsMcpHits(
   }
 
   const login = await getXhsMcpLoginStatus();
-  if (!login.loggedIn) {
+  if (!login.loggedIn && !isLoginCheckUncertain(login.message)) {
     return {
       hits: [],
       warnings: [
         login.message?.includes("ECONNREFUSED") || login.message?.includes("fetch failed")
-          ? `小红书 MCP 服务不可用（${base}）。请先启动 docker compose -f docker/xhs-mcp-compose.yml up -d`
-          : "小红书 MCP 未登录。请访问 MCP 服务扫码登录或同步 Cookie 后再刷新随览。",
+          ? `小红书 MCP 服务不可用（${base}）。请先启动 bash scripts/start-xhs-mcp-mac.sh`
+          : "小红书 MCP 未登录。请访问 /xhs-login 扫码登录后再刷新随览。",
       ],
     };
   }

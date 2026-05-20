@@ -76,7 +76,9 @@ export default function XhsLoginPage() {
     void refresh();
   }, [refresh]);
 
-  const loggedIn = status?.loggedIn || qr?.data?.is_logged_in || qr?.data?.status === "logged_in";
+  const loggedInFromStatus = status?.loggedIn === true;
+  const loggedInFromQr = qr?.data?.is_logged_in === true || qr?.data?.status === "logged_in";
+  const loggedIn = loggedInFromStatus || loggedInFromQr;
   const qrSrc = pickQrSrc(qr?.data);
 
   return (
@@ -105,6 +107,11 @@ export default function XhsLoginPage() {
           <li>MCP 已配置：{status.configured ? "是" : "否"}</li>
           <li>服务可达：{status.reachable ? "是" : "否"}</li>
           <li>已登录小红书：{loggedIn ? "是 ✓" : "否"}</li>
+          {!loggedInFromStatus && loggedInFromQr ? (
+            <li className="muted-link" style={{ fontSize: "var(--fs-small)" }}>
+              （状态接口较慢，登录态来自 qrcode 探测）
+            </li>
+          ) : null}
         </ul>
       )}
 

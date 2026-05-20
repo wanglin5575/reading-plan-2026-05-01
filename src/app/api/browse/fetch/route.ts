@@ -29,6 +29,8 @@ function mergeHitsPreferFirst(a: BrowseHit[], b: BrowseHit[]): BrowseHit[] {
 }
 
 export const dynamic = "force-dynamic";
+/** 随览拉取小红书博主笔记可能较慢（MCP + 多篇详情） */
+export const maxDuration = 300;
 
 export async function POST(req: Request) {
   const session = await getRouteHandlerUser();

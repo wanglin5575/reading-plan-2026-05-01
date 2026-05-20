@@ -1,1 +1,13 @@
-{}
+{
+  "functions": {
+    "src/app/api/browse/fetch/route.ts": {
+      "maxDuration": 300
+    },
+    "src/app/api/browse/xhs-mcp/status/route.ts": {
+      "maxDuration": 60
+    },
+    "src/app/api/browse/xhs-mcp/qrcode/route.ts": {
+      "maxDuration": 120
+    }
+  }
+}
