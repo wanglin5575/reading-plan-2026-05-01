@@ -60,21 +60,21 @@ function formatReadCompletedDateYmd(iso: string): string {
   return `${y}-${m}-${day}`;
 }
 
+import { hasActiveTextSelection } from "@/lib/text-selection";
+
 function trimmedKeyPoints(points: unknown[] | undefined): string[] {
   return (Array.isArray(points) ? points : []).map((p) => String(p).trim()).filter(Boolean);
 }
 
 function ArticleSummaryFooter({ summary, readLead }: { summary: string; readLead?: string }) {
   const [expanded, setExpanded] = useState(false);
+  const toggle = () => {
+    if (hasActiveTextSelection()) return;
+    setExpanded((v) => !v);
+  };
   return (
-    <button
-      type="button"
-      className="article-summary-footer article-summary-footer-toggle"
-      onClick={() => setExpanded((v) => !v)}
-      aria-expanded={expanded}
-      aria-label={expanded ? "收起原文摘要" : "展开原文摘要"}
-    >
-      <span className={`article-summary-footer-text ${expanded ? "is-expanded" : "is-collapsed"}`}>
+    <div className="article-summary-footer article-summary-footer-toggle">
+      <div className={`article-summary-footer-text ${expanded ? "is-expanded" : "is-collapsed"}`}>
         {readLead ? (
           <>
             <span className="browse-hit-ai-inline" title={`模型读取：${readLead}`}>
@@ -85,11 +85,17 @@ function ArticleSummaryFooter({ summary, readLead }: { summary: string; readLead
         ) : (
           summary
         )}
-      </span>
-      <span className={`article-summary-footer-chevron ${expanded ? "is-expanded" : ""}`} aria-hidden>
+      </div>
+      <button
+        type="button"
+        className={`article-summary-footer-chevron ${expanded ? "is-expanded" : ""}`}
+        aria-expanded={expanded}
+        aria-label={expanded ? "收起原文摘要" : "展开原文摘要"}
+        onClick={toggle}
+      >
         &gt;&gt;
-      </span>
-    </button>
+      </button>
+    </div>
   );
 }
 

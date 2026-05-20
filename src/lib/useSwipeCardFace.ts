@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-/** 超过该水平位移且水平占优时视为「横向拖动」，避免与轻点打开预览冲突 */
+/** 向左滑超过该距离且水平占优时，才视为「露出底栏按钮」 */
 const PAN_COMMIT_PX = 12;
 
 type DragState = {
@@ -12,9 +12,15 @@ type DragState = {
   panCommitted: boolean;
 };
 
+/** 仅向左滑（dx 为负）时提交横向拖动，向右拖留给浏览器选字 */
+function shouldCommitLeftPan(dx: number, dy: number, alreadyCommitted: boolean): boolean {
+  if (alreadyCommitted) return true;
+  return dx <= -PAN_COMMIT_PX && Math.abs(dx) > Math.abs(dy);
+}
+
 /**
- * 横向左滑露出底栏按钮（待读列表卡片、随览卡片等共用）
- * @param maxRevealPx 底栏总露出宽度（单钮约 76，双钮约 148）
+ * 横向左滑露出底栏按钮（待读列表卡片、随览卡片等共用）。
+ * 向右拖 / 选字不触发滑动手势；桌面端同样支持从左往右拖选复制。
  */
 export function useSwipeCardFace(enabled: boolean, maxRevealPx: number) {
   const [offset, setOffset] = useState(0);
@@ -34,22 +40,18 @@ export function useSwipeCardFace(enabled: boolean, maxRevealPx: number) {
     if (!enabled) setOffset(0);
   }, [enabled]);
 
-  /** 标题/摘要链仍可起滑；真实控件上不起滑 */
+  /** 链接、表单控件上不起滑，便于点按与选字 */
   const canSwipeFrom = (t: EventTarget | null) =>
-    !(t as HTMLElement | null)?.closest?.("button, input, textarea, select, label, summary");
+    !(t as HTMLElement | null)?.closest?.("button, input, textarea, select, label, summary, a");
 
-  const tryCommitPan = useCallback((clientX: number, clientY: number) => {
-    const d = dragRef.current;
-    if (!d) return false;
-    if (d.panCommitted) return true;
-    const dx = clientX - d.startX;
-    const dy = clientY - d.startY;
-    if (Math.abs(dx) >= PAN_COMMIT_PX && Math.abs(dx) > Math.abs(dy)) {
-      d.panCommitted = true;
-      return true;
-    }
-    return false;
-  }, []);
+  const applyPanDx = useCallback(
+    (dx: number) => {
+      const d = dragRef.current;
+      if (!d) return;
+      setOffset(Math.max(-maxRevealPx, Math.min(0, d.origin + dx)));
+    },
+    [maxRevealPx],
+  );
 
   const snap = useCallback(() => {
     setOffset((o) => (o < -maxRevealPx / 2 ? -maxRevealPx : 0));
@@ -79,11 +81,13 @@ export function useSwipeCardFace(enabled: boolean, maxRevealPx: number) {
     (e: React.TouchEvent) => {
       if (!enabled || !dragRef.current) return;
       const t = e.touches[0];
-      if (!tryCommitPan(t.clientX, t.clientY)) return;
       const dx = t.clientX - dragRef.current.startX;
-      setOffset(Math.max(-maxRevealPx, Math.min(0, dragRef.current.origin + dx)));
+      const dy = t.clientY - dragRef.current.startY;
+      if (!shouldCommitLeftPan(dx, dy, dragRef.current.panCommitted)) return;
+      dragRef.current.panCommitted = true;
+      applyPanDx(dx);
     },
-    [enabled, maxRevealPx, tryCommitPan],
+    [enabled, applyPanDx],
   );
 
   const onTouchEnd = useCallback(() => {
@@ -119,10 +123,13 @@ export function useSwipeCardFace(enabled: boolean, maxRevealPx: number) {
   useEffect(() => {
     if (!mouseDragging) return;
     const onMove = (e: MouseEvent) => {
-      if (!dragRef.current) return;
-      if (!tryCommitPan(e.clientX, e.clientY)) return;
-      const dx = e.clientX - dragRef.current.startX;
-      setOffset(Math.max(-maxRevealPx, Math.min(0, dragRef.current.origin + dx)));
+      const d = dragRef.current;
+      if (!d) return;
+      const dx = e.clientX - d.startX;
+      const dy = e.clientY - d.startY;
+      if (!shouldCommitLeftPan(dx, dy, d.panCommitted)) return;
+      d.panCommitted = true;
+      applyPanDx(dx);
     };
     const onUp = () => {
       const wasPan = dragRef.current?.panCommitted ?? false;
@@ -137,7 +144,7 @@ export function useSwipeCardFace(enabled: boolean, maxRevealPx: number) {
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
     };
-  }, [mouseDragging, maxRevealPx, snap, tryCommitPan]);
+  }, [mouseDragging, applyPanDx, snap]);
 
   return {
     style,
