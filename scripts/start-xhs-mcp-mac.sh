@@ -39,6 +39,7 @@ if [ ! -x "$BIN" ]; then
 fi
 
 export COOKIES_PATH="$DIR/data/cookies.json"
+export PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-$HOME/Library/Caches/ms-playwright}"
 
 RUN_BIN="$BIN"
 if [ -x "$PATCHED_BIN" ]; then

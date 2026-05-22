@@ -116,6 +116,12 @@ function formatXhsProfileWarning(rawSeed: string, err: unknown): string {
         "或从小红书 App 重新复制最新分享链接再试。"
       );
     }
+    if (code === "GET_USER_PROFILE_FAILED" && /userPageData|__INITIAL_STATE__|not found in/i.test(detail ?? "")) {
+      return (
+        "小红书博主主页数据未加载（多为 MCP 未登录或 Cookie 失效）。" +
+        "请打开线上 /xhs-login 重新扫码登录，并确认 MCP 窗口仍运行后再刷新。"
+      );
+    }
     if (/xsec_token|token/i.test(detail ?? "") || /token/i.test(err.message)) {
       return "小红书主页 xsec_token 可能已过期，请从小红书 App 重新分享复制链接后再刷新。";
     }

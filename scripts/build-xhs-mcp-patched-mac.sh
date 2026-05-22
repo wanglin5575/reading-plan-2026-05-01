@@ -55,6 +55,7 @@ patch -p1 < "$PATCH"
 
 echo "==> 编译 patched 二进制"
 export CGO_ENABLED=0
+export GOPROXY="${GOPROXY:-https://goproxy.cn,direct}"
 go build -trimpath -ldflags="-s -w" -o "$BIN" .
 
 chmod +x "$BIN"
