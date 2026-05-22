@@ -1,6 +1,6 @@
 --- a/xiaohongshu/user_profile.go
 +++ b/xiaohongshu/user_profile.go
-@@ -32,14 +32,34 @@ func (u *UserProfileAction) UserProfile(ctx context.Context, userID, xsecToken s
+@@ -32,14 +32,36 @@ func (u *UserProfileAction) UserProfile(ctx context.Context, userID, xsecToken s
  	if err := page.Goto(searchURL); err != nil {
  		return nil, fmt.Errorf("failed to navigate to user profile: %w", err)
  	}
@@ -20,10 +20,12 @@
 +
 +	for time.Since(startTime) < maxWait {
 +		hasData, err := page.Eval(`() => {
-+			return window.__INITIAL_STATE__ &&
-+				window.__INITIAL_STATE__.user &&
-+				window.__INITIAL_STATE__.user.userPageData !== undefined &&
-+				window.__INITIAL_STATE__.user.notes !== undefined;
++			const user = window.__INITIAL_STATE__ && window.__INITIAL_STATE__.user;
++			if (!user || !user.userPageData || !user.notes) return false;
++			const notes = user.notes;
++			const data = notes.value !== undefined ? notes.value : notes._value;
++			if (!Array.isArray(data)) return false;
++			return data.some((col) => Array.isArray(col) && col.length > 0);
 +		}`)
 +		if err == nil && hasData == true {
 +			break
@@ -31,9 +33,17 @@
 +		time.Sleep(checkInterval)
 +	}
 +
-+	if err := polling.SleepDelay(u.polling, "wait_500ms"); err != nil {
++	if err := polling.SleepDelay(u.polling, "wait_2000ms"); err != nil {
 +		return nil, err
 +	}
  
  	return u.extractUserProfileData(page)
  }
+@@ -131,7 +153,7 @@ func (u *UserProfileAction) extractUserProfileData(page browser.Page) (*UserPro
+ 
+ func makeUserProfileURL(userID, xsecToken string) string {
+-	return fmt.Sprintf("https://www.xiaohongshu.com/user/profile/%s?xsec_token=%s&xsec_source=pc_note", userID, xsecToken)
++	return fmt.Sprintf("https://www.xiaohongshu.com/user/profile/%s?xsec_token=%s&xsec_source=pc_user", userID, xsecToken)
+ }
+ 
+ func (u *UserProfileAction) GetMyProfileViaSidebar(ctx context.Context) (*UserProfileResponse, error) {

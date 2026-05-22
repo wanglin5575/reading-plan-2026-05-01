@@ -447,7 +447,11 @@ export async function fetchBrowseXhsMcpHits(
     const nickname = profileData.userBasicInfo?.nickname?.trim();
     const feeds = profileData.feeds ?? [];
     if (!feeds.length) {
-      warnings.push(nickname ? `博主「${nickname}」未返回笔记列表。` : "博主主页未返回笔记列表。");
+      warnings.push(
+        nickname
+          ? `博主「${nickname}」未返回笔记列表。请从小红书 App 重新分享复制博主链接，并在 /xhs-login 确认已登录后再刷新。`
+          : "博主主页未返回笔记列表。请打开 /xhs-login 重新扫码登录，并从小红书 App 复制最新分享链接后再试。",
+      );
       continue;
     }
 
