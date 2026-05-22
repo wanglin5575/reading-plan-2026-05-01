@@ -119,7 +119,7 @@ function formatXhsProfileWarning(rawSeed: string, err: unknown): string {
     if (code === "GET_USER_PROFILE_FAILED" && /userPageData|__INITIAL_STATE__|not found in/i.test(detail ?? "")) {
       return (
         "小红书博主主页数据未加载（多为 MCP 未登录或 Cookie 失效）。" +
-        "请打开线上 /xhs-login 重新扫码登录，并确认 MCP 窗口仍运行后再刷新。"
+        "请打开 /restart-xhs-mcp 按步骤重启 MCP 并登录，确认三项状态均为 ✓ 后再刷新随览。"
       );
     }
     if (/xsec_token|token/i.test(detail ?? "") || /token/i.test(err.message)) {
@@ -138,7 +138,7 @@ function formatXhsProfileWarning(rawSeed: string, err: unknown): string {
     return `小红书 MCP 请求超时（${PROFILE_REQUEST_MS / 1000}s）。请确认 MCP 与 ngrok 窗口仍打开。链接：${seed}`;
   }
   if (/ECONNREFUSED|fetch failed|ENOTFOUND/i.test(msg)) {
-    return `小红书 MCP 不可达。请启动 bash scripts/start-xhs-mcp-mac.sh 并核对 Vercel 的 XHS_MCP_BASE_URL。`;
+    return `小红书 MCP 不可达。请打开 /restart-xhs-mcp 按步骤启动 MCP 与 ngrok，并核对 Vercel 的 XHS_MCP_BASE_URL。`;
   }
   return `小红书博主主页抓取失败：${msg}。链接：${seed}`;
 }
@@ -394,8 +394,8 @@ export async function fetchBrowseXhsMcpHits(
       hits: [],
       warnings: [
         login.message?.includes("ECONNREFUSED") || login.message?.includes("fetch failed")
-          ? `小红书 MCP 服务不可用（${base}）。请先启动 bash scripts/start-xhs-mcp-mac.sh`
-          : "小红书 MCP 未登录。请访问 /xhs-login 扫码登录后再刷新随览。",
+          ? `小红书 MCP 服务不可用（${base}）。请打开 /restart-xhs-mcp 按步骤启动本机 MCP 与 ngrok。`
+          : "小红书 MCP 未登录。请打开 /restart-xhs-mcp 按步骤重启并扫码登录后再刷新随览。",
       ],
     };
   }
