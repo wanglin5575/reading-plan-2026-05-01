@@ -184,6 +184,7 @@ export type ArticleClassificationFields = Pick<
   | "domain"
   | "theme"
   | "summary"
+  | "summarySource"
   | "language"
   | "charCount"
   | "wordCount"
@@ -280,8 +281,9 @@ export async function buildArticleClassification(
   opts?.onAiUsage?.(usage);
 
   let summaryZh: string;
-  if (enrichment?.summary?.trim()) {
-    summaryZh = truncateZh(enrichment.summary.trim(), SUMMARY_MAX_CHARS);
+  const summaryFromAi = Boolean(enrichment?.summary?.trim());
+  if (summaryFromAi) {
+    summaryZh = truncateZh(enrichment!.summary!.trim(), SUMMARY_MAX_CHARS);
   } else {
     const summary = makeSummary(body);
     summaryZh = await translateToChinese(summary || "(暂无摘要)", {
@@ -321,6 +323,7 @@ export async function buildArticleClassification(
     domain: getDomain(url),
     theme,
     summary: summaryZh || "(暂无摘要)",
+    summarySource: summaryFromAi ? "ai" : undefined,
     language: lang,
     charCount,
     wordCount,

@@ -189,6 +189,7 @@ async function ensureSchema(): Promise<void> {
       await p.query(
         `ALTER TABLE articles ADD COLUMN IF NOT EXISTS ai_read_sources_label TEXT NOT NULL DEFAULT '';`,
       );
+      await p.query(`ALTER TABLE articles ADD COLUMN IF NOT EXISTS summary_source TEXT;`);
       await p.query(`ALTER TABLE articles DROP COLUMN IF EXISTS custom_tags;`);
       await p.query(`
         CREATE TABLE IF NOT EXISTS app_user_registry (
@@ -544,6 +545,7 @@ interface ArticleRow {
   title_zh?: string | null;
   published_date?: string | Date | null;
   ai_read_sources_label?: string | null;
+  summary_source?: string | null;
   /** EXISTS 子查询：他人推荐入我书库的篇目 */
   received_via_recommendation?: boolean;
   /** json / jsonb：当前用户作为推荐人，已将同 URL 推荐给了哪些用户 */
@@ -678,6 +680,7 @@ function rowToArticle(row: ArticleRow): Article {
     rawExcerpt: row.raw_excerpt,
     publishedAt: normalizePublishedDateRow(row.published_date),
     aiReadSourcesLabel: row.ai_read_sources_label?.trim() || undefined,
+    summarySource: row.summary_source === "ai" ? "ai" : undefined,
     receivedViaRecommendation: Boolean(row.received_via_recommendation),
     recommendSentTo: parseRecommendSentTo(row.recommend_sent_to),
   };
@@ -694,11 +697,11 @@ export async function insertArticle(article: Article, ownerUserId: string | null
       id, url, title, title_zh, author, domain, theme, featured, summary, language, char_count, word_count,
       estimated_minutes, recommended_depth, knowledge_tags, status, added_at, due_date, completed_at,
       read_one_liner, read_key_points, read_action, raw_excerpt, media_type, published_date, user_id,
-      ai_read_sources_label
+      ai_read_sources_label, summary_source
     ) VALUES (
       $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
       $13, $14, $15::jsonb, $16, $17::timestamptz, $18::date, $19::timestamptz,
-      $20, $21::jsonb, $22, $23, $24, $25::date, $26, $27
+      $20, $21::jsonb, $22, $23, $24, $25::date, $26, $27, $28
     )`,
     [
       article.id,
@@ -728,6 +731,7 @@ export async function insertArticle(article: Article, ownerUserId: string | null
       article.publishedAt ?? null,
       uid,
       article.aiReadSourcesLabel?.trim() || "",
+      article.summarySource === "ai" ? "ai" : null,
     ],
   );
 }
@@ -761,8 +765,9 @@ export async function updateArticle(article: Article, ownerUserId: string | null
       media_type = $19,
       raw_excerpt = $20,
       published_date = $21::date,
-      ai_read_sources_label = $22
-    WHERE id = $23 AND user_id = $24`,
+      ai_read_sources_label = $22,
+      summary_source = $23
+    WHERE id = $24 AND user_id = $25`,
       [
         article.title,
         article.titleZh || "",
@@ -786,6 +791,7 @@ export async function updateArticle(article: Article, ownerUserId: string | null
         article.rawExcerpt,
         article.publishedAt ?? null,
         article.aiReadSourcesLabel?.trim() || "",
+        article.summarySource === "ai" ? "ai" : null,
         article.id,
         ownerUserId,
       ],
@@ -815,34 +821,36 @@ export async function updateArticle(article: Article, ownerUserId: string | null
       media_type = $19,
       raw_excerpt = $20,
       published_date = $21::date,
-      ai_read_sources_label = $22
-    WHERE id = $23`,
-    [
-      article.title,
-      article.titleZh || "",
-      article.author || "未知作者",
-      article.theme,
-      article.featured,
-      article.summary,
-      article.language,
-      article.charCount,
-      article.wordCount,
-      article.estimatedMinutes,
-      article.recommendedDepth,
-      JSON.stringify(article.knowledgeTags),
-      article.status,
-      article.dueDate,
-      article.completedAt,
-      article.readOneLiner || "",
-      JSON.stringify(article.readKeyPoints || []),
-      article.readAction || "",
-      article.mediaType || "article",
-      article.rawExcerpt,
-      article.publishedAt ?? null,
-      article.aiReadSourcesLabel?.trim() || "",
-      article.id,
-    ],
-  );
+      ai_read_sources_label = $22,
+      summary_source = $23
+    WHERE id = $24`,
+      [
+        article.title,
+        article.titleZh || "",
+        article.author || "未知作者",
+        article.theme,
+        article.featured,
+        article.summary,
+        article.language,
+        article.charCount,
+        article.wordCount,
+        article.estimatedMinutes,
+        article.recommendedDepth,
+        JSON.stringify(article.knowledgeTags),
+        article.status,
+        article.dueDate,
+        article.completedAt,
+        article.readOneLiner || "",
+        JSON.stringify(article.readKeyPoints || []),
+        article.readAction || "",
+        article.mediaType || "article",
+        article.rawExcerpt,
+        article.publishedAt ?? null,
+        article.aiReadSourcesLabel?.trim() || "",
+        article.summarySource === "ai" ? "ai" : null,
+        article.id,
+      ],
+    );
 }
 
 export async function listArticlesForUser(userId: string | null): Promise<Article[]> {

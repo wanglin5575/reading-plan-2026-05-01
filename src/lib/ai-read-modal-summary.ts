@@ -3,7 +3,6 @@
  * 复用 AI_SUMMARY_* / WOLF_* 环境变量。
  */
 
-import { clampZhBody, READ_MODAL_MAX_CHARS } from "@/lib/read-modal-fallback";
 import { fetchAiChatCompletions, type AiChatUsage } from "@/lib/ai-chat";
 
 function trimEnv(...keys: string[]): string | undefined {
@@ -36,8 +35,8 @@ export async function generateReadModalSummary(params: {
   if (!bodyText) return null;
 
   const maxTokens = Math.min(
-    Math.max(parseInt(process.env.AI_SUMMARY_MAX_OUTPUT_TOKENS?.trim() || "900", 10) || 900, 200),
-    2000,
+    Math.max(parseInt(process.env.READ_MODAL_MAX_OUTPUT_TOKENS?.trim() || "2400", 10) || 2400, 400),
+    4096,
   );
 
   const systemText = `你是阅读策展助手。用户点击文章标题后先看到弹窗摘要，而不是直接打开外链。
@@ -46,7 +45,7 @@ export async function generateReadModalSummary(params: {
 1）概括原文的主要信息与结论；
 2）复述原文最重要的观点（若有多条，合并为一段）；
 3）若材料涉及大语言模型评测、基准测试、benchmark、AI Evals、模型对比或实验设置，请单独点出与评测相关的主要内容；
-4）全文严格不超过 ${READ_MODAL_MAX_CHARS} 个汉字（含标点），宁短勿超；不要输出链接或复述 URL。`;
+4）行文简明、不堆砌，但不设字数上限；信息尽量完整，不要为压缩字数而牺牲要点；不要输出链接或复述 URL。`;
 
   const userContent = `标题：${params.title.slice(0, 400)}
 链接（仅供你理解语境，不要写入输出）：${params.url}
@@ -97,5 +96,5 @@ ${bodyText}`;
   }
   if (!text) return null;
 
-  return { text: clampZhBody(text), usage };
+  return { text: text.trim(), usage };
 }

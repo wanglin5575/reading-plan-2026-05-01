@@ -99,6 +99,21 @@ export type AiChatResult =
   | { ok: true; jsonPayload: unknown; usage: AiChatUsage | null }
   | { ok: false; jsonPayload: unknown | null; usage: AiChatUsage | null };
 
+/** 网关侧可重试的临时性 HTTP 状态：超时/过早/限流/网关错误。 */
+function isTransientStatus(status: number): boolean {
+  return status === 408 || status === 425 || status === 429 || (status >= 500 && status <= 599);
+}
+
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+/**
+ * 调用 OpenAI 兼容网关（如 WolfAI）。
+ *
+ * WolfAI 网关延迟波动大且偶发「fetch failed / 超时 / 5xx / 429」，故对**临时性失败**
+ * 做有限次指数退避重试（默认最多 2 次），并以总时长预算兜底，避免超出 Vercel maxDuration。
+ * 非临时性失败（4xx、非法 JSON）不重试。`retryWithoutResponseFormat` 仍保留：
+ * 若带 response_format 始终失败，则去掉该字段再走一轮（同样带重试）。
+ */
 export async function fetchAiChatCompletions(params: {
   base: string;
   key: string;
@@ -107,18 +122,29 @@ export async function fetchAiChatCompletions(params: {
   timeoutMs: number;
   label: string;
   retryWithoutResponseFormat?: boolean;
+  /** 单个 payload 变体的额外重试次数（不含首次）。默认 2。 */
+  maxRetries?: number;
 }): Promise<AiChatResult> {
   const headers = buildAiHeaders(params.key, params.authMode);
   const url = chatCompletionsUrl(params.base);
+  const maxRetries = Math.max(0, params.maxRetries ?? 2);
 
-  const attempt = async (payload: Record<string, unknown>, retried: boolean): Promise<AiChatResult | null> => {
+  // 总时长预算：避免「单次超时 × 多次重试」拖垮 Serverless（maxDuration 通常 120s）。
+  const budgetMs = Math.min(params.timeoutMs * (maxRetries + 1), 110000);
+  const deadline = Date.now() + budgetMs;
+
+  const attemptOnce = async (
+    payload: Record<string, unknown>,
+    retried: boolean,
+    perAttemptTimeout: number,
+  ): Promise<{ result: AiChatResult | null; transient: boolean }> => {
     let res: Response;
     try {
       res = await fetch(url, {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(params.timeoutMs),
+        signal: AbortSignal.timeout(perAttemptTimeout),
       });
     } catch (e) {
       logAiWarning(params.label, params.base, payload, "request_failed", {
@@ -126,7 +152,8 @@ export async function fetchAiChatCompletions(params: {
         retried,
         responseFormat: Boolean(payload.response_format),
       });
-      return null;
+      // 网络层异常（含 AbortSignal 超时、连接重置）通常是临时性的。
+      return { result: null, transient: true };
     }
 
     const { json, preview } = await parseJsonResponse(res);
@@ -138,7 +165,7 @@ export async function fetchAiChatCompletions(params: {
         retried,
         responseFormat: Boolean(payload.response_format),
       });
-      return { ok: false, jsonPayload: json, usage };
+      return { result: { ok: false, jsonPayload: json, usage }, transient: isTransientStatus(res.status) };
     }
     if (!json) {
       logAiWarning(params.label, params.base, payload, "invalid_json_response", {
@@ -146,17 +173,37 @@ export async function fetchAiChatCompletions(params: {
         bodyPreview: preview,
         retried,
       });
-      return { ok: false, jsonPayload: null, usage };
+      return { result: { ok: false, jsonPayload: null, usage }, transient: false };
     }
-    return { ok: true, jsonPayload: json, usage };
+    return { result: { ok: true, jsonPayload: json, usage }, transient: false };
   };
 
-  const first = await attempt(params.bodyPayload, false);
+  const runWithRetries = async (
+    payload: Record<string, unknown>,
+    retried: boolean,
+  ): Promise<AiChatResult | null> => {
+    let last: AiChatResult | null = null;
+    for (let i = 0; i <= maxRetries; i++) {
+      const remaining = deadline - Date.now();
+      if (remaining < 3000) break;
+      const perAttemptTimeout = Math.min(params.timeoutMs, remaining);
+      const { result, transient } = await attemptOnce(payload, retried, perAttemptTimeout);
+      if (result?.ok) return result;
+      last = result;
+      if (!transient || i === maxRetries) break;
+      const backoff = Math.min(600 * 2 ** i, 4000) + Math.floor(Math.random() * 300);
+      if (deadline - Date.now() < backoff + 3000) break;
+      await sleep(backoff);
+    }
+    return last;
+  };
+
+  const first = await runWithRetries(params.bodyPayload, false);
   if (first?.ok) return first;
 
   if (params.retryWithoutResponseFormat && params.bodyPayload.response_format) {
     const { response_format: _drop, ...fallbackPayload } = params.bodyPayload;
-    const retry = await attempt(fallbackPayload, true);
+    const retry = await runWithRetries(fallbackPayload, true);
     if (retry) return retry;
   }
 

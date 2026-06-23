@@ -67,7 +67,15 @@ function trimmedKeyPoints(points: unknown[] | undefined): string[] {
   return (Array.isArray(points) ? points : []).map((p) => String(p).trim()).filter(Boolean);
 }
 
-function ArticleSummaryFooter({ summary, readLead }: { summary: string; readLead?: string }) {
+function ArticleSummaryFooter({
+  summary,
+  readLead,
+  aiGenerated,
+}: {
+  summary: string;
+  readLead?: string;
+  aiGenerated?: boolean;
+}) {
   const [expanded, setExpanded] = useState(false);
   const toggle = () => {
     if (hasActiveTextSelection()) return;
@@ -76,7 +84,7 @@ function ArticleSummaryFooter({ summary, readLead }: { summary: string; readLead
   return (
     <div className="article-summary-footer article-summary-footer-toggle">
       <div className={`article-summary-footer-text ${expanded ? "is-expanded" : "is-collapsed"}`}>
-        {readLead ? (
+        {aiGenerated ? (
           <>
             <AiGeneratedInlineLabel readLead={readLead} />
             {summary}
@@ -709,6 +717,7 @@ export function ArticleCard({
   const digestKpTrimmed = trimmedKeyPoints(article.readKeyPoints);
   const readAfterKpProse = digestKpTrimmed.join("；");
   const bookReadLead = resolveArticleAiReadLabel(article);
+  const summaryIsAiGenerated = article.summarySource === "ai";
   const readPreviewSourcesShort =
     article.aiReadSourcesLabel?.trim() || buildReadPreviewInputLabel(buildArticlePreviewSource(article), article.url);
 
@@ -758,7 +767,7 @@ export function ArticleCard({
           className="article-card-summary-title-link"
         >
           <p className="summary">
-            <AiGeneratedInlineLabel readLead={bookReadLead} />
+            {summaryIsAiGenerated && <AiGeneratedInlineLabel readLead={bookReadLead} />}
             {article.summary}
           </p>
         </ArticleTitleLink>
@@ -766,7 +775,7 @@ export function ArticleCard({
 
       {article.status === "done" && showSummaryInBody && (
         <p className="summary">
-          <AiGeneratedInlineLabel readLead={bookReadLead} />
+          {summaryIsAiGenerated && <AiGeneratedInlineLabel readLead={bookReadLead} />}
           {article.summary}
         </p>
       )}
@@ -821,7 +830,7 @@ export function ArticleCard({
         ))}
 
       {collapseOriginalSummary && hasUsableSummary && (
-        <ArticleSummaryFooter summary={article.summary} readLead={bookReadLead} />
+        <ArticleSummaryFooter summary={article.summary} readLead={bookReadLead} aiGenerated={summaryIsAiGenerated} />
       )}
 
       {readOnlyBorrowed && socialComments.length > 0 ? (

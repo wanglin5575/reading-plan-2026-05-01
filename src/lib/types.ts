@@ -35,6 +35,12 @@ export interface Article {
   readAction: string;
   rawExcerpt: string;
   /**
+   * 摘要是否由 WolfAI 结构化生成。仅当为 "ai" 时卡片才展示「AI生成：」标签；
+   * 规则降级（makeSummary/翻译兜底）时为 undefined，避免把节选误标成 AI 摘要。
+   * 旧数据可能为空，重新「刷新文章」后由服务端写入。
+   */
+  summarySource?: "ai";
+  /**
    * 生成书库摘要/分类时模型实际读取的素材说明（用于「AI生成(读取…)」展示）。
    * 在添加文章或「刷新文章」时由服务端写入；旧数据可能为空。
    */

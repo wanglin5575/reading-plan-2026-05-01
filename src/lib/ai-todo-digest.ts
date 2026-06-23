@@ -1,13 +1,14 @@
 /**
- * 待读列表摘要：根据用户「阅读目的」与待读条目生成 ≤1000 字中文摘要。
+ * 待读列表摘要：根据用户「阅读目的」与待读条目生成中文摘要。
+ * AI 实际返回的内容完整展示，不再按字数截断；仅降级文案保留长度安全上限。
  * 复用 AI_SUMMARY_* / WOLF_* 环境变量。
  */
 
-import { clampZhBody } from "@/lib/read-modal-fallback";
 import type { Article } from "@/lib/types";
 import { MEDIA_KIND_LABEL } from "@/lib/media-kind";
 import { fetchAiChatCompletions, type AiChatUsage } from "@/lib/ai-chat";
 
+/** 仅用于降级文案的长度安全上限；AI 真实返回不再受此限制。 */
 export const TODO_DIGEST_MAX_CHARS = 1000;
 
 function trimEnv(...keys: string[]): string | undefined {
@@ -90,19 +91,19 @@ export async function generateTodoDigest(params: {
 
   const prevBlock =
     params.mode === "incremental" && params.previousDigest?.trim()
-      ? `【上一版待读摘要（请有机融入新增要点，勿逐句复述，可改写压缩）】\n${params.previousDigest.trim().slice(0, TODO_DIGEST_MAX_CHARS)}\n\n`
+      ? `【上一版待读摘要（请有机融入新增要点，勿逐句复述，可改写压缩）】\n${params.previousDigest.trim().slice(0, 8000)}\n\n`
       : "";
 
   const bundle = `【用户阅读目的与背景】\n${purpose}\n\n${extraBlock}${prevBlock}${listSection}`.slice(0, maxInput);
 
   const maxTokens = Math.min(
-    Math.max(parseInt(process.env.TODO_DIGEST_MAX_OUTPUT_TOKENS?.trim() || "2200", 10) || 2200, 400),
+    Math.max(parseInt(process.env.TODO_DIGEST_MAX_OUTPUT_TOKENS?.trim() || "3600", 10) || 3600, 400),
     4096,
   );
 
   const systemBase = `你是阅读计划助手。用户有一份「待读」清单（可能包含文章、视频、音频类素材的摘要与节选）。
-输出为简体中文纯文本：全文严格不超过 ${TODO_DIGEST_MAX_CHARS} 个汉字（含标点），不得超过上限；不要输出链接；不要复述用户固定背景原文。
-写作要求：在字数上限内做到**内容完整、逻辑连贯、有信息深度**——讲清「待读库在说什么、彼此如何关联、对用户目标意味着什么、建议优先关注什么」；避免空话套话、标题堆砌、只列书名式罗列或浅层概括。可用 2～4 个自然段组织，段内因果/递进清晰。`;
+输出为简体中文纯文本：行文简明、不堆砌，但不设字数上限，内容尽量完整；不要输出链接；不要复述用户固定背景原文。
+写作要求：做到**内容完整、逻辑连贯、有信息深度**——讲清「待读库在说什么、彼此如何关联、对用户目标意味着什么、建议优先关注什么」；避免空话套话、标题堆砌、只列书名式罗列或浅层概括。可用若干自然段组织，段内因果/递进清晰。`;
   const systemStyle =
     params.mode === "incremental"
       ? `你已收到「上一版待读摘要」与「新增条目」。请将新增条目的关键信息**有机融入**全文：可改写、合并、删繁就简；不要简单拼接两段；更新后仍须满足上述完整性与深度要求。`
@@ -156,5 +157,5 @@ export async function generateTodoDigest(params: {
   }
   if (!text) return null;
 
-  return { text: clampZhBody(text, TODO_DIGEST_MAX_CHARS), usage };
+  return { text: text.trim(), usage };
 }
