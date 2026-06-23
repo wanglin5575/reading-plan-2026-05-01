@@ -78,6 +78,7 @@ ${bodyText}`;
     bodyPayload,
     timeoutMs,
     label: "read_preview",
+    autoContinueOnLength: true,
   });
   const usage = aiResult.usage;
   if (!aiResult.ok) return null;

@@ -147,6 +147,7 @@ export async function generateTodoDigest(params: {
     bodyPayload,
     timeoutMs,
     label: "todo_digest",
+    autoContinueOnLength: true,
   });
   const usage = aiResult.usage;
   if (!aiResult.ok) return null;

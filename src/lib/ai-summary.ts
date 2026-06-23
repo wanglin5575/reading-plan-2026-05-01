@@ -15,6 +15,7 @@ import {
 } from "@/lib/db";
 import { normalizeArticleUrlKey } from "@/lib/url-key";
 import { fetchAiChatCompletions, type AiChatUsage } from "@/lib/ai-chat";
+import { stripMarkdownToPlainText } from "@/lib/strip-markdown";
 
 export { parseOpenAiCompatibleUsage, type AiChatUsage } from "@/lib/ai-chat";
 
@@ -47,6 +48,25 @@ function extractJsonObject(raw: string): Record<string, unknown> | null {
     }
     return null;
   }
+}
+
+/**
+ * 兜底：部分 OpenAI 兼容网关（如 wolfai.top 包装的 claude）会无视 response_format
+ * 与「只输出 JSON」的指令，直接返回带 Markdown 的寒暄式正文。此时不应整体降级为原文节选，
+ * 而是把这段正文清洗成一句可用的中文摘要，保证卡片显示的是 AI 内容而非抓取原文。
+ */
+function salvageSummaryFromProse(raw: string): string | null {
+  let t = stripMarkdownToPlainText(raw).replace(/\s+/g, " ").trim();
+  if (!t) return null;
+  // 去掉开头的寒暄/评价句（如「这篇文章分享的内容很有意思！」「简单解读一下：」）
+  t = t.replace(
+    /^[^。！？!?\n]{0,48}?(很有意思|有意思|很有价值|有价值|很棒|不错|挺好|很好|解读一下|简单解读|简单说|来看看|分享一下|介绍一下|总结一下|梳理一下|拆解一下)[^。！？!?\n]*[。！？!?：:，,]\s*/u,
+    "",
+  );
+  // 去掉开头的标签式引导词
+  t = t.replace(/^(核心要点|核心内容|核心亮点|核心洞察|要点|背景|概述|摘要)[^：:\n]{0,10}?[：:]\s*/u, "");
+  t = t.trim();
+  return t.length >= 6 ? t : stripMarkdownToPlainText(raw).replace(/\s+/g, " ").trim() || null;
 }
 
 function numOrNull(v: unknown): number | null {
@@ -271,7 +291,10 @@ ${bodyText || "(正文为空)"}`;
     temperature: 0.2,
     max_tokens: maxTokens,
     messages: [
-      { role: "system", content: systemText },
+      {
+        role: "system",
+        content: `${systemText}\n\n务必：直接输出结果，不要任何寒暄、评价或开场白（如「这篇文章很有意思」「简单解读一下」）；尽量只返回 JSON 对象本身，不要额外说明文字。`,
+      },
       { role: "user", content: userMessageContent },
     ],
   };
@@ -309,18 +332,42 @@ ${bodyText || "(正文为空)"}`;
   if (!text) return { enrichment: null, usage };
 
   const json = extractJsonObject(text);
-  if (!json) return { enrichment: null, usage };
 
-  const summary = strOrNull(json.summary);
-  const publishedAt = parsePublicationYmd(strOrNull(json.published_at));
-  const author = strOrNull(json.author)?.slice(0, 120) ?? null;
-  const rm = numOrNull(json.reading_minutes);
-  const readingMinutes =
-    rm != null && rm >= 1 && rm <= 600 ? Math.round(rm) : null;
-  const worthReading = params.browseQualify ? parseWorthReading(json.worth_reading) : null;
+  let summary: string | null;
+  let publishedAt: string | null;
+  let author: string | null;
+  let readingMinutes: number | null;
+  let worthReading: boolean | null;
   let notWorthReason: string | null = null;
-  if (params.browseQualify && worthReading === false) {
-    notWorthReason = strOrNull(json.not_worth_reason)?.replace(/\s+/g, " ").trim().slice(0, 50) || null;
+
+  if (json) {
+    summary = strOrNull(json.summary);
+    publishedAt = parsePublicationYmd(strOrNull(json.published_at));
+    author = strOrNull(json.author)?.slice(0, 120) ?? null;
+    const rm = numOrNull(json.reading_minutes);
+    readingMinutes = rm != null && rm >= 1 && rm <= 600 ? Math.round(rm) : null;
+    worthReading = params.browseQualify ? parseWorthReading(json.worth_reading) : null;
+    if (params.browseQualify && worthReading === false) {
+      notWorthReason = strOrNull(json.not_worth_reason)?.replace(/\s+/g, " ").trim().slice(0, 50) || null;
+    }
+  } else {
+    // 网关返回了非 JSON 的纯文本：兜底salvage 成摘要，避免整体降级为原文节选。
+    summary = salvageSummaryFromProse(text);
+    if (!summary) {
+      console.warn("[ai-summary] non_json_unsalvageable", {
+        label: params.browseQualify ? "browse_enrich" : "article_enrich",
+        bodyPreview: text.slice(0, 200),
+      });
+      return { enrichment: null, usage };
+    }
+    console.warn("[ai-summary] non_json_salvaged_summary", {
+      label: params.browseQualify ? "browse_enrich" : "article_enrich",
+    });
+    publishedAt = null;
+    author = null;
+    readingMinutes = null;
+    // 无法判断是否值得阅读时，默认保留（true），避免把正常内容误杀为「不推荐」。
+    worthReading = params.browseQualify ? true : null;
   }
 
   const enrichment: AiArticleEnrichment = {

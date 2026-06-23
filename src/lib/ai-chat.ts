@@ -70,6 +70,30 @@ function modelName(payload: Record<string, unknown>): string {
   return typeof m === "string" && m.trim() ? m.trim() : "unknown";
 }
 
+/** 从 OpenAI 兼容响应中取正文文本。 */
+function readChoiceContent(json: unknown): string {
+  const d = json as { choices?: Array<{ message?: { content?: string }; text?: string }> };
+  const c = d?.choices?.[0];
+  return c?.message?.content?.trim() || (typeof c?.text === "string" ? c.text.trim() : "") || "";
+}
+
+/** 取 finish_reason（length 表示被 max_tokens 截断）。 */
+function readFinishReason(json: unknown): string | null {
+  const d = json as { choices?: Array<{ finish_reason?: string }> };
+  const f = d?.choices?.[0]?.finish_reason;
+  return typeof f === "string" ? f : null;
+}
+
+function sumUsage(a: AiChatUsage | null, b: AiChatUsage | null): AiChatUsage | null {
+  if (!a) return b;
+  if (!b) return a;
+  return {
+    promptTokens: a.promptTokens + b.promptTokens,
+    completionTokens: a.completionTokens + b.completionTokens,
+    totalTokens: a.totalTokens + b.totalTokens,
+  };
+}
+
 async function parseJsonResponse(res: Response): Promise<{ json: unknown; preview: string }> {
   const text = await res.text();
   try {
@@ -124,6 +148,13 @@ export async function fetchAiChatCompletions(params: {
   retryWithoutResponseFormat?: boolean;
   /** 单个 payload 变体的额外重试次数（不含首次）。默认 2。 */
   maxRetries?: number;
+  /**
+   * 长文场景：当响应 finish_reason 为 "length"（被 max_tokens 截断）时，
+   * 自动追加「接着写」请求拼接出完整内容。默认关闭，仅长摘要类链路开启。
+   */
+  autoContinueOnLength?: boolean;
+  /** autoContinueOnLength 时的最大续写轮数。默认 4。 */
+  maxContinuations?: number;
 }): Promise<AiChatResult> {
   const headers = buildAiHeaders(params.key, params.authMode);
   const url = chatCompletionsUrl(params.base);
@@ -198,12 +229,69 @@ export async function fetchAiChatCompletions(params: {
     return last;
   };
 
+  /**
+   * 续写：若首个成功响应被 max_tokens 截断（finish_reason=length），
+   * 以「已生成内容」为 assistant 上文，请求模型接着写，直至 stop 或耗尽轮数/预算。
+   * 返回合成后的 jsonPayload（content 为拼接全文），usage 为累加值。
+   */
+  const continueIfTruncated = async (
+    result: Extract<AiChatResult, { ok: true }>,
+    payload: Record<string, unknown>,
+  ): Promise<AiChatResult> => {
+    if (!params.autoContinueOnLength) return result;
+    const baseMessages = Array.isArray(payload.messages)
+      ? (payload.messages as Array<Record<string, unknown>>)
+      : [];
+    let fullContent = readChoiceContent(result.jsonPayload);
+    let finish = readFinishReason(result.jsonPayload);
+    let mergedUsage = result.usage;
+    const maxC = Math.max(0, params.maxContinuations ?? 4);
+
+    for (let round = 0; round < maxC; round++) {
+      if (finish !== "length" || !fullContent) break;
+      if (deadline - Date.now() < 6000) break;
+      const contPayload: Record<string, unknown> = {
+        ...payload,
+        messages: [
+          ...baseMessages,
+          { role: "assistant", content: fullContent },
+          {
+            role: "user",
+            content:
+              "上文因长度被截断了。请紧接上文继续输出剩余内容：不要重复已经写过的任何部分，不要重写开头，直接接着写。若内容已经写完，只回复「[完]」。",
+          },
+        ],
+      };
+      const cont = await runWithRetries(contPayload, true);
+      if (!cont?.ok) break;
+      mergedUsage = sumUsage(mergedUsage, cont.usage);
+      const piece = readChoiceContent(cont.jsonPayload).replace(/\s*\[完\]\s*$/u, "").trimEnd();
+      finish = readFinishReason(cont.jsonPayload);
+      if (!piece) break;
+      fullContent = `${fullContent.replace(/\s+$/u, "")}\n${piece.replace(/^\s+/u, "")}`;
+      if (finish !== "length") break;
+    }
+
+    const synthesized = {
+      choices: [{ message: { content: fullContent }, finish_reason: finish }],
+      usage: mergedUsage
+        ? {
+            prompt_tokens: mergedUsage.promptTokens,
+            completion_tokens: mergedUsage.completionTokens,
+            total_tokens: mergedUsage.totalTokens,
+          }
+        : undefined,
+    };
+    return { ok: true, jsonPayload: synthesized, usage: mergedUsage };
+  };
+
   const first = await runWithRetries(params.bodyPayload, false);
-  if (first?.ok) return first;
+  if (first?.ok) return await continueIfTruncated(first, params.bodyPayload);
 
   if (params.retryWithoutResponseFormat && params.bodyPayload.response_format) {
     const { response_format: _drop, ...fallbackPayload } = params.bodyPayload;
     const retry = await runWithRetries(fallbackPayload, true);
+    if (retry?.ok) return await continueIfTruncated(retry, fallbackPayload);
     if (retry) return retry;
   }
 
