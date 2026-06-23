@@ -5,9 +5,9 @@ import {
   insertArticle,
   insertRecommendationMeta,
   resolveRecommenderThemePrefix,
-  userHasArticleUrl,
   verifyMutualFollows,
 } from "@/lib/db";
+import { duplicateArticleMessage, findExistingArticleByUrl } from "@/lib/article-duplicate";
 
 export async function recommendMyArticleToUser(params: {
   fromUserId: string;
@@ -18,8 +18,8 @@ export async function recommendMyArticleToUser(params: {
   if (fromUserId.trim() === toUserId.trim()) return { ok: false, error: "不能推荐给自己" };
   const okMutual = await verifyMutualFollows(fromUserId, toUserId);
   if (!okMutual) return { ok: false, error: "仅互相关注的用户之间可使用推荐；请让对方关注你或先回关对方。" };
-  const exists = await userHasArticleUrl(toUserId, source.url);
-  if (exists) return { ok: false, error: "对方书库已有该链接" };
+  const existing = await findExistingArticleByUrl(toUserId, source.url);
+  if (existing) return { ok: false, error: duplicateArticleMessage(existing).replace(/^该链接/, "对方书库中该链接") };
   const prefix = await resolveRecommenderThemePrefix(fromUserId, toUserId);
   const theme = `${prefix}推荐`;
   const due = shiftDays(todayIso(), 2);

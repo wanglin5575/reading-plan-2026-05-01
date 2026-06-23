@@ -3,11 +3,13 @@
 import { useMemo, useState, useCallback, useEffect } from "react";
 import { ArticleCard } from "./ArticleCard";
 import type { Article } from "@/lib/types";
+import { buildArticleSequenceMap } from "@/lib/article-sequence";
 
 export type ReadGroupMode = "theme" | "date";
 
 export function ReadGroupedList({ items, mode }: { items: Article[]; mode: ReadGroupMode }) {
   const groups = useMemo(() => buildGroups(items, mode), [items, mode]);
+  const sequenceMap = useMemo(() => buildArticleSequenceMap(items), [items]);
   const [collapsedKeys, setCollapsedKeys] = useState<Set<string>>(() => new Set());
 
   const toggleThemeGroup = useCallback((key: string) => {
@@ -51,7 +53,15 @@ export function ReadGroupedList({ items, mode }: { items: Article[]; mode: ReadG
                 {g.label} · {g.items.length} 篇
               </h3>
             )}
-            {!collapsed && g.items.map((a) => <ArticleCard key={a.id} article={a} collapseOriginalSummary />)}
+            {!collapsed &&
+              g.items.map((a) => (
+                <ArticleCard
+                  key={a.id}
+                  article={a}
+                  sequenceNumber={sequenceMap.get(a.id)}
+                  collapseOriginalSummary
+                />
+              ))}
           </section>
         );
       })}

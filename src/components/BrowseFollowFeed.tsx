@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import type { Article } from "@/lib/types";
+import { buildArticleSequenceMap } from "@/lib/article-sequence";
 import { ArticleCard, type ArticleSocialComment } from "@/components/ArticleCard";
 
 export function BrowseFollowFeed({
@@ -38,6 +39,7 @@ export function BrowseFollowFeed({
   const browseRdActionRef = useRef<HTMLTextAreaElement>(null);
 
   const planTopicHint = followPlanThemeName.trim() || "关注的书单";
+  const sequenceMap = useMemo(() => buildArticleSequenceMap([...done, ...todo]), [done, todo]);
   const markDoneOpen = markDoneArticle !== null;
 
   const adjustMarkDoneHeights = useCallback(() => {
@@ -320,6 +322,7 @@ export function BrowseFollowFeed({
               <ArticleCard
                 key={a.id}
                 article={a}
+                sequenceNumber={sequenceMap.get(a.id)}
                 showActions={false}
                 collapseOriginalSummary
                 readOnlyBorrowed
@@ -342,6 +345,7 @@ export function BrowseFollowFeed({
               <ArticleCard
                 key={a.id}
                 article={a}
+                sequenceNumber={sequenceMap.get(a.id)}
                 showActions={false}
                 readOnlyBorrowed
                 swipeCommentOnly

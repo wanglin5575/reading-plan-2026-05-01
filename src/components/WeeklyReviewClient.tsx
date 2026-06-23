@@ -15,6 +15,7 @@ import { ArticleCard, ArticleTitleLink } from "./ArticleCard";
 import { MonthCalendarPicker } from "./MonthCalendarPicker";
 import { buildArticlePreviewSource } from "@/lib/article-preview-source";
 import { buildReadPreviewInputLabel } from "@/lib/ai-read-sources-label";
+import { buildArticleSequenceMap } from "@/lib/article-sequence";
 
 type ViewMode = "week" | "day";
 
@@ -117,6 +118,7 @@ export default function WeeklyReviewClient({
   const [viewMode, setViewMode] = useState<ViewMode>("week");
   const [weekStart, setWeekStart] = useState(initialWeekStart);
   const [selectedDay, setSelectedDay] = useState(initialDay);
+  const sequenceMap = useMemo(() => buildArticleSequenceMap(articles), [articles]);
   const [dayCalendarOpen, setDayCalendarOpen] = useState(false);
 
   const weekArticles = useMemo(() => filterDoneInWeek(articles, weekStart), [articles, weekStart]);
@@ -383,7 +385,14 @@ export default function WeeklyReviewClient({
             {weekArticles.length === 0 ? (
               <p className="muted-link">该周内暂无已读文章。</p>
             ) : (
-              weekArticles.map((a) => <ArticleCard key={a.id} article={a} collapseOriginalSummary />)
+              weekArticles.map((a) => (
+                <ArticleCard
+                  key={a.id}
+                  article={a}
+                  sequenceNumber={sequenceMap.get(a.id)}
+                  collapseOriginalSummary
+                />
+              ))
             )}
           </div>
         </>
@@ -400,7 +409,14 @@ export default function WeeklyReviewClient({
             {dayReview.articles.length === 0 ? (
               <p className="muted-link">该日暂无已读文章。</p>
             ) : (
-              dayReview.articles.map((a) => <ArticleCard key={a.id} article={a} collapseOriginalSummary />)
+              dayReview.articles.map((a) => (
+                <ArticleCard
+                  key={a.id}
+                  article={a}
+                  sequenceNumber={sequenceMap.get(a.id)}
+                  collapseOriginalSummary
+                />
+              ))
             )}
           </div>
         </>

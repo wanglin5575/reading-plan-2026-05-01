@@ -2,6 +2,7 @@ import { listArticlesForUser } from "@/lib/db";
 import { ArticleCard } from "@/components/ArticleCard";
 import { AllFilters } from "./AllFilters";
 import type { Article } from "@/lib/types";
+import { buildArticleSequenceMap } from "@/lib/article-sequence";
 import { isAdminEmail } from "@/lib/admin";
 import { getServerAuthUser } from "@/lib/auth/server";
 import { WeeklyAccountEntry } from "@/components/WeeklyAccountEntry";
@@ -18,6 +19,7 @@ export default async function AllPage({ searchParams }: { searchParams: Promise<
   const params = await searchParams;
   const user = await getServerAuthUser();
   const articles = await listArticlesForUser(user?.id ?? null);
+  const sequenceMap = buildArticleSequenceMap(articles);
   const themes = Array.from(new Set(articles.map((a) => a.theme))).sort();
 
   const filtered = articles.filter((a) => {
@@ -51,7 +53,7 @@ export default async function AllPage({ searchParams }: { searchParams: Promise<
         groups.map(({ key, label, items }) => (
           <div key={key}>
             <h3 className="section-title">{label} · {items.length} 篇</h3>
-            {items.map((a) => <ArticleCard key={a.id} article={a} />)}
+            {items.map((a) => <ArticleCard key={a.id} article={a} sequenceNumber={sequenceMap.get(a.id)} />)}
           </div>
         ))
       )}

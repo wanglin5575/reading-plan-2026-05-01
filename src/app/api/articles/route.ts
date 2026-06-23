@@ -11,6 +11,7 @@ import { isAuthEnabled } from "@/lib/auth";
 import { normalizeKeyPointsSlots, validateReadDigest } from "@/lib/read-digest";
 import { recommendMyArticleToUser } from "@/lib/recommend-article";
 import { buildBookAiReadSourcesLabel } from "@/lib/ai-read-sources-label";
+import { duplicateArticleMessage, findExistingArticleByUrl } from "@/lib/article-duplicate";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -101,6 +102,19 @@ export async function POST(req: Request) {
     parsed = new URL(url);
   } catch {
     return NextResponse.json({ error: "invalid_url" }, { status: 400 });
+  }
+
+  const existing = await findExistingArticleByUrl(ownerId, parsed.toString());
+  if (existing) {
+    return NextResponse.json(
+      {
+        error: "duplicate_article",
+        message: duplicateArticleMessage(existing),
+        existingArticleId: existing.article.id,
+        sequenceNumber: existing.sequenceNumber,
+      },
+      { status: 409 },
+    );
   }
 
   const dueDate = payload.dueDate || shiftDays(todayIso(), 2);

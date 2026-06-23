@@ -27,6 +27,8 @@ export type ArticleSocialComment = {
 
 interface Props {
   article: Article;
+  /** 按加入书库时间生成的稳定序号（最早加入为 1）。 */
+  sequenceNumber?: number;
   showActions?: boolean;
   /** 为 true 时：原抓取摘要移到卡片底部，单行_gray 小字，可点开 >> 展开 */
   collapseOriginalSummary?: boolean;
@@ -336,6 +338,7 @@ export function ArticleTitleLink({
 
 export function ArticleCard({
   article,
+  sequenceNumber,
   showActions = true,
   collapseOriginalSummary = false,
   readOnlyBorrowed = false,
@@ -681,6 +684,9 @@ export function ArticleCard({
   const cardTop = (
     <div className="article-card-top">
       <div className="meta-row article-card-meta">
+        {typeof sequenceNumber === "number" && sequenceNumber > 0 ? (
+          <span className="tag article-sequence-tag">#{sequenceNumber}</span>
+        ) : null}
         <span
           className={["tag", "theme", article.receivedViaRecommendation ? "theme-from-recommend" : ""]
             .filter(Boolean)

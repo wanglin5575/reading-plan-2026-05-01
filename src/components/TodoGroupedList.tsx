@@ -2,6 +2,7 @@
 
 import { useMemo, useState, useCallback, useEffect, useLayoutEffect } from "react";
 import type { Article } from "@/lib/types";
+import { buildArticleSequenceMap } from "@/lib/article-sequence";
 import { ArticleCard } from "./ArticleCard";
 
 export type TodoGroupMode = "theme" | "due";
@@ -15,6 +16,7 @@ interface TodoGroup {
 
 export function TodoGroupedList({ items, mode }: { items: Article[]; mode: TodoGroupMode }) {
   const groups = useMemo(() => buildGroups(items, mode), [items, mode]);
+  const sequenceMap = useMemo(() => buildArticleSequenceMap(items), [items]);
   const [collapsedTheme, setCollapsedTheme] = useState<Set<string>>(() => new Set());
   const [expandedDue, setExpandedDue] = useState<Record<string, boolean>>({});
 
@@ -64,7 +66,8 @@ export function TodoGroupedList({ items, mode }: { items: Article[]; mode: TodoG
                   {collapsed ? "▸" : "▾"}
                 </span>
               </button>
-              {!collapsed && g.items.map((a) => <ArticleCard key={a.id} article={a} />)}
+              {!collapsed &&
+                g.items.map((a) => <ArticleCard key={a.id} article={a} sequenceNumber={sequenceMap.get(a.id)} />)}
             </section>
           );
         }
@@ -81,7 +84,8 @@ export function TodoGroupedList({ items, mode }: { items: Article[]; mode: TodoG
                 {g.label} · {g.items.length} 篇 {expandedDue[g.key] ? "▾" : "▸"}
               </h2>
             </button>
-            {expandedDue[g.key] && g.items.map((a) => <ArticleCard key={a.id} article={a} />)}
+            {expandedDue[g.key] &&
+              g.items.map((a) => <ArticleCard key={a.id} article={a} sequenceNumber={sequenceMap.get(a.id)} />)}
           </section>
         );
       })}
