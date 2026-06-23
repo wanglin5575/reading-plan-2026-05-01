@@ -2038,7 +2038,7 @@ export async function saveTodoDigestForUser(userId: string, text: string): Promi
   await ensureSchema();
   const uid = userId.trim();
   await ensureUserProfile(uid);
-  const t = text.trim().slice(0, 600);
+  const t = text.trim();
   await p.query(`UPDATE user_profiles SET todo_digest = $2, todo_digest_at = NOW() WHERE user_id = $1`, [uid, t]);
 }
 
