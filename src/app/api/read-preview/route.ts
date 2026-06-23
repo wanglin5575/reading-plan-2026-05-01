@@ -12,6 +12,7 @@ import {
 } from "@/lib/db";
 import { normalizeArticleUrlKey } from "@/lib/url-key";
 import { buildReadPreviewInputLabel } from "@/lib/ai-read-sources-label";
+import { stripMarkdownToPlainText } from "@/lib/strip-markdown";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -58,7 +59,7 @@ export async function POST(req: Request) {
   const urlKey = normalizeArticleUrlKey(url);
   if (!forceRefresh && isDatabaseConfigured()) {
     const row = await getAiGenerationCache(session?.id ?? null, "read_modal_v1", readModalHash);
-    const hit = typeof row?.text === "string" ? row.text.trim() : "";
+    const hit = typeof row?.text === "string" ? stripMarkdownToPlainText(row.text) : "";
     if (hit) {
       return NextResponse.json({
         text: hit,
@@ -70,7 +71,7 @@ export async function POST(req: Request) {
     }
     if (urlKey) {
       const byUrl = await getAiGenerationCacheByUrlKey("read_modal_v1", urlKey);
-      const hitUrl = typeof byUrl?.text === "string" ? byUrl.text.trim() : "";
+      const hitUrl = typeof byUrl?.text === "string" ? stripMarkdownToPlainText(byUrl.text) : "";
       if (hitUrl) {
         return NextResponse.json({
           text: hitUrl,

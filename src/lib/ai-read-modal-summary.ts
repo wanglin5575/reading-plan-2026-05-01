@@ -4,6 +4,7 @@
  */
 
 import { fetchAiChatCompletions, type AiChatUsage } from "@/lib/ai-chat";
+import { stripMarkdownToPlainText } from "@/lib/strip-markdown";
 
 function trimEnv(...keys: string[]): string | undefined {
   for (const k of keys) {
@@ -96,5 +97,8 @@ ${bodyText}`;
   }
   if (!text) return null;
 
-  return { text: text.trim(), usage };
+  const clean = stripMarkdownToPlainText(text);
+  if (!clean) return null;
+
+  return { text: clean, usage };
 }

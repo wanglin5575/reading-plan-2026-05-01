@@ -7,6 +7,7 @@
 import type { Article } from "@/lib/types";
 import { MEDIA_KIND_LABEL } from "@/lib/media-kind";
 import { fetchAiChatCompletions, type AiChatUsage } from "@/lib/ai-chat";
+import { stripMarkdownToPlainText } from "@/lib/strip-markdown";
 
 /** 仅用于降级文案的长度安全上限；AI 真实返回不再受此限制。 */
 export const TODO_DIGEST_MAX_CHARS = 1000;
@@ -102,8 +103,16 @@ export async function generateTodoDigest(params: {
   );
 
   const systemBase = `你是阅读计划助手。用户有一份「待读」清单（可能包含文章、视频、音频类素材的摘要与节选）。
-输出为简体中文纯文本：行文简明、不堆砌，但不设字数上限，内容尽量完整；不要输出链接；不要复述用户固定背景原文。
-写作要求：做到**内容完整、逻辑连贯、有信息深度**——讲清「待读库在说什么、彼此如何关联、对用户目标意味着什么、建议优先关注什么」；避免空话套话、标题堆砌、只列书名式罗列或浅层概括。可用若干自然段组织，段内因果/递进清晰。`;
+
+【输出格式：必须是可直接阅读的简体中文纯文本，严禁任何 Markdown 语法】
+- 不要使用 #、##、### 等标题符号；如需分节，用中文短标题行（如「一、最强信号」）独占一行。
+- 不要使用 *、**、_ 等强调符号；需要强调直接写出文字即可。
+- 不要使用表格、竖线 |、表格分隔线 ---，也不要用 > 引用、不要用 \` 反引号、不要输出链接。
+- 列举条目时用「· 」开头或「1. 2. 3.」编号，不要用 - 或 *。
+- 段落之间用一个空行分隔。整体应是结构清晰、可直接粘贴阅读的文字，而不是 Markdown 源码。
+
+行文简明、不堆砌，不设字数上限，内容尽量完整；不要复述用户固定背景原文。
+写作要求：做到内容完整、逻辑连贯、有信息深度——讲清「待读库在说什么、彼此如何关联、对用户目标意味着什么、建议优先关注什么」；避免空话套话、标题堆砌、只列书名式罗列或浅层概括。`;
   const systemStyle =
     params.mode === "incremental"
       ? `你已收到「上一版待读摘要」与「新增条目」。请将新增条目的关键信息**有机融入**全文：可改写、合并、删繁就简；不要简单拼接两段；更新后仍须满足上述完整性与深度要求。`
@@ -157,5 +166,8 @@ export async function generateTodoDigest(params: {
   }
   if (!text) return null;
 
-  return { text: text.trim(), usage };
+  const clean = stripMarkdownToPlainText(text);
+  if (!clean) return null;
+
+  return { text: clean, usage };
 }

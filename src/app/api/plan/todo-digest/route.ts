@@ -9,6 +9,7 @@ import {
   saveTodoDigestForUser,
 } from "@/lib/db";
 import { generateTodoDigest, TODO_DIGEST_MAX_CHARS } from "@/lib/ai-todo-digest";
+import { stripMarkdownToPlainText } from "@/lib/strip-markdown";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -22,7 +23,7 @@ export async function GET() {
     return NextResponse.json({ text: "", updatedAt: null, disabled: true });
   }
   const row = await getTodoDigestForUser(session.id);
-  return NextResponse.json({ text: row.text, updatedAt: row.updatedAt });
+  return NextResponse.json({ text: stripMarkdownToPlainText(row.text ?? ""), updatedAt: row.updatedAt });
 }
 
 export async function POST(req: Request) {
