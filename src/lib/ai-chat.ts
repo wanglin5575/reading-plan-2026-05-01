@@ -155,6 +155,12 @@ export async function fetchAiChatCompletions(params: {
   autoContinueOnLength?: boolean;
   /** autoContinueOnLength 时的最大续写轮数。默认 4。 */
   maxContinuations?: number;
+  /**
+   * 长文场景的完成哨兵。若设置，则只有内容包含该标记才视为完整；
+   * 即使网关返回 finish_reason=stop，缺少标记也会继续请求「接着写」。
+   * 返回给上层前会自动移除该标记。
+   */
+  continueUntilSentinel?: string;
 }): Promise<AiChatResult> {
   const headers = buildAiHeaders(params.key, params.authMode);
   const url = chatCompletionsUrl(params.base);
@@ -230,8 +236,9 @@ export async function fetchAiChatCompletions(params: {
   };
 
   /**
-   * 续写：若首个成功响应被 max_tokens 截断（finish_reason=length），
-   * 以「已生成内容」为 assistant 上文，请求模型接着写，直至 stop 或耗尽轮数/预算。
+   * 续写：若首个成功响应被 max_tokens 截断（finish_reason=length），或设置了
+   * continueUntilSentinel 但正文尚未出现完成标记，则以「已生成内容」为 assistant 上文，
+   * 请求模型接着写，直至完整或耗尽轮数/预算。
    * 返回合成后的 jsonPayload（content 为拼接全文），usage 为累加值。
    */
   const continueIfTruncated = async (
@@ -242,13 +249,16 @@ export async function fetchAiChatCompletions(params: {
     const baseMessages = Array.isArray(payload.messages)
       ? (payload.messages as Array<Record<string, unknown>>)
       : [];
+    const sentinel = params.continueUntilSentinel?.trim() || "";
     let fullContent = readChoiceContent(result.jsonPayload);
     let finish = readFinishReason(result.jsonPayload);
     let mergedUsage = result.usage;
     const maxC = Math.max(0, params.maxContinuations ?? 4);
 
     for (let round = 0; round < maxC; round++) {
-      if (finish !== "length" || !fullContent) break;
+      const hasSentinel = sentinel ? fullContent.includes(sentinel) : false;
+      const needsContinuation = finish === "length" || (Boolean(sentinel) && !hasSentinel);
+      if (!needsContinuation || !fullContent) break;
       if (deadline - Date.now() < 6000) break;
       const contPayload: Record<string, unknown> = {
         ...payload,
@@ -258,7 +268,9 @@ export async function fetchAiChatCompletions(params: {
           {
             role: "user",
             content:
-              "上文因长度被截断了。请紧接上文继续输出剩余内容：不要重复已经写过的任何部分，不要重写开头，直接接着写。若内容已经写完，只回复「[完]」。",
+              sentinel
+                ? `上文还没有出现完成标记 ${sentinel}，说明内容尚未完整。请紧接上文继续输出剩余内容：不要重复已经写过的任何部分，不要重写开头，直接接着写。全部写完后，最后单独输出完成标记 ${sentinel}。`
+                : "上文因长度被截断了。请紧接上文继续输出剩余内容：不要重复已经写过的任何部分，不要重写开头，直接接着写。若内容已经写完，只回复「[完]」。",
           },
         ],
       };
@@ -269,7 +281,12 @@ export async function fetchAiChatCompletions(params: {
       finish = readFinishReason(cont.jsonPayload);
       if (!piece) break;
       fullContent = `${fullContent.replace(/\s+$/u, "")}\n${piece.replace(/^\s+/u, "")}`;
-      if (finish !== "length") break;
+      if (sentinel && fullContent.includes(sentinel)) break;
+      if (!sentinel && finish !== "length") break;
+    }
+
+    if (sentinel) {
+      fullContent = fullContent.replaceAll(sentinel, "").trimEnd();
     }
 
     const synthesized = {

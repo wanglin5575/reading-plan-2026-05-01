@@ -22,6 +22,8 @@ function trimEnv(...keys: string[]): string | undefined {
 
 export type { AiChatUsage } from "@/lib/ai-chat";
 
+const TODO_DIGEST_DONE_SENTINEL = "[[TODO_DIGEST_DONE]]";
+
 function buildPurposeBlock(p: {
   readingRole: string;
   readingDuties: string;
@@ -112,7 +114,8 @@ export async function generateTodoDigest(params: {
 - 段落之间用一个空行分隔。整体应是结构清晰、可直接粘贴阅读的文字，而不是 Markdown 源码。
 
 行文简明、不堆砌，不设字数上限，内容尽量完整；不要复述用户固定背景原文。
-写作要求：做到内容完整、逻辑连贯、有信息深度——讲清「待读库在说什么、彼此如何关联、对用户目标意味着什么、建议优先关注什么」；避免空话套话、标题堆砌、只列书名式罗列或浅层概括。`;
+写作要求：做到内容完整、逻辑连贯、有信息深度——讲清「待读库在说什么、彼此如何关联、对用户目标意味着什么、建议优先关注什么」；避免空话套话、标题堆砌、只列书名式罗列或浅层概括。
+完整写完后，最后单独输出完成标记 ${TODO_DIGEST_DONE_SENTINEL}；如果还没写完，绝不能输出这个标记。`;
   const systemStyle =
     params.mode === "incremental"
       ? `你已收到「上一版待读摘要」与「新增条目」。请将新增条目的关键信息**有机融入**全文：可改写、合并、删繁就简；不要简单拼接两段；更新后仍须满足上述完整性与深度要求。`
@@ -148,6 +151,7 @@ export async function generateTodoDigest(params: {
     timeoutMs,
     label: "todo_digest",
     autoContinueOnLength: true,
+    continueUntilSentinel: TODO_DIGEST_DONE_SENTINEL,
   });
   const usage = aiResult.usage;
   if (!aiResult.ok) return null;

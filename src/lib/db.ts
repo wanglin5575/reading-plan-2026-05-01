@@ -271,6 +271,9 @@ async function ensureSchema(): Promise<void> {
         ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS todo_digest_at TIMESTAMPTZ;
       `);
       await p.query(`
+        ALTER TABLE user_profiles ALTER COLUMN todo_digest TYPE TEXT;
+      `);
+      await p.query(`
         CREATE TABLE IF NOT EXISTS user_follows (
           id TEXT PRIMARY KEY,
           follower_id TEXT NOT NULL,
