@@ -182,13 +182,13 @@ export async function enrichArticleWithAi(params: {
   const maxInput =
     Math.min(parseInt(process.env.AI_SUMMARY_MAX_INPUT_CHARS?.trim() || "12000", 10) || 12000, 60000) ||
     12000;
-  const defaultOut = params.browseQualify ? 960 : 800;
+  const defaultOut = params.browseQualify ? 960 : 2400;
   const maxTokens = Math.min(
     Math.max(
       parseInt(process.env.AI_SUMMARY_MAX_OUTPUT_TOKENS?.trim() || String(defaultOut), 10) || defaultOut,
       1,
     ),
-    2000,
+    4096,
   );
 
   const bodyText = params.body.replace(/\s+/g, " ").trim().slice(0, maxInput);
@@ -272,7 +272,7 @@ ${bodyText || "(正文为空)"}`;
         screenshotOk ? " 若提供截图，请把画面中的关键文字、场景与视频主题纳入 summary。" : ""
       }`
     : `你是阅读元数据助手。请根据标题与正文节选，输出且仅输出一个 JSON 对象（不要 Markdown、不要代码围栏），字段如下：
-- summary：简体中文一句话概括主旨，严格不超过150个字（含标点）；不要前缀「摘要：」；不要复述 URL。
+- summary：简体中文概括主旨与主要内容，讲清要点、力求完整；不设硬性字数上限，不要为压缩字数而牺牲要点；不要前缀「摘要：」；不要复述 URL。
 - published_at：文章首次公开发布的日期，格式 YYYY-MM-DD；无法从正文或常识推断则填 null（不要用「今天」搪塞）。
 - author：文章署名作者或机构，简短；无法判断则填 null。可参考抓取线索但不要照抄明显站点名当作者。
 - reading_minutes：通读/听完正文所需的整数分钟数，范围 1～600；无法估计则填 null。

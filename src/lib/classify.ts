@@ -283,13 +283,13 @@ export async function buildArticleClassification(
   let summaryZh: string;
   const summaryFromAi = Boolean(enrichment?.summary?.trim());
   if (summaryFromAi) {
-    summaryZh = truncateZh(enrichment!.summary!.trim(), SUMMARY_MAX_CHARS);
+    // AI 摘要按模型实际生成的长度完整保留，不再硬性截断。
+    summaryZh = enrichment!.summary!.trim();
   } else {
     const summary = makeSummary(body);
     summaryZh = await translateToChinese(summary || "(暂无摘要)", {
       cacheUserId: opts?.cacheUserId,
     });
-    summaryZh = truncateZh(summaryZh, SUMMARY_MAX_CHARS);
   }
 
   const scrapeAuthor = (opts?.scrapeAuthor || "").trim();
