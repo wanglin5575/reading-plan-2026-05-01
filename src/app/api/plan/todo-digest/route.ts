@@ -11,6 +11,7 @@ import {
 import { generateTodoDigest, TODO_DIGEST_MAX_CHARS } from "@/lib/ai-todo-digest";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 120;
 
 export async function GET() {
   const session = await getRouteHandlerUser();

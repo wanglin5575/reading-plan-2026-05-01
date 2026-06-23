@@ -14,6 +14,7 @@ import { normalizeArticleUrlKey } from "@/lib/url-key";
 import { buildReadPreviewInputLabel } from "@/lib/ai-read-sources-label";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 120;
 
 const MAX_SOURCE = 80000;
 

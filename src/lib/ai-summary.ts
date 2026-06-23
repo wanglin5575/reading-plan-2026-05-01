@@ -14,6 +14,9 @@ import {
   upsertAiGenerationCache,
 } from "@/lib/db";
 import { normalizeArticleUrlKey } from "@/lib/url-key";
+import { fetchAiChatCompletions, type AiChatUsage } from "@/lib/ai-chat";
+
+export { parseOpenAiCompatibleUsage, type AiChatUsage } from "@/lib/ai-chat";
 
 function trimEnv(...keys: string[]): string | undefined {
   for (const k of keys) {
@@ -21,12 +24,6 @@ function trimEnv(...keys: string[]): string | undefined {
     if (v) return v;
   }
   return undefined;
-}
-
-function chatCompletionsUrl(baseRaw: string): string {
-  const b = baseRaw.replace(/\/$/, "");
-  if (/\/v1$/i.test(b)) return `${b}/chat/completions`;
-  return `${b}/v1/chat/completions`;
 }
 
 /** 从模型输出中抠 JSON（兼容 ```json 围栏） */
@@ -124,42 +121,10 @@ export type AiArticleEnrichment = {
   notWorthReason?: string | null;
 };
 
-/** OpenAI 兼容 API 的 usage 字段 */
-export type AiChatUsage = {
-  promptTokens: number;
-  completionTokens: number;
-  totalTokens: number;
-};
-
 export type AiEnrichArticleResult = {
   enrichment: AiArticleEnrichment | null;
   usage: AiChatUsage | null;
 };
-
-/** 解析 OpenAI 兼容 Chat Completions 响应中的 `usage`（供其它 Wolf/网关调用复用） */
-export function parseOpenAiCompatibleUsage(data: unknown): AiChatUsage | null {
-  if (!data || typeof data !== "object") return null;
-  const u = (data as { usage?: unknown }).usage;
-  if (!u || typeof u !== "object") return null;
-  const prompt =
-    "prompt_tokens" in u && typeof (u as { prompt_tokens?: unknown }).prompt_tokens === "number"
-      ? (u as { prompt_tokens: number }).prompt_tokens
-      : 0;
-  const completion =
-    "completion_tokens" in u && typeof (u as { completion_tokens?: unknown }).completion_tokens === "number"
-      ? (u as { completion_tokens: number }).completion_tokens
-      : 0;
-  const total =
-    "total_tokens" in u && typeof (u as { total_tokens?: unknown }).total_tokens === "number"
-      ? (u as { total_tokens: number }).total_tokens
-      : prompt + completion;
-  if (!Number.isFinite(total) || total < 0) return null;
-  return {
-    promptTokens: Number.isFinite(prompt) ? Math.max(0, Math.round(prompt)) : 0,
-    completionTokens: Number.isFinite(completion) ? Math.max(0, Math.round(completion)) : 0,
-    totalTokens: Math.max(0, Math.round(total)),
-  };
-}
 
 /**
  * 调用 AI 生成结构化结果；完全失败（未配置、网络、非 2xx）返回 null，由上层全部降级。
@@ -267,15 +232,7 @@ ${visionNote ? `${visionNote}\n` : ""}
 正文节选：
 ${bodyText || "(正文为空)"}`;
 
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
   const authMode = (trimEnv("AI_SUMMARY_AUTH") || "bearer")!.toLowerCase();
-  if (authMode === "x-api-key" || authMode === "x_api_key") {
-    headers["X-API-Key"] = key;
-  } else {
-    headers.Authorization = `Bearer ${key}`;
-  }
 
   const timeoutMs = Math.min(
     Math.max(parseInt(process.env.AI_SUMMARY_TIMEOUT_MS?.trim() || "60000", 10) || 60000, 5000),
@@ -324,28 +281,18 @@ ${bodyText || "(正文为空)"}`;
     bodyPayload.response_format = { type: "json_object" };
   }
 
-  let res: Response;
-  try {
-    res = await fetch(chatCompletionsUrl(base), {
-      method: "POST",
-      headers,
-      body: JSON.stringify(bodyPayload),
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-  } catch {
-    return { enrichment: null, usage: null };
-  }
-
-  let usage: AiChatUsage | null = null;
-  let jsonPayload: unknown;
-  try {
-    jsonPayload = await res.json();
-  } catch {
-    return { enrichment: null, usage: null };
-  }
-  usage = parseOpenAiCompatibleUsage(jsonPayload);
-
-  if (!res.ok) return { enrichment: null, usage };
+  const aiResult = await fetchAiChatCompletions({
+    base,
+    key,
+    authMode,
+    bodyPayload,
+    timeoutMs,
+    label: params.browseQualify ? "browse_enrich" : "article_enrich",
+    retryWithoutResponseFormat: true,
+  });
+  const usage = aiResult.usage;
+  if (!aiResult.ok) return { enrichment: null, usage };
+  const jsonPayload = aiResult.jsonPayload;
 
   let text = "";
   try {

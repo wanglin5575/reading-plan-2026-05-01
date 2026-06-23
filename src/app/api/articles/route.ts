@@ -13,6 +13,7 @@ import { recommendMyArticleToUser } from "@/lib/recommend-article";
 import { buildBookAiReadSourcesLabel } from "@/lib/ai-read-sources-label";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 120;
 
 function parseMediaKind(v: unknown): MediaKind {
   if (v === "video" || v === "audio" || v === "article") return v;

@@ -7,6 +7,7 @@ import { getRouteHandlerUser } from "@/lib/auth/api";
 import { isAuthEnabled } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 120;
 
 export async function POST(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;

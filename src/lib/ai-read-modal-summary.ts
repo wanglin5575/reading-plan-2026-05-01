@@ -4,6 +4,7 @@
  */
 
 import { clampZhBody, READ_MODAL_MAX_CHARS } from "@/lib/read-modal-fallback";
+import { fetchAiChatCompletions, type AiChatUsage } from "@/lib/ai-chat";
 
 function trimEnv(...keys: string[]): string | undefined {
   for (const k of keys) {
@@ -13,41 +14,7 @@ function trimEnv(...keys: string[]): string | undefined {
   return undefined;
 }
 
-function chatCompletionsUrl(baseRaw: string): string {
-  const b = baseRaw.replace(/\/$/, "");
-  if (/\/v1$/i.test(b)) return `${b}/chat/completions`;
-  return `${b}/v1/chat/completions`;
-}
-
-export type AiChatUsage = {
-  promptTokens: number;
-  completionTokens: number;
-  totalTokens: number;
-};
-
-function parseUsage(data: unknown): AiChatUsage | null {
-  if (!data || typeof data !== "object") return null;
-  const u = (data as { usage?: unknown }).usage;
-  if (!u || typeof u !== "object") return null;
-  const prompt =
-    "prompt_tokens" in u && typeof (u as { prompt_tokens?: unknown }).prompt_tokens === "number"
-      ? (u as { prompt_tokens: number }).prompt_tokens
-      : 0;
-  const completion =
-    "completion_tokens" in u && typeof (u as { completion_tokens?: unknown }).completion_tokens === "number"
-      ? (u as { completion_tokens: number }).completion_tokens
-      : 0;
-  const total =
-    "total_tokens" in u && typeof (u as { total_tokens?: unknown }).total_tokens === "number"
-      ? (u as { total_tokens: number }).total_tokens
-      : prompt + completion;
-  if (!Number.isFinite(total) || total < 0) return null;
-  return {
-    promptTokens: Number.isFinite(prompt) ? Math.max(0, Math.round(prompt)) : 0,
-    completionTokens: Number.isFinite(completion) ? Math.max(0, Math.round(completion)) : 0,
-    totalTokens: Math.max(0, Math.round(total)),
-  };
-}
+export type { AiChatUsage } from "@/lib/ai-chat";
 
 /**
  * @returns 正文摘要文本（≤500 字）；失败返回 null（由路由改为节选降级）。
@@ -87,15 +54,7 @@ export async function generateReadModalSummary(params: {
 下列为已有的摘要与节选，请据此写作：
 ${bodyText}`;
 
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
   const authMode = (trimEnv("AI_SUMMARY_AUTH") || "bearer")!.toLowerCase();
-  if (authMode === "x-api-key" || authMode === "x_api_key") {
-    headers["X-API-Key"] = key;
-  } else {
-    headers.Authorization = `Bearer ${key}`;
-  }
 
   const timeoutMs = Math.min(
     Math.max(parseInt(process.env.AI_SUMMARY_TIMEOUT_MS?.trim() || "60000", 10) || 60000, 5000),
@@ -112,27 +71,17 @@ ${bodyText}`;
     ],
   };
 
-  let res: Response;
-  try {
-    res = await fetch(chatCompletionsUrl(base), {
-      method: "POST",
-      headers,
-      body: JSON.stringify(bodyPayload),
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-  } catch {
-    return null;
-  }
-
-  let jsonPayload: unknown;
-  try {
-    jsonPayload = await res.json();
-  } catch {
-    return null;
-  }
-
-  const usage = parseUsage(jsonPayload);
-  if (!res.ok) return null;
+  const aiResult = await fetchAiChatCompletions({
+    base,
+    key,
+    authMode,
+    bodyPayload,
+    timeoutMs,
+    label: "read_preview",
+  });
+  const usage = aiResult.usage;
+  if (!aiResult.ok) return null;
+  const jsonPayload = aiResult.jsonPayload;
 
   let text = "";
   try {

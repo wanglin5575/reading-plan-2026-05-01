@@ -1,5 +1,5 @@
 import type { BrowseHit } from "./types";
-import { parseOpenAiCompatibleUsage } from "@/lib/ai-summary";
+import { fetchAiChatCompletions } from "@/lib/ai-chat";
 import { translateLlmInputHash } from "@/lib/ai-cache-hash";
 import {
   getAiGenerationCache,
@@ -26,12 +26,6 @@ function trimEnv(...keys: string[]): string | undefined {
   return undefined;
 }
 
-function chatCompletionsUrl(baseRaw: string): string {
-  const b = baseRaw.replace(/\/$/, "");
-  if (/\/v1$/i.test(b)) return `${b}/chat/completions`;
-  return `${b}/v1/chat/completions`;
-}
-
 /** 与 enrichArticleWithAi 同源配置：WolfAI / 自建 OpenAI 兼容网关 */
 async function translateWithOpenAiCompatibleGateway(
   text: string,
@@ -46,12 +40,6 @@ async function translateWithOpenAiCompatibleGateway(
   if (!base || !key || !model) return null;
 
   const authMode = (trimEnv("AI_SUMMARY_AUTH") || "bearer").toLowerCase();
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (authMode === "x-api-key" || authMode === "x_api_key") {
-    headers["X-API-Key"] = key;
-  } else {
-    headers.Authorization = `Bearer ${key}`;
-  }
 
   const maxOut = Math.min(
     Math.max(parseInt(process.env.AI_TRANSLATE_MAX_TOKENS?.trim() || "1024", 10) || 1024, 256),
@@ -86,25 +74,17 @@ async function translateWithOpenAiCompatibleGateway(
     ],
   };
 
-  let res: Response;
-  try {
-    res = await fetch(chatCompletionsUrl(base), {
-      method: "POST",
-      headers,
-      body: JSON.stringify(bodyPayload),
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-  } catch {
-    return null;
-  }
-  if (!res.ok) return null;
-  let data: unknown;
-  try {
-    data = await res.json();
-  } catch {
-    return null;
-  }
-  const usage = parseOpenAiCompatibleUsage(data);
+  const aiResult = await fetchAiChatCompletions({
+    base,
+    key,
+    authMode,
+    bodyPayload,
+    timeoutMs,
+    label: "translate_llm",
+  });
+  if (!aiResult.ok) return null;
+  const data = aiResult.jsonPayload;
+  const usage = aiResult.usage;
   if (cacheUserId && usage && usage.totalTokens > 0) {
     void recordTokenUsage({
       userId: cacheUserId,

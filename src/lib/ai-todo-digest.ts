@@ -6,6 +6,7 @@
 import { clampZhBody } from "@/lib/read-modal-fallback";
 import type { Article } from "@/lib/types";
 import { MEDIA_KIND_LABEL } from "@/lib/media-kind";
+import { fetchAiChatCompletions, type AiChatUsage } from "@/lib/ai-chat";
 
 export const TODO_DIGEST_MAX_CHARS = 1000;
 
@@ -17,41 +18,7 @@ function trimEnv(...keys: string[]): string | undefined {
   return undefined;
 }
 
-function chatCompletionsUrl(baseRaw: string): string {
-  const b = baseRaw.replace(/\/$/, "");
-  if (/\/v1$/i.test(b)) return `${b}/chat/completions`;
-  return `${b}/v1/chat/completions`;
-}
-
-export type AiChatUsage = {
-  promptTokens: number;
-  completionTokens: number;
-  totalTokens: number;
-};
-
-function parseUsage(data: unknown): AiChatUsage | null {
-  if (!data || typeof data !== "object") return null;
-  const u = (data as { usage?: unknown }).usage;
-  if (!u || typeof u !== "object") return null;
-  const prompt =
-    "prompt_tokens" in u && typeof (u as { prompt_tokens?: unknown }).prompt_tokens === "number"
-      ? (u as { prompt_tokens: number }).prompt_tokens
-      : 0;
-  const completion =
-    "completion_tokens" in u && typeof (u as { completion_tokens?: unknown }).completion_tokens === "number"
-      ? (u as { completion_tokens: number }).completion_tokens
-      : 0;
-  const total =
-    "total_tokens" in u && typeof (u as { total_tokens?: unknown }).total_tokens === "number"
-      ? (u as { total_tokens: number }).total_tokens
-      : prompt + completion;
-  if (!Number.isFinite(total) || total < 0) return null;
-  return {
-    promptTokens: Number.isFinite(prompt) ? Math.max(0, Math.round(prompt)) : 0,
-    completionTokens: Number.isFinite(completion) ? Math.max(0, Math.round(completion)) : 0,
-    totalTokens: Math.max(0, Math.round(total)),
-  };
-}
+export type { AiChatUsage } from "@/lib/ai-chat";
 
 function buildPurposeBlock(p: {
   readingRole: string;
@@ -146,15 +113,7 @@ export async function generateTodoDigest(params: {
 
   const userContent = bundle;
 
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
   const authMode = (trimEnv("AI_SUMMARY_AUTH") || "bearer")!.toLowerCase();
-  if (authMode === "x-api-key" || authMode === "x_api_key") {
-    headers["X-API-Key"] = key;
-  } else {
-    headers.Authorization = `Bearer ${key}`;
-  }
 
   const timeoutMs = Math.min(
     Math.max(parseInt(process.env.AI_SUMMARY_TIMEOUT_MS?.trim() || "90000", 10) || 90000, 8000),
@@ -171,27 +130,17 @@ export async function generateTodoDigest(params: {
     ],
   };
 
-  let res: Response;
-  try {
-    res = await fetch(chatCompletionsUrl(base), {
-      method: "POST",
-      headers,
-      body: JSON.stringify(bodyPayload),
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-  } catch {
-    return null;
-  }
-
-  let jsonPayload: unknown;
-  try {
-    jsonPayload = await res.json();
-  } catch {
-    return null;
-  }
-
-  const usage = parseUsage(jsonPayload);
-  if (!res.ok) return null;
+  const aiResult = await fetchAiChatCompletions({
+    base,
+    key,
+    authMode,
+    bodyPayload,
+    timeoutMs,
+    label: "todo_digest",
+  });
+  const usage = aiResult.usage;
+  if (!aiResult.ok) return null;
+  const jsonPayload = aiResult.jsonPayload;
 
   let text = "";
   try {

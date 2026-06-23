@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getXhsMcpBaseUrl } from "@/lib/browse-xhs-mcp";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 120;
 
 /** 代理小红书 MCP 登录二维码（供 /xhs-login 页面展示） */
 export async function GET() {
